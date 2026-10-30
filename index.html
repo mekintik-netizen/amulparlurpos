@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Amul Parlour Web POS & Management Portal</title>
+    <meta name="description" content="Production-ready local-first Amul Parlour management system with barcode POS billing, 58mm/80mm thermal receipts, stock management, daily sales/stock reports, admin shop provisioning, and shared backend API contract." />
+    <meta property="og:title" content="Amul Parlour Web POS & Management Portal" />
+    <meta property="og:description" content="Production-ready local-first Amul Parlour management system with barcode POS billing, 58mm/80mm thermal receipts, stock management, daily sales/stock reports, admin shop provisioning, and shared backend API contract." />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#005A9C" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Amul POS" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <script>
+      (function() {
+        // Universal feature detection check for legacy Windows browsers
+        var isSupported = typeof window !== 'undefined' && 
+                          !!window.indexedDB && 
+                          !!window.localStorage && 
+                          !!window.Promise && 
+                          typeof fetch === 'function';
+        if (!isSupported) {
+          window.addEventListener('DOMContentLoaded', function() {
+            var root = document.getElementById('root');
+            if (root) {
+              root.innerHTML = '<div style="font-family:sans-serif;padding:30px;text-align:center;max-width:550px;margin:50px auto;border:2px solid #E31837;border-radius:16px;background:#FFF5F5;">' +
+                '<h2 style="color:#E31837;margin-top:0;">Browser Compatibility Update Required</h2>' +
+                '<p style="color:#4A5568;font-size:14px;line-height:1.6;">Your browser does not support the required local-first IndexedDB database engine needed for offline billing and stock audit.</p>' +
+                '<div style="text-align:left;font-size:13px;color:#2D3748;background:#fff;padding:15px;border-radius:8px;margin:15px 0;">' +
+                '<strong>Supported Windows Browsers:</strong><br>' +
+                '• <strong>Windows 10 / 11:</strong> Chrome, Edge, or Firefox (Current)<br>' +
+                '• <strong>Windows 7 / 8.1:</strong> Google Chrome 109 or Mozilla Firefox ESR 115' +
+                '</div>' +
+                '<p style="font-size:12px;color:#718096;">Please install or open in Google Chrome or Mozilla Firefox to proceed.</p>' +
+                '</div>';
+            }
+          });
+        }
+      })();
+    </script>
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem('amul_pos_theme');
+          var isDark = stored === 'dark' || (!stored && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+          if (isDark) {
+            document.documentElement.classList.add('dark');
+            document.documentElement.setAttribute('data-theme', 'dark');
+            document.documentElement.style.colorScheme = 'dark';
+          } else {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.setAttribute('data-theme', 'light');
+            document.documentElement.style.colorScheme = 'light';
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body class="bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans antialiased selection:bg-blue-600 selection:text-white">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

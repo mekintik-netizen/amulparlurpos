@@ -1,0 +1,6 @@
+{
+  "summary":  "Comprehensive fix plan to resolve 6 reported issues: fix blank report printing, fix admin shop registration, remove demo logins, remove public random registration, sanitize thermal receipt printing to prevent blank pages and binary garbage code, and remove the parlour/outlet dropdown from the login screen.",
+  "updatedAt":  "2026-10-30T16:56:53.224603321Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

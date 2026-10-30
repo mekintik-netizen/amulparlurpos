@@ -1,0 +1,6 @@
+{
+  "name": "Amul Parlour Web POS & Management Portal",
+  "description": "Production-ready local-first Amul Parlour management system with barcode POS billing, 58mm/80mm thermal receipts, stock management, daily sales/stock reports, admin shop provisioning, and shared backend API contract.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

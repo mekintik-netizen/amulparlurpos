@@ -1,0 +1,256 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+  
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  html.dark body {
+    background-color: #0b1120;
+    color: #f1f5f9;
+  }
+  
+  code, kbd, samp, pre {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* =========================================================
+   GLOBAL DARK THEME ENHANCEMENTS (SCREEN ONLY)
+   Smoothly maps white cards, panels, and borders to slate-900 / slate-800
+   ========================================================= */
+@media screen {
+  html.dark .bg-white {
+    background-color: #1e293b !important;
+    color: #f8fafc;
+  }
+
+  html.dark .bg-slate-50 {
+    background-color: #0f172a !important;
+    color: #e2e8f0;
+  }
+
+  html.dark .bg-slate-100 {
+    background-color: #1e293b !important;
+    color: #cbd5e1;
+  }
+
+  html.dark .border-slate-200,
+  html.dark .border-slate-200\/80,
+  html.dark .border-slate-300 {
+    border-color: #334155 !important;
+  }
+
+  html.dark .text-slate-900 {
+    color: #f8fafc !important;
+  }
+
+  html.dark .text-slate-800 {
+    color: #f1f5f9 !important;
+  }
+
+  html.dark .text-slate-700 {
+    color: #cbd5e1 !important;
+  }
+
+  html.dark .text-slate-600 {
+    color: #94a3b8 !important;
+  }
+
+  html.dark .text-slate-500 {
+    color: #94a3b8 !important;
+  }
+
+  html.dark input:not([type="checkbox"]):not([type="radio"]),
+  html.dark select,
+  html.dark textarea {
+    background-color: #0f172a !important;
+    border-color: #334155 !important;
+    color: #f8fafc !important;
+  }
+
+  html.dark input::placeholder,
+  html.dark textarea::placeholder {
+    color: #64748b !important;
+  }
+
+  html.dark tr.border-b {
+    border-color: #334155 !important;
+  }
+
+  html.dark thead {
+    background-color: #0f172a !important;
+  }
+}
+
+/* =========================================================
+   AIRTIGHT THERMAL RECEIPT PRINT STYLES (58mm & 80mm)
+   Prevents blank pages, cuts off modal UI, preserves receipt text
+   Compatible with USB & Bluetooth ESC/POS Windows Drivers
+   ========================================================= */
+
+@media print {
+  /* 1. Hide all screen UI, headers, navigation, banners and dialog chrome */
+  .no-print,
+  header,
+  nav,
+  footer,
+  aside,
+  button,
+  input,
+  select {
+    display: none !important;
+  }
+
+  /* 2. Reset document root to prevent extra blank pages or offset margins */
+  html,
+  body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 3. Official A4 Reports & Hub Documents */
+  #printable-report,
+  .printable-document {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+
+  #printable-report * {
+    visibility: visible !important;
+    color: #000000 !important;
+    background-color: transparent !important;
+  }
+
+  #printable-report table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  #printable-report th,
+  #printable-report td {
+    border-color: #94a3b8 !important;
+    color: #000000 !important;
+  }
+
+  /* 3. Strip fixed modal backdrop and flex centering during printing */
+  #thermal-modal-overlay {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+  }
+
+  #thermal-modal-card {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    width: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
+  #thermal-paper-scroll {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    max-height: none !important;
+  }
+
+  /* 4. Thermal receipt container: clean roll layout, no page-breaks inside */
+  #thermal-receipt-container {
+    display: block !important;
+    position: static !important;
+    margin: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    box-shadow: none !important;
+    border: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-after: avoid !important;
+    box-sizing: border-box !important;
+  }
+
+  /* 58mm Paper Roll (Printable width ~48mm on 2-inch thermal paper) */
+  #thermal-receipt-container.receipt-58mm {
+    width: 48mm !important;
+    max-width: 58mm !important;
+    padding: 1mm 2mm 3mm 2mm !important;
+    font-size: 10px !important;
+    line-height: 1.25 !important;
+  }
+
+  /* 80mm Paper Roll (Printable width ~72mm on 3-inch thermal paper) */
+  #thermal-receipt-container.receipt-80mm {
+    width: 72mm !important;
+    max-width: 80mm !important;
+    padding: 2mm 3mm 4mm 3mm !important;
+    font-size: 12px !important;
+    line-height: 1.35 !important;
+  }
+
+  /* 5. Zero-margin page box to prevent browser default header/footer injection */
+  @page {
+    margin: 0mm;
+    size: auto;
+  }
+}
+
+/* Screen Preview Styling */
+.receipt-58mm {
+  width: 58mm;
+  max-width: 58mm;
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+
+.receipt-80mm {
+  width: 80mm;
+  max-width: 80mm;
+  font-size: 12px;
+  line-height: 1.35;
+}
