@@ -57,6 +57,15 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
   const [hasExistingAdmin, setHasExistingAdmin] = useState(false);
   const [existingAdmin, setExistingAdmin] = useState<LocalUser | null>(null);
 
+  const PRESET_SECURITY_QUESTIONS = [
+    'What was the name of your first school?',
+    "What is your mother's maiden name?",
+    'What city or town were you born in?',
+    'What is your favorite Amul ice cream or dairy product?',
+    'What was the name of your first pet?',
+    'Custom Question (Type your own question)'
+  ];
+
   // Form Fields
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('Chief Franchise Administrator');
@@ -64,6 +73,9 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
   const [department, setDepartment] = useState('Amul Retail Network Operations');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [selectedQuestion, setSelectedQuestion] = useState(PRESET_SECURITY_QUESTIONS[0]);
+  const [customQuestion, setCustomQuestion] = useState('');
+  const [securityAnswer, setSecurityAnswer] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -159,6 +171,20 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
       return;
     }
 
+    const effectiveQuestion = selectedQuestion === 'Custom Question (Type your own question)'
+      ? customQuestion.trim()
+      : selectedQuestion;
+
+    if (!effectiveQuestion || effectiveQuestion.length < 5) {
+      setError('Please select or enter a valid security recovery question.');
+      return;
+    }
+
+    if (!securityAnswer || securityAnswer.trim().length < 2) {
+      setError('Please enter a secret answer for password recovery.');
+      return;
+    }
+
     setIsSubmitting(true);
     try {
       // Secure local initialization: salts with 16 random bytes and hashes with SHA-256
@@ -167,6 +193,8 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
         username: cleanUsername,
         fullName: fullName.trim() || `${cleanUsername} (Master Admin)`,
         password,
+        securityQuestion: effectiveQuestion,
+        securityAnswer: securityAnswer.trim(),
         designation: designation.trim() || 'Chief Franchise Administrator',
         department: department.trim() || 'Amul Headquarters'
       });
@@ -539,6 +567,67 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
               className="w-full text-xs pl-8 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#003870]"
               required
             />
+          </div>
+        </div>
+
+        {/* Security Recovery Question (Used for password reset) */}
+        <div className="p-3.5 bg-amber-50/60 border border-amber-200/70 rounded-2xl space-y-3">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-950">
+            <Key className="w-3.5 h-3.5 text-amber-700" />
+            <span>Password Recovery Security Question <span className="text-rose-500">*</span></span>
+          </div>
+          <p className="text-[11px] text-amber-800 leading-tight">
+            If you forget your admin password, you can reset it by answering this question.
+          </p>
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+              Select Security Question
+            </label>
+            <select
+              value={selectedQuestion}
+              onChange={(e) => setSelectedQuestion(e.target.value)}
+              className="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#003870]"
+            >
+              {PRESET_SECURITY_QUESTIONS.map((q, idx) => (
+                <option key={idx} value={q}>
+                  {q}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {selectedQuestion === 'Custom Question (Type your own question)' && (
+            <div>
+              <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                Your Custom Secret Question
+              </label>
+              <input
+                type="text"
+                value={customQuestion}
+                onChange={(e) => setCustomQuestion(e.target.value)}
+                placeholder="e.g. What is my secret childhood nickname?"
+                className="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#003870]"
+                required
+              />
+            </div>
+          )}
+
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+              Secret Answer <span className="text-rose-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={securityAnswer}
+              onChange={(e) => setSecurityAnswer(e.target.value)}
+              placeholder="Enter your secret answer"
+              className="w-full text-xs bg-white border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#003870]"
+              required
+            />
+            <span className="text-[10px] text-slate-400 mt-1 block">
+              Case-insensitive. Remember this answer to reset your password if forgotten.
+            </span>
           </div>
         </div>
 

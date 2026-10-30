@@ -33,11 +33,12 @@ import {
   CheckCircle,
   Calendar,
   RotateCcw,
-  RefreshCw
+  RefreshCw,
+  X
 } from 'lucide-react';
 import { Shop, ShopApprovalStatus, SubscriptionPlanId, SubscriptionStatus, SUBSCRIPTION_PLANS } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
-import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShopCashierAccount } from '../../storage/auth.ts';
+import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShopCashierAccount, adminResetShopPassword } from '../../storage/auth.ts';
 import { isShopSubscriptionActive, activateOneMonthSubscription, renewShopSubscription } from '../../storage/subscription.ts';
 import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
 import { MonthlyRevenueChart } from './MonthlyRevenueChart.tsx';
@@ -108,6 +109,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   } | null>(null);
   const [showCredentialPassword, setShowCredentialPassword] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Shop Password Reset by Admin state
+  const [resetPasswordShop, setResetPasswordShop] = useState<Shop | null>(null);
+  const [newShopPassword, setNewShopPassword] = useState('');
+  const [showNewShopPassword, setShowNewShopPassword] = useState(false);
+  const [isResettingShopPassword, setIsResettingShopPassword] = useState(false);
+  const [resetShopPasswordSuccess, setResetShopPasswordSuccess] = useState<string | null>(null);
+  const [resetShopPasswordError, setResetShopPasswordError] = useState<string | null>(null);
 
   // Keep admin session synced
   useEffect(() => {
@@ -221,17 +230,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       let verifiedAt = editingShop?.ownerVerifiedAt;
       let verifiedBy = editingShop?.verifiedByAdmin;
       let finalApproval = approvalStatus;
-      let finalSubStatus: SubscriptionStatus = editingShop?.subscriptionStatus || 'INACTIVE';
+      let finalSubStatus: SubscriptionStatus = editingShop?.subscriptionStatus || 'ACTIVE';
 
-      // If "Verify Owner ID with Plan" is selected
-      if (verifyOwnerWithPlan) {
+      // Guarantee 1-Month (30 Days) subscription is immediately active for newly registered shops
+      if (!editingShop) {
         isVerified = true;
         verifiedAt = now;
         verifiedBy = currentUser?.username || 'admin';
         finalApproval = 'APPROVED';
         finalSubStatus = 'ACTIVE';
         startDate = now;
-        expiryDate = new Date(Date.now() + plan.durationDays * 24 * 60 * 60 * 1000).toISOString();
+        expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+      } else if (verifyOwnerWithPlan) {
+        isVerified = true;
+        verifiedAt = now;
+        verifiedBy = currentUser?.username || 'admin';
+        finalApproval = 'APPROVED';
+        finalSubStatus = 'ACTIVE';
+        startDate = startDate || now;
+        expiryDate = expiryDate || new Date(Date.now() + plan.durationDays * 24 * 60 * 60 * 1000).toISOString();
       }
 
       const shopData: Shop = {
@@ -351,6 +368,38 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setQuickVerifyShop(null);
     } catch (err: any) {
       alert(`Verification failed: ${err.message}`);
+    }
+  };
+
+  const handleAdminResetShopPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPasswordShop) return;
+    setResetShopPasswordError(null);
+    setResetShopPasswordSuccess(null);
+
+    if (!newShopPassword || newShopPassword.length < 4) {
+      setResetShopPasswordError('New password must be at least 4 characters.');
+      return;
+    }
+
+    setIsResettingShopPassword(true);
+    try {
+      const res = await adminResetShopPassword({
+        adminSession: currentUser || null,
+        shopCode: resetPasswordShop.shopCode,
+        newPassword: newShopPassword
+      });
+
+      setResetShopPasswordSuccess(`Password for cashier @${res.username} (${resetPasswordShop.shopCode}) was updated successfully!`);
+      setTimeout(() => {
+        setResetPasswordShop(null);
+        setNewShopPassword('');
+        setResetShopPasswordSuccess(null);
+      }, 2000);
+    } catch (err: any) {
+      setResetShopPasswordError(err?.message || 'Failed to update shop password.');
+    } finally {
+      setIsResettingShopPassword(false);
     }
   };
 
@@ -665,6 +714,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             className="px-2 py-1 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg text-xs font-semibold transition cursor-pointer"
                           >
                             Edit
+                          </button>
+                          <button
+                            onClick={() => {
+                              setResetPasswordShop(shop);
+                              setNewShopPassword('');
+                              setResetShopPasswordError(null);
+                              setResetShopPasswordSuccess(null);
+                            }}
+                            className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 border border-slate-300 shadow-2xs"
+                            title={`Reset password for ${shop.name} cashier`}
+                          >
+                            <Key className="w-3 h-3 text-slate-600" />
+                            <span>Password</span>
                           </button>
                           <button
                             onClick={() => onSelectShop(shop)}
@@ -1118,6 +1180,102 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             >
               Done & Close
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Admin Reset Shop Password Modal */}
+      {resetPasswordShop && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200 animate-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="bg-slate-900 text-white p-5 flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 bg-slate-800 rounded-xl flex items-center justify-center border border-slate-700">
+                  <Key className="w-5 h-5 text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-white">
+                    Reset Shop Password
+                  </h3>
+                  <p className="text-[11px] text-slate-400">
+                    {resetPasswordShop.name} ({resetPasswordShop.shopCode})
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setResetPasswordShop(null)}
+                className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <form onSubmit={handleAdminResetShopPassword} className="p-6 space-y-4">
+              {resetShopPasswordSuccess && (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2 text-xs text-emerald-800">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span>{resetShopPasswordSuccess}</span>
+                </div>
+              )}
+
+              {resetShopPasswordError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl flex items-start gap-2 text-xs text-rose-700">
+                  <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>{resetShopPasswordError}</span>
+                </div>
+              )}
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                As an authorized Administrator, you can assign a fresh password for this shop's cashier terminal. The new password will take effect immediately.
+              </p>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  New Password <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showNewShopPassword ? 'text' : 'password'}
+                    value={newShopPassword}
+                    onChange={(e) => setNewShopPassword(e.target.value)}
+                    placeholder="Enter new shop password (min 4 chars)"
+                    className="w-full text-xs pl-3.5 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-black"
+                    required
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowNewShopPassword(!showNewShopPassword)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showNewShopPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">
+                  Recommend at least 6 characters. Give this password to the shop owner.
+                </span>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setResetPasswordShop(null)}
+                  className="w-1/3 py-2.5 px-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isResettingShopPassword}
+                  className="flex-1 py-2.5 px-4 rounded-xl bg-black hover:bg-neutral-800 text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  {isResettingShopPassword ? 'Updating Password...' : 'Save New Password'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

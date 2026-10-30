@@ -7,14 +7,22 @@
  * - Dual Roles: Shop Counter vs Admin HQ
  * - Automatic shop resolution from authenticated user credentials (no redundant parlour dropdown)
  * - Strict authorization: only registered shop cashiers and admins can log in
- * - No demo shortcut buttons
- * - No unauthorized public registration
+ * - First-time Master Admin setup wizard trigger if no admin exists
+ * - Admin password recovery via secret Security Question
  */
 
 import React, { useState, useEffect } from 'react';
 import { Shop } from '../../types/index.ts';
-import { UserRole, AuthSession, authenticateLocalUser, ensureDefaultAccountsSeeded } from '../../storage/auth.ts';
-import { Store, Shield, Lock, User, Eye, EyeOff, AlertCircle, X } from 'lucide-react';
+import { 
+  UserRole, 
+  AuthSession, 
+  authenticateLocalUser, 
+  ensureDefaultAccountsSeeded,
+  isMasterAdminInitialized 
+} from '../../storage/auth.ts';
+import { AdminRegistration } from './AdminRegistration.tsx';
+import { AdminPasswordResetModal } from './AdminPasswordResetModal.tsx';
+import { Store, Shield, Lock, User, Eye, EyeOff, AlertCircle, X, CheckCircle2, KeyRound } from 'lucide-react';
 
 export interface LoginPageProps {
   shops: Shop[];
@@ -45,18 +53,34 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
+
+  // First-time Master Admin Setup Wizard state
+  const [isOneTimeSetupOpen, setIsOneTimeSetupOpen] = useState(false);
+  
+  // Forgot Password Modal state
+  const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
 
   useEffect(() => {
-    // Ensure default seeded accounts exist on first start
-    ensureDefaultAccountsSeeded().catch(err => {
-      console.error('Error ensuring default accounts:', err);
-    });
+    const checkInitialization = async () => {
+      try {
+        await ensureDefaultAccountsSeeded();
+        const hasAdmin = await isMasterAdminInitialized();
+        if (!hasAdmin) {
+          setIsOneTimeSetupOpen(true);
+        }
+      } catch (err) {
+        console.error('Error verifying master admin status:', err);
+      }
+    };
+    checkInitialization();
   }, []);
 
   // Switch tabs
   const handleTabChange = (role: UserRole) => {
     setActiveTab(role);
     setError(null);
+    setResetSuccessMessage(null);
     setUsername('');
     setPassword('');
   };
@@ -64,6 +88,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setResetSuccessMessage(null);
     setLoading(true);
 
     try {
@@ -79,6 +104,32 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       setLoading(false);
     }
   };
+
+  // Render dedicated first-time Master Admin creation wizard on initial open
+  if (isOneTimeSetupOpen) {
+    return (
+      <div className="min-h-screen bg-slate-50 dark:bg-black flex flex-col justify-center items-center p-4 font-sans select-none">
+        <AdminRegistration
+          onSuccess={(session) => {
+            setIsOneTimeSetupOpen(false);
+            onLoginSuccess(session);
+          }}
+          onSetupComplete={(session) => {
+            setIsOneTimeSetupOpen(false);
+            onLoginSuccess(session);
+          }}
+          onNavigateToLogin={(registeredUsername) => {
+            setIsOneTimeSetupOpen(false);
+            setActiveTab('ADMIN');
+            if (registeredUsername) {
+              setUsername(registeredUsername);
+            }
+          }}
+          onCancel={() => setIsOneTimeSetupOpen(false)}
+        />
+      </div>
+    );
+  }
 
   const wrapperClass = isModal
     ? "fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex flex-col justify-center items-center p-4 overflow-y-auto font-sans select-none"
@@ -147,6 +198,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         {/* Main Form */}
         <form onSubmit={handleLogin} className="space-y-3.5">
           
+          {resetSuccessMessage && (
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-xl flex items-start gap-2.5 text-xs text-emerald-800 dark:text-emerald-300">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
+              <span>{resetSuccessMessage}</span>
+            </div>
+          )}
+
           {error && (
             <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl flex items-start gap-2.5 text-xs text-rose-700 dark:text-rose-300">
               <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
@@ -177,9 +235,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
           {/* Password Input */}
           <div>
-            <label className="block text-[11px] font-semibold text-slate-600 dark:text-neutral-400 mb-1">
-              Password
-            </label>
+            <div className="flex justify-between items-center mb-1">
+              <label className="text-[11px] font-semibold text-slate-600 dark:text-neutral-400">
+                Password
+              </label>
+              {activeTab === 'ADMIN' && (
+                <button
+                  type="button"
+                  onClick={() => setIsForgotModalOpen(true)}
+                  className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-1 font-semibold"
+                >
+                  <KeyRound className="w-3 h-3" />
+                  <span>Forgot Password?</span>
+                </button>
+              )}
+            </div>
             <div className="relative">
               <input
                 type={showPassword ? 'text' : 'password'}
@@ -226,9 +296,20 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         <p className="text-[11px] leading-relaxed">
           <span className="font-bold text-slate-800 dark:text-slate-200">Authorized Personnel Only.</span>
           <br />
-          New shop outlets and cashier accounts are provisioned exclusively through the Admin HQ Portal.
+          New shop outlets and cashier credentials are provisioned exclusively through the Admin HQ Portal.
         </p>
       </div>
+
+      {/* Forgot Admin Password Modal */}
+      <AdminPasswordResetModal
+        isOpen={isForgotModalOpen}
+        onClose={() => setIsForgotModalOpen(false)}
+        onSuccess={(recoveredAdminUsername) => {
+          setUsername(recoveredAdminUsername);
+          setResetSuccessMessage('Password updated successfully! Please enter your new password to sign in.');
+          setError(null);
+        }}
+      />
 
     </div>
   );

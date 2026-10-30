@@ -26,6 +26,9 @@ export interface LocalUser {
   shopCode?: string; // e.g. "AP-2026-1001"
   salt: string; // Hex string (never the password)
   passwordHash: string; // SHA-256 hash (never the password)
+  securityQuestion?: string; // Secret security question for admin recovery
+  securityAnswerSalt?: string; // Salt for security answer
+  securityAnswerHash?: string; // SHA-256 hash of normalized security answer
   createdAt: string; // ISO string
   lastLoginAt?: string;
 }
@@ -219,26 +222,11 @@ export async function ensureDefaultAccountsSeeded(): Promise<void> {
   const existing = await getAllLocalUsers();
   if (existing.length > 0) return;
 
-  // Initial Admin salt and hash for default 'admin' / 'amul123'
-  const adminSalt = generateSalt();
-  const adminHash = await hashPasswordWithSalt('amul123', adminSalt);
-
   // Initial Shop Cashier for AP-2026-1001 ('cashier' / 'amul123')
   const cashierSalt = generateSalt();
   const cashierHash = await hashPasswordWithSalt('amul123', cashierSalt);
 
   const initialUsers: LocalUser[] = [
-    {
-      id: 'usr-admin-default',
-      username: 'admin',
-      fullName: 'HQ System Administrator',
-      role: 'ADMIN',
-      isMasterAdmin: true,
-      designation: 'Chief Franchise Administrator',
-      salt: adminSalt,
-      passwordHash: adminHash,
-      createdAt: new Date().toISOString()
-    },
     {
       id: 'usr-cashier-1001',
       username: 'cashier',
@@ -433,6 +421,9 @@ const MASTER_ADMIN_SETTING_KEY = 'master_admin_initialized';
 /**
  * Check if the one-time Master Admin has already been initialized in IndexedDB
  */
+/**
+ * Check if the one-time Master Admin has already been initialized in IndexedDB
+ */
 export async function isMasterAdminInitialized(): Promise<boolean> {
   if (typeof window === 'undefined' || !window.indexedDB) {
     return false;
@@ -450,7 +441,7 @@ export async function isMasterAdminInitialized(): Promise<boolean> {
           } else {
             // Check if any explicitly initialized master admin exists
             const users = await getAllLocalUsers();
-            const hasMaster = users.some(u => u.role === 'ADMIN');
+            const hasMaster = users.some(u => u.role === 'ADMIN' && u.isMasterAdmin === true);
             resolve(hasMaster);
           }
         };
@@ -466,12 +457,15 @@ export async function isMasterAdminInitialized(): Promise<boolean> {
 
 /**
  * Execute one-time Master Admin initialization setup in IndexedDB
+ * Includes secret Security Question and Answer for password recovery.
  * Salted SHA-256 hash stored, zero plaintext, permanent one-time lock.
  */
 export async function performOneTimeAdminSetup(params: {
   username: string;
   fullName: string;
   password: string;
+  securityQuestion: string;
+  securityAnswer: string;
   designation?: string;
   department?: string;
 }): Promise<AuthSession> {
@@ -490,12 +484,22 @@ export async function performOneTimeAdminSetup(params: {
   if (!params.password || params.password.length < 6) {
     throw new Error('Master Admin password must be at least 6 characters for local security.');
   }
+  if (!params.securityQuestion || params.securityQuestion.trim().length < 5) {
+    throw new Error('Please enter or select a valid security question.');
+  }
+  if (!params.securityAnswer || params.securityAnswer.trim().length < 2) {
+    throw new Error('Please provide a secret answer for password recovery.');
+  }
 
   const users = await getAllLocalUsers();
   const existingIdx = users.findIndex(u => u.username === cleanUsername);
 
   const salt = generateSalt();
   const passwordHash = await hashPasswordWithSalt(params.password, salt);
+
+  const answerSalt = generateSalt();
+  const cleanAnswer = params.securityAnswer.trim().toLowerCase();
+  const answerHash = await hashPasswordWithSalt(cleanAnswer, answerSalt);
 
   const masterAdmin: LocalUser = {
     id: `usr-admin-master-${Date.now()}`,
@@ -506,6 +510,9 @@ export async function performOneTimeAdminSetup(params: {
     designation: params.designation?.trim() || 'Chief Franchise Administrator',
     salt,
     passwordHash,
+    securityQuestion: params.securityQuestion.trim(),
+    securityAnswerSalt: answerSalt,
+    securityAnswerHash: answerHash,
     createdAt: new Date().toISOString()
   };
 
@@ -551,10 +558,90 @@ export async function performOneTimeAdminSetup(params: {
 }
 
 /**
+ * Fetch the security question for an admin account to initiate password recovery
+ */
+export async function getAdminSecurityQuestion(username: string): Promise<{ success: boolean; question?: string; message?: string }> {
+  const clean = username.trim().toLowerCase();
+  const users = await getAllLocalUsers();
+  const admin = users.find(u => u.username === clean && u.role === 'ADMIN');
+  if (!admin) {
+    return { success: false, message: `Admin account "${clean}" was not found.` };
+  }
+  if (!admin.securityQuestion) {
+    return { success: false, message: 'No security recovery question is configured for this admin.' };
+  }
+  return { success: true, question: admin.securityQuestion };
+}
+
+/**
+ * Reset admin password by verifying the secret security answer
+ */
+export async function resetAdminPasswordWithSecurityAnswer(params: {
+  username: string;
+  securityAnswer: string;
+  newPassword: string;
+}): Promise<{ success: boolean; message: string }> {
+  const clean = params.username.trim().toLowerCase();
+  const users = await getAllLocalUsers();
+  const admin = users.find(u => u.username === clean && u.role === 'ADMIN');
+  if (!admin) {
+    throw new Error(`Admin account "${clean}" was not found.`);
+  }
+  if (!admin.securityAnswerHash || !admin.securityAnswerSalt) {
+    throw new Error('No security recovery question was configured for this admin account.');
+  }
+
+  const cleanEnteredAnswer = params.securityAnswer.trim().toLowerCase();
+  const computedHash = await hashPasswordWithSalt(cleanEnteredAnswer, admin.securityAnswerSalt);
+  if (computedHash !== admin.securityAnswerHash) {
+    throw new Error('Security answer does not match the answer registered during setup. Please try again.');
+  }
+
+  if (!params.newPassword || params.newPassword.length < 6) {
+    throw new Error('New password must be at least 6 characters long.');
+  }
+
+  const newSalt = generateSalt();
+  const newHash = await hashPasswordWithSalt(params.newPassword, newSalt);
+  admin.salt = newSalt;
+  admin.passwordHash = newHash;
+
+  await saveAllLocalUsers(users);
+  return { success: true, message: 'Admin password updated successfully! Please sign in with your new password.' };
+}
+
+/**
+ * Reset shop owner / cashier password by Admin from Admin Portal
+ */
+export async function adminResetShopPassword(params: {
+  adminSession: AuthSession | null;
+  shopCode: string;
+  newPassword: string;
+}): Promise<{ success: boolean; username: string }> {
+  if (!params.adminSession || params.adminSession.role !== 'ADMIN') {
+    throw new Error('Unauthorized. Only administrators can reset shop passwords.');
+  }
+  if (!params.newPassword || params.newPassword.length < 4) {
+    throw new Error('Shop password must be at least 4 characters long.');
+  }
+
+  const users = await getAllLocalUsers();
+  const shopUser = users.find(u => u.shopCode === params.shopCode && u.role === 'SHOP_USER');
+  if (!shopUser) {
+    throw new Error(`No cashier account found registered for shop ${params.shopCode}.`);
+  }
+
+  const newSalt = generateSalt();
+  const newHash = await hashPasswordWithSalt(params.newPassword, newSalt);
+  shopUser.salt = newSalt;
+  shopUser.passwordHash = newHash;
+
+  await saveAllLocalUsers(users);
+  return { success: true, username: shopUser.username };
+}
+
+/**
  * Verify whether the current user is authorized to create/provision shops.
- * Enforces:
- * 1. Master admin must be initialized.
- * 2. Current session must be an authenticated ADMIN.
  */
 export async function canUserCreateShops(currentUser?: AuthSession | null): Promise<{ allowed: boolean; reason?: string }> {
   if (!currentUser || currentUser.role !== 'ADMIN') {

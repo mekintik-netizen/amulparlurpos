@@ -1,6 +1,6 @@
 {
-  "summary":  "Comprehensive fix plan to resolve 6 reported issues: fix blank report printing, fix admin shop registration, remove demo logins, remove public random registration, sanitize thermal receipt printing to prevent blank pages and binary garbage code, and remove the parlour/outlet dropdown from the login screen.",
-  "updatedAt":  "2026-10-30T16:56:53.224603321Z",
+  "summary":  "Plan for first-time single master admin creation with secret security question, admin password recovery via security question, shop creation with unique shop owner ID/password and auto-activated 1-month subscription, and shop owner password reset from admin portal.",
+  "updatedAt":  "2026-10-30T17:28:48.636147582Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

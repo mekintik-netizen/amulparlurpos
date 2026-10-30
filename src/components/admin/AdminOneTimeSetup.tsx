@@ -52,6 +52,8 @@ export const AdminOneTimeSetup: React.FC<AdminOneTimeSetupProps> = ({
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [recoveryNote, setRecoveryNote] = useState('');
+  const [securityQuestion, setSecurityQuestion] = useState('What was the name of your first school?');
+  const [securityAnswer, setSecurityAnswer] = useState('anand');
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -90,6 +92,8 @@ export const AdminOneTimeSetup: React.FC<AdminOneTimeSetupProps> = ({
         username,
         fullName: fullName || `${username} (${designation})`,
         password,
+        securityQuestion,
+        securityAnswer,
         designation,
         department
       });

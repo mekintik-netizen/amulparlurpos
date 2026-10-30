@@ -1,112 +1,103 @@
-# Implementation Plan: Critical Bug Fixes & Security Hardening
+# Implementation Plan: Master Admin Setup, Password Recovery & Shop Management
 
-This plan details the solutions for the 6 issues identified during real-world shop testing on Windows PC:
-1. Report Print Blank Page fix
-2. Admin Shop Registration failure fix
-3. Strict Account Security (disabling unauthorized random ID registration)
-4. Removal of Instant Demo Login buttons
-5. Thermal Printer output fix (preventing blank pages & binary code)
-6. Removal of the Parlour / Outlet selector dropdown from the login screen
-
----
-
-## 1. Problem Analysis & Root Causes
-
-| # | Issue Reported | Root Cause | Planned Fix |
-|---|---|---|---|
-| **1** | **All reports print completely blank** | `<main>` container in `src/App.tsx` has the CSS class `no-print`, which causes the browser to hide the entire report view during `@media print`. | Remove `no-print` from `<main>`. Target only screen chrome (headers, navigation, tabs, action buttons) with `.no-print`. Add dedicated `#report-printable-area` styles with pure black-on-white A4 print layout. |
-| **2** | **Cannot register new shop from Admin Portal** | `canUserCreateShops(currentUser)` in `src/storage/auth.ts` requires `isMasterAdminInitialized()`, which fails for standard or seeded admin sessions. | Update `canUserCreateShops` to authorize any authenticated user with `role === 'ADMIN'`. Verify `AdminPortal.tsx` shop saving workflow. |
-| **3** | **Anyone can register with random ID and access the app** | `RegisterModal` is accessible directly from the login page, allowing unauthenticated users to create arbitrary shop/cashier credentials. | Remove the public registration trigger from `LoginPage.tsx`. Only authenticated Administrators within `AdminPortal` can create shops and cashier credentials. |
-| **4** | **Remove Demo Login buttons** | `LoginPage.tsx` contains 1-click "Instant Demo Login" buttons for Admin and Shop User. | Completely delete the demo login block from `LoginPage.tsx`. |
-| **5** | **Thermal printer blank page or binary garbage code** | Unstandardized CSS print rules, modal backdrop bleed-through, complex CSS fonts/shadows, and missing explicit roll width constraints cause thermal printer drivers (POS-58 / POS-80) to feed blank pages or misinterpret CSS as binary commands. | Implement clean, high-contrast, zero-margin ESC/POS compliant receipt CSS with standard monospaced text (`Courier New`), selectable 58mm / 80mm roll width, and pure black `#000000` text without background layers. |
-| **6** | **Remove Parlour / Outlet dropdown from login** | `LoginPage.tsx` displays a shop selector dropdown that is redundant and confusing for shop cashiers. | Remove the dropdown. The user logs in with their Username and Password; the system automatically authenticates them and binds the session to their assigned shop. |
+This plan implements the complete workflow requested by the user:
+1. **One-Time Master Admin Creation**: When opening the webpage for the first time, guide the user to create the ONE AND ONLY Master Admin ID. Once created, admin creation is permanently locked.
+2. **Admin Password Recovery via Security Question**: During admin setup, save a secret security question & answer. If the admin forgets their password, they answer their question to securely reset their password.
+3. **Shop Profile Registration with Unique ID & Password**: Inside Admin Portal, when creating a new shop, the admin provides full shop details and sets a dedicated, unique Shop Owner Login ID and Password.
+4. **Shop Owner Password Management by Admin**: Inside Admin Portal, add a "Reset Shop Password" tool so the admin can change or reset any shop's password at any time.
+5. **1-Month Subscription Auto-Activation & Renewal**: Fix the 1-month subscription so that newly registered shops are immediately active for 30 days upon creation, and the Admin can extend or renew for +30 days with a single click.
 
 ---
 
-## 2. Technical Architecture & Component Changes
+## 1. Architecture & Workflow Diagram
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        AUTHENTICATION & SECURITY                       │
+│                        FIRST-TIME SYSTEM INITIALIZATION                │
 ├────────────────────────────────────────────────────────────────────────┤
-│ • LoginPage.tsx:                                                       │
-│   - REMOVED: "Instant Demo Login" buttons                              │
-│   - REMOVED: "Parlour / Outlet" dropdown selector                      │
-│   - REMOVED: Public "Register New ID" modal trigger                    │
-│   - ADDED: Automatic shop resolution from authenticated user profile   │
-│ • AdminPortal.tsx & auth.ts:                                           │
-│   - UNLOCKED: Any verified ADMIN can create & register new shops       │
-│   - RESTRICTED: Shop staff management strictly inside Admin Portal    │
+│ • Initial Open (No Admin in DB):                                       │
+│   - Detects `!hasMasterAdmin` in IndexedDB                             │
+│   - Launches "One-Time Master Admin Setup" wizard                      │
+│   - Admin enters: Username, Password, Security Question & Answer       │
+│   - Saves Master Admin with cryptographic salt & SHA-256 hash          │
+│   - Permanently locks admin registration (single master admin only)    │
+│                                                                        │
+│ • Admin Forgot Password Flow:                                          │
+│   - Admin clicks "Forgot Password?" on Admin HQ tab                    │
+│   - Prompts for Admin Username -> displays saved Security Question     │
+│   - Validates secret answer -> allows setting new Admin Password       │
 └────────────────────────────────────────────────────────────────────────┘
 
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        PRINTING SUBSYSTEM                              │
+│                        ADMIN PORTAL SHOP & CREDENTIALS                 │
 ├────────────────────────────────────────────────────────────────────────┤
-│ • App.tsx:                                                             │
-│   - Fixed `<main>` wrapper (removed blocking `no-print`)               │
-│ • ReportsHub.tsx & index.css:                                          │
-│   - Added dedicated `#report-printable-area` with crisp A4 styling    │
-│   - Hidden all controls, filters, pagination, and navigation bars      │
-│ • ThermalReceipt.tsx & index.css:                                      │
-│   - Clean ESC/POS thermal layout (58mm / 80mm toggle)                 │
-│   - Pure monospaced text, 0 margins, no graphics raster buffer overflow│
+│ • Shop Registration:                                                   │
+│   - Admin fills Shop Profile (Name, Owner, Phone, City, GST, FSSAI)   │
+│   - Admin sets Unique Shop Owner Login ID & Password                   │
+│   - 1-Month Plan is auto-activated for 30 days from creation date      │
+│   - Both Shop record and User record are saved safely in IndexedDB    │
+│                                                                        │
+│ • Shop Password Reset by Admin:                                        │
+│   - Admin Portal shops table includes "Change / Reset Password" button │
+│   - Admin enters new password for that specific shop                   │
+│   - Updates shop user's salt & passwordHash immediately                │
+│                                                                        │
+│ • 1-Month Subscription Extension:                                      │
+│   - Status display (Days remaining & Expiry date)                      │
+│   - "Activate / Extend +30 Days" button extends 30 days cleanly        │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 3. Step-by-Step Implementation Steps
+## 2. Proposed File Changes
 
-### Step 1: Fix Report Print Blank Issue
-- **File**: `src/App.tsx`
-  - Remove `no-print` from the main `<main className="...">` tag.
-- **File**: `src/index.css`
-  - Update `@media print` rules:
-    - Hide UI elements (`nav`, `header`, `.no-print`, buttons, inputs, select).
-    - Ensure `#report-printable-area` and reports content have `display: block !important; visibility: visible !important;`.
-    - Set A4 print formatting with proper page-break controls.
-- **File**: `src/components/reports/ReportsHub.tsx`
-  - Wrap printable report tables in `#report-printable-area` with clear printable header (Shop name, Date range, Report title).
+### 1. `src/storage/auth.ts`
+- Add security question support:
+  - Extend `LocalUser` interface to include `securityQuestion?: string` and `securityAnswerHash?: string`.
+  - Update `isMasterAdminInitialized()` to check whether a real user-created master admin exists in `appSettings` or users store.
+  - Add `setupInitialMasterAdmin(params: { username, fullName, password, securityQuestion, securityAnswer })`:
+    - Checks that no master admin exists yet.
+    - Hashes password with salt.
+    - Hashes or normalizes security answer.
+    - Sets `master_admin_initialized` flag in `appSettings`.
+  - Add `getAdminSecurityQuestion(username: string)`:
+    - Retrieves the configured security question for password recovery.
+  - Add `resetAdminPasswordWithSecurityAnswer(username, securityAnswer, newPassword)`:
+    - Validates security answer.
+    - Updates admin password hash with a fresh cryptographically random salt.
+  - Add `adminResetShopPassword(shopCode: string, newPassword: string)`:
+    - Allows an authenticated admin to reset a shop owner's / cashier's password.
 
-### Step 2: Fix Admin Shop Registration
-- **File**: `src/storage/auth.ts`
-  - Update `canUserCreateShops(user: UserSession | null)`:
-    - Grant permission whenever `user?.role === 'ADMIN'`.
-    - Ensure newly created shops are saved to IndexedDB under the `shops` store and reflected immediately in the UI.
-- **File**: `src/components/admin/AdminPortal.tsx`
-  - Ensure shop form validation is smooth, gives clear feedback, and auto-refreshes shop lists upon creation.
+### 2. `src/components/auth/AdminRegistration.tsx`
+- Enhance the initial setup form:
+  - Add selectable preset security questions (e.g. "What was your first school name?", "What is your birthplace?", "What is your favorite Amul ice cream?") plus custom question input.
+  - Secret answer input field.
+  - Clean error handling and immediate login on completion.
 
-### Step 3: Remove Demo Logins, Parlour Dropdown & Public Registration
-- **File**: `src/components/auth/LoginPage.tsx`
-  - Delete the entire "Instant Demo Login" section (lines 331–380).
-  - Delete the "Parlour / Outlet" `<select>` dropdown.
-  - Remove the "Register New ID" button from the login screen.
-  - Update `handleSubmit`:
-    - Lookup user by `username`.
-    - Verify password.
-    - If user is `ADMIN`, log in to admin dashboard.
-    - If user is `CASHIER`, retrieve their assigned `shopId` and log into the shop counter.
-    - Reject unauthorized or non-existent usernames with a clear error message.
+### 3. `src/components/auth/AdminPasswordResetModal.tsx` *(NEW)*
+- Modal for admin password reset:
+  - Step 1: Enter admin username.
+  - Step 2: Answer the security question.
+  - Step 3: Enter new password and confirm.
 
-### Step 4: Fix Thermal Receipt Blank / Binary Code Output
-- **File**: `src/components/pos/ThermalReceipt.tsx`
-  - Sanitize receipt print structure.
-  - Implement dual paper width support:
-    - 58mm mode (printable width 48mm / 384px)
-    - 80mm mode (printable width 72mm / 576px)
-  - Ensure styles use standard font `font-family: 'Courier New', Courier, monospace;`.
-  - Enforce `color: #000000 !important; background: #ffffff !important; box-shadow: none !important; text-shadow: none !important;`.
-  - Prevent extra blank page ejects by ensuring container height does not exceed content height.
-- **File**: `src/index.css`
-  - Add explicit `@page { margin: 0; size: auto; }` for thermal receipt selector.
+### 4. `src/components/auth/LoginPage.tsx`
+- Add "Forgot Admin Password?" link on the Admin HQ tab to open `AdminPasswordResetModal`.
+- On launch, if `!hasMasterAdmin`, open the `AdminRegistration` wizard full screen so the user creates the single master admin first.
 
-### Step 5: Verification & Testing
-- Run `npm run lint` (`tsc --noEmit`) to verify 0 TypeScript compiler errors.
-- Run `npm test -- --run` to ensure all existing and updated tests pass.
-- Run `npm run build` to confirm production build cleanliness.
-- Verify in browser preview:
-  - Login screen has no demo buttons, no parlour dropdown, no public registration.
-  - Admin can register new shops.
-  - Reports print with full table data.
-  - Thermal receipt prints crisp monospace output without blank pages or garbage codes.
-- Repackage `amul-parlour-website.zip`.
+### 5. `src/components/admin/AdminPortal.tsx`
+- In `handleSaveShop`:
+  - When creating a new shop, auto-set `subscriptionStatus: 'ACTIVE'`, `approvalStatus: 'APPROVED'`, `subscriptionStartDate: now`, `subscriptionExpiryDate: now + 30 days`.
+  - Provide input fields for Unique Shop Owner Login ID and Password.
+  - Register the shop user account automatically.
+- In the Shop Management Table:
+  - Add a **"Reset Password"** button for each shop that opens a modal allowing the admin to set a new password for that shop.
+  - Add a dedicated **"Extend 30 Days"** button with clear visual countdown indicator.
+
+### 6. Verification & Automated Tests
+- Run `npm test -- --run` to ensure all 77+ tests pass and write new tests for:
+  - Initial master admin setup & single admin lock.
+  - Security question password reset.
+  - Admin shop password reset.
+  - 1-month subscription auto-activation and 30-day extension.
+- Run `npm run lint` and `npm run build` / `compile_applet`.
