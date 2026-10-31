@@ -16,6 +16,8 @@
 import {
   BackupManifest,
   BackupSettings,
+  BankEntry,
+  BankStatementSummary,
   DailyFinancialSummary,
   DailySalesReportSummary,
   DailyStockReportRow,
@@ -34,11 +36,11 @@ import {
   SupplierPayment,
   SyncOutboxEntry
 } from '../types/index.ts';
-import { INITIAL_SHOPS, getSeedProductsForShop, getSeedSuppliersForShop } from './seedData.ts';
+import { INITIAL_SHOPS, getSeedProductsForShop, getSeedSuppliersForShop, getSeedBankEntriesForShop } from './seedData.ts';
 import { getAmulProductPresetImage } from './productImages.ts';
 
 const DB_NAME = 'AmulParlourDB';
-const DB_VERSION = 2; // Upgraded for Suppliers, Purchases, Expenses, Backups & Outbox
+const DB_VERSION = 3; // Upgraded for Bank Entries & Passbook Statements
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -149,6 +151,16 @@ export const openAppDatabase = (): Promise<IDBDatabase> => {
       if (!db.objectStoreNames.contains('appSettings')) {
         db.createObjectStore('appSettings', { keyPath: 'key' });
       }
+
+      // 12. Bank Entries & Passbook store (v3)
+      if (!db.objectStoreNames.contains('bankEntries')) {
+        const bankStore = db.createObjectStore('bankEntries', { keyPath: 'id' });
+        bankStore.createIndex('shopId', 'shopId', { unique: false });
+        bankStore.createIndex('date', 'date', { unique: false });
+        bankStore.createIndex('type', 'type', { unique: false });
+        bankStore.createIndex('category', 'category', { unique: false });
+        bankStore.createIndex('referenceNumber', 'referenceNumber', { unique: false });
+      }
     };
 
     request.onsuccess = async (event) => {
@@ -169,21 +181,26 @@ export const openAppDatabase = (): Promise<IDBDatabase> => {
 // Seed helper (only seeds if stores are completely empty; NEVER overwrites existing data)
 async function ensureSeedData(db: IDBDatabase): Promise<void> {
   return new Promise((resolve) => {
-    const tx = db.transaction(['shops', 'products', 'suppliers'], 'readwrite');
+    const storeNames = ['shops', 'products', 'suppliers'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readwrite');
     const shopStore = tx.objectStore('shops');
     const countReq = shopStore.count();
 
     countReq.onsuccess = () => {
+      const prodStore = tx.objectStore('products');
+      const supStore = tx.objectStore('suppliers');
+      const bankStore = db.objectStoreNames.contains('bankEntries') ? tx.objectStore('bankEntries') : null;
+
       if (countReq.result === 0) {
         // Seed initial shops
         for (const shop of INITIAL_SHOPS) {
           shopStore.add(shop);
         }
 
-        // Seed products and suppliers for each shop
-        const prodStore = tx.objectStore('products');
-        const supStore = tx.objectStore('suppliers');
-
+        // Seed products, suppliers, and initial bank entries for each shop
         for (const shop of INITIAL_SHOPS) {
           const prods = getSeedProductsForShop(shop.id);
           for (const p of prods) {
@@ -194,9 +211,49 @@ async function ensureSeedData(db: IDBDatabase): Promise<void> {
           for (const s of sups) {
             supStore.add(s);
           }
+
+          if (bankStore) {
+            const initialBank = getSeedBankEntriesForShop(shop.id);
+            for (const b of initialBank) {
+              bankStore.add(b);
+            }
+          }
         }
+        resolve();
+      } else {
+        // Automatically ensure existing shops receive the expanded 65+ Amul products catalog
+        const prodCountReq = prodStore.count();
+        prodCountReq.onsuccess = () => {
+          if (prodCountReq.result < 50) {
+            for (const shop of INITIAL_SHOPS) {
+              const fullSeed = getSeedProductsForShop(shop.id);
+              for (const p of fullSeed) {
+                prodStore.put(p);
+              }
+            }
+          }
+
+          // If bank entries store is newly created for existing db, seed initial entries
+          if (bankStore) {
+            const bankCountReq = bankStore.count();
+            bankCountReq.onsuccess = () => {
+              if (bankCountReq.result === 0) {
+                for (const shop of INITIAL_SHOPS) {
+                  const initialBank = getSeedBankEntriesForShop(shop.id);
+                  for (const b of initialBank) {
+                    bankStore.put(b);
+                  }
+                }
+              }
+              resolve();
+            };
+            bankCountReq.onerror = () => resolve();
+          } else {
+            resolve();
+          }
+        };
+        prodCountReq.onerror = () => resolve();
       }
-      resolve();
     };
 
     countReq.onerror = () => resolve();
@@ -325,6 +382,38 @@ export async function deleteProduct(productId: string): Promise<void> {
   });
 }
 
+/**
+ * Pre-fills the entire 65+ authentic Amul product catalog into a shop's database.
+ * Preserves any existing products and avoids duplicate entries.
+ */
+export async function syncPreFilledAmulCatalogForShop(shopId: string): Promise<{ added: number; total: number }> {
+  const existing = await getProductsByShop(shopId);
+  const masterSeed = getSeedProductsForShop(shopId);
+  const db = await openAppDatabase();
+
+  let added = 0;
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('products', 'readwrite');
+    const store = tx.objectStore('products');
+
+    for (const item of masterSeed) {
+      const exists = existing.some(
+        e => e.barcode === item.barcode || e.name.toLowerCase() === item.name.toLowerCase()
+      );
+      if (!exists) {
+        store.put(item);
+        added++;
+      }
+    }
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  const updated = await getProductsByShop(shopId);
+  return { added, total: updated.length };
+}
+
 // ==========================================
 // STOCK & INVENTORY OPERATIONS (ATOMIC)
 // ==========================================
@@ -424,7 +513,11 @@ export async function createSaleBill(
   const db = await openAppDatabase();
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(['sales', 'products', 'stockMovements'], 'readwrite');
+    const storeNames = ['sales', 'products', 'stockMovements'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readwrite');
     const saleStore = tx.objectStore('sales');
     const prodStore = tx.objectStore('products');
     const movStore = tx.objectStore('stockMovements');
@@ -473,6 +566,26 @@ export async function createSaleBill(
             movStore.add(mov);
           }
         };
+      }
+
+      // Auto-record UPI customer counter payment into bankEntries
+      if (newBill.paymentMode === 'UPI' && db.objectStoreNames.contains('bankEntries')) {
+        const bankStore = tx.objectStore('bankEntries');
+        const bankEntry: BankEntry = {
+          id: `bank-upi-${newBill.id}`,
+          shopId: newBill.shopId,
+          date: nowIso.split('T')[0],
+          type: 'CREDIT',
+          category: 'UPI_SALE',
+          amount: newBill.finalAmount,
+          referenceNumber: newBill.billNumber,
+          description: `Customer POS Bill #${newBill.billNumber} (${newBill.itemCount} items)`,
+          partyName: newBill.customerPhone || newBill.customerName || 'Counter Customer',
+          paymentMode: 'UPI',
+          sourceId: newBill.id,
+          createdAt: nowIso
+        };
+        bankStore.put(bankEntry);
       }
 
       saleStore.add(newBill);
@@ -530,7 +643,11 @@ export async function cancelSaleBill(
 ): Promise<SaleBill> {
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(['sales', 'products', 'stockMovements'], 'readwrite');
+    const storeNames = ['sales', 'products', 'stockMovements'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readwrite');
     const saleStore = tx.objectStore('sales');
     const prodStore = tx.objectStore('products');
     const movStore = tx.objectStore('stockMovements');
@@ -577,6 +694,27 @@ export async function cancelSaleBill(
             movStore.add(mov);
           }
         };
+      }
+
+      // If bill was paid via UPI, record a bank debit reversal
+      if (bill.paymentMode === 'UPI' && db.objectStoreNames.contains('bankEntries')) {
+        const bankStore = tx.objectStore('bankEntries');
+        const nowIso = new Date().toISOString();
+        const reversalEntry: BankEntry = {
+          id: `bank-rev-${bill.id}-${Date.now()}`,
+          shopId: bill.shopId,
+          date: nowIso.split('T')[0],
+          type: 'DEBIT',
+          category: 'OTHER',
+          amount: bill.finalAmount,
+          referenceNumber: `REV-${bill.billNumber}`,
+          description: `Bill Refund / Cancellation #${bill.billNumber} (${reason})`,
+          partyName: bill.customerPhone || bill.customerName || 'Counter Customer',
+          paymentMode: 'UPI',
+          sourceId: bill.id,
+          createdAt: nowIso
+        };
+        bankStore.put(reversalEntry);
       }
 
       tx.oncomplete = () => resolve(bill);
@@ -626,10 +764,11 @@ export async function createPurchaseBill(
   const db = await openAppDatabase();
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(
-      ['purchases', 'products', 'stockMovements', 'suppliers'],
-      'readwrite'
-    );
+    const storeNames = ['purchases', 'products', 'stockMovements', 'suppliers'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readwrite');
     const purStore = tx.objectStore('purchases');
     const prodStore = tx.objectStore('products');
     const movStore = tx.objectStore('stockMovements');
@@ -665,6 +804,13 @@ export async function createPurchaseBill(
               prod.currentStock = (prod.currentStock || 0) + item.quantity;
               // Update cost price with latest purchase rate
               prod.costPrice = item.purchaseRate;
+              if (item.mrp && item.mrp > 0) {
+                // If distributor invoice has updated MRP, sync it to catalog
+                if (prod.sellingPrice === prod.mrp || prod.sellingPrice <= 0) {
+                  prod.sellingPrice = item.mrp;
+                }
+                prod.mrp = item.mrp;
+              }
               prod.updatedAt = nowIso;
               prodStore.put(prod);
 
@@ -698,6 +844,30 @@ export async function createPurchaseBill(
               supStore.put(sup);
             }
           };
+        }
+
+        // Auto-record Bank DEBIT if paid via Bank or UPI
+        if (
+          (newPurchase.paymentMode === 'BANK_TRANSFER' || newPurchase.paymentMode === 'UPI') &&
+          newPurchase.paidAmount > 0 &&
+          db.objectStoreNames.contains('bankEntries')
+        ) {
+          const bankStore = tx.objectStore('bankEntries');
+          const bankEntry: BankEntry = {
+            id: `bank-pur-${newPurchase.id}`,
+            shopId: newPurchase.shopId,
+            date: newPurchase.purchaseDate || nowIso.split('T')[0],
+            type: 'DEBIT',
+            category: 'SUPPLIER_PAYMENT',
+            amount: newPurchase.paidAmount,
+            referenceNumber: newPurchase.purchaseInvoiceNumber || `PUR-${Date.now()}`,
+            description: `Supplier payment for Purchase #${newPurchase.purchaseInvoiceNumber} (${newPurchase.supplierName})`,
+            partyName: newPurchase.supplierName,
+            paymentMode: newPurchase.paymentMode === 'UPI' ? 'UPI' : 'NEFT_RTGS',
+            sourceId: newPurchase.id,
+            createdAt: nowIso
+          };
+          bankStore.put(bankEntry);
         }
       }
 
@@ -1104,7 +1274,11 @@ export async function recordSupplierPayment(
   const db = await openAppDatabase();
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(['supplierPayments', 'suppliers'], 'readwrite');
+    const storeNames = ['supplierPayments', 'suppliers'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readwrite');
     const payStore = tx.objectStore('supplierPayments');
     const supStore = tx.objectStore('suppliers');
 
@@ -1126,6 +1300,30 @@ export async function recordSupplierPayment(
         supStore.put(sup);
       }
     };
+
+    // Auto-record Bank DEBIT if paid via Bank or UPI
+    if (
+      (payment.paymentMode === 'BANK_TRANSFER' || payment.paymentMode === 'UPI') &&
+      payment.amount > 0 &&
+      db.objectStoreNames.contains('bankEntries')
+    ) {
+      const bankStore = tx.objectStore('bankEntries');
+      const bankEntry: BankEntry = {
+        id: `bank-spay-${payment.id}`,
+        shopId: payment.shopId,
+        date: payment.paymentDate,
+        type: 'DEBIT',
+        category: 'SUPPLIER_PAYMENT',
+        amount: payment.amount,
+        referenceNumber: payment.referenceNumber || `PAY-${payment.id.slice(-6)}`,
+        description: `Direct Supplier Payment to ${payment.supplierName}${payment.notes ? ` (${payment.notes})` : ''}`,
+        partyName: payment.supplierName,
+        paymentMode: payment.paymentMode === 'UPI' ? 'UPI' : 'NEFT_RTGS',
+        sourceId: payment.id,
+        createdAt: payment.createdAt
+      };
+      bankStore.put(bankEntry);
+    }
 
     tx.oncomplete = () => resolve(payment);
     tx.onerror = () => reject(tx.error);
@@ -1162,7 +1360,11 @@ export async function createExpense(
 ): Promise<Expense> {
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('expenses', 'readwrite');
+    const storeNames = ['expenses'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readwrite');
     const store = tx.objectStore('expenses');
 
     const expense: Expense = {
@@ -1172,6 +1374,31 @@ export async function createExpense(
     };
 
     store.add(expense);
+
+    // If paid via Bank or UPI, also record into bank entries
+    if (
+      (expense.paymentMode === 'BANK_TRANSFER' || expense.paymentMode === 'UPI') &&
+      expense.amount > 0 &&
+      db.objectStoreNames.contains('bankEntries')
+    ) {
+      const bankStore = tx.objectStore('bankEntries');
+      const bankEntry: BankEntry = {
+        id: `bank-exp-${expense.id}`,
+        shopId: expense.shopId,
+        date: expense.date,
+        type: 'DEBIT',
+        category: 'EXPENSE',
+        amount: expense.amount,
+        referenceNumber: `EXP-${expense.id.slice(-6)}`,
+        description: `Operational Expense: ${expense.category}${expense.notes ? ` - ${expense.notes}` : ''}`,
+        partyName: expense.category,
+        paymentMode: expense.paymentMode === 'UPI' ? 'UPI' : 'NEFT_RTGS',
+        sourceId: expense.id,
+        createdAt: expense.createdAt
+      };
+      bankStore.put(bankEntry);
+    }
+
     tx.oncomplete = () => resolve(expense);
     tx.onerror = () => reject(tx.error);
   });
@@ -1207,6 +1434,125 @@ export async function deleteExpense(expenseId: string): Promise<void> {
     req.onsuccess = () => resolve();
     req.onerror = () => reject(req.error);
   });
+}
+
+// ==========================================
+// BANK ENTRIES & STATEMENT OPERATIONS (PASSBOOK)
+// ==========================================
+
+export async function getBankEntriesByShop(
+  shopId: string,
+  startDate?: string,
+  endDate?: string,
+  category?: string
+): Promise<BankEntry[]> {
+  const db = await openAppDatabase();
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains('bankEntries')) {
+      return resolve([]);
+    }
+    const tx = db.transaction('bankEntries', 'readonly');
+    const store = tx.objectStore('bankEntries');
+    const index = store.index('shopId');
+    const req = index.getAll(shopId);
+
+    req.onsuccess = () => {
+      let list = (req.result as BankEntry[]) || [];
+      if (startDate) {
+        list = list.filter(e => e.date >= startDate);
+      }
+      if (endDate) {
+        list = list.filter(e => e.date <= endDate);
+      }
+      if (category && category !== 'ALL') {
+        list = list.filter(e => e.category === category);
+      }
+      // Sort newest date first
+      list.sort((a, b) => new Date(b.date || b.createdAt).getTime() - new Date(a.date || a.createdAt).getTime());
+      resolve(list);
+    };
+
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveBankEntry(
+  entryData: Omit<BankEntry, 'id' | 'createdAt'> & { id?: string }
+): Promise<BankEntry> {
+  const db = await openAppDatabase();
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains('bankEntries')) {
+      return reject(new Error('Bank entries store is not available'));
+    }
+    const tx = db.transaction('bankEntries', 'readwrite');
+    const store = tx.objectStore('bankEntries');
+
+    const entry: BankEntry = {
+      ...entryData,
+      id: entryData.id || `bank-man-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    store.put(entry);
+    tx.oncomplete = () => resolve(entry);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function deleteBankEntry(id: string): Promise<void> {
+  const db = await openAppDatabase();
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains('bankEntries')) {
+      return resolve();
+    }
+    const tx = db.transaction('bankEntries', 'readwrite');
+    const store = tx.objectStore('bankEntries');
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function getBankStatementSummary(
+  shopId: string,
+  startDate?: string,
+  endDate?: string
+): Promise<BankStatementSummary> {
+  const entries = await getBankEntriesByShop(shopId, startDate, endDate);
+  let totalCredits = 0;
+  let totalDebits = 0;
+  let upiSalesTotal = 0;
+  let upiSalesCount = 0;
+  let supplierPaymentsTotal = 0;
+  let cashDepositsTotal = 0;
+
+  for (const e of entries) {
+    if (e.type === 'CREDIT') {
+      totalCredits += e.amount;
+      if (e.category === 'UPI_SALE') {
+        upiSalesTotal += e.amount;
+        upiSalesCount += 1;
+      } else if (e.category === 'CASH_DEPOSIT') {
+        cashDepositsTotal += e.amount;
+      }
+    } else {
+      totalDebits += e.amount;
+      if (e.category === 'SUPPLIER_PAYMENT') {
+        supplierPaymentsTotal += e.amount;
+      }
+    }
+  }
+
+  return {
+    totalCredits,
+    totalDebits,
+    netBalance: totalCredits - totalDebits,
+    upiSalesTotal,
+    upiSalesCount,
+    supplierPaymentsTotal,
+    cashDepositsTotal
+  };
 }
 
 // ==========================================
@@ -1411,10 +1757,11 @@ export async function exportDatabaseToJson(shopId?: string): Promise<LocalDataba
   const targetShopId = shopId && shopId !== 'all' ? shopId : 'all';
 
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(
-      ['shops', 'products', 'stockMovements', 'sales', 'purchases', 'suppliers', 'supplierPayments', 'expenses'],
-      'readonly'
-    );
+    const storeNames = ['shops', 'products', 'stockMovements', 'sales', 'purchases', 'suppliers', 'supplierPayments', 'expenses'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readonly');
 
     const sStore = tx.objectStore('shops');
     const pStore = tx.objectStore('products');
@@ -1424,6 +1771,7 @@ export async function exportDatabaseToJson(shopId?: string): Promise<LocalDataba
     const supStore = tx.objectStore('suppliers');
     const payStore = tx.objectStore('supplierPayments');
     const expStore = tx.objectStore('expenses');
+    const bankStore = db.objectStoreNames.contains('bankEntries') ? tx.objectStore('bankEntries') : null;
 
     const sReq = sStore.getAll();
     const pReq = pStore.getAll();
@@ -1433,6 +1781,7 @@ export async function exportDatabaseToJson(shopId?: string): Promise<LocalDataba
     const supReq = supStore.getAll();
     const payReq = payStore.getAll();
     const expReq = expStore.getAll();
+    const bankReq = bankStore ? bankStore.getAll() : null;
 
     tx.oncomplete = async () => {
       let filteredShops = sReq.result as Shop[];
@@ -1443,6 +1792,7 @@ export async function exportDatabaseToJson(shopId?: string): Promise<LocalDataba
       let filteredSups = supReq.result as Supplier[];
       let filteredPays = payReq.result as SupplierPayment[];
       let filteredExps = expReq.result as Expense[];
+      let filteredBank = bankReq ? (bankReq.result as BankEntry[]) : [];
 
       if (shopId && shopId !== 'all') {
         filteredShops = filteredShops.filter(s => s.id === shopId);
@@ -1453,6 +1803,7 @@ export async function exportDatabaseToJson(shopId?: string): Promise<LocalDataba
         filteredSups = filteredSups.filter(s => s.shopId === shopId);
         filteredPays = filteredPays.filter(p => p.shopId === shopId);
         filteredExps = filteredExps.filter(e => e.shopId === shopId);
+        filteredBank = filteredBank.filter(e => e.shopId === shopId);
       }
 
       const rawExport = {
@@ -1463,7 +1814,8 @@ export async function exportDatabaseToJson(shopId?: string): Promise<LocalDataba
         purchases: filteredPurs,
         suppliers: filteredSups,
         supplierPayments: filteredPays,
-        expenses: filteredExps
+        expenses: filteredExps,
+        bankEntries: filteredBank
       };
 
       const checksum = await generateDataChecksum(JSON.stringify(rawExport));
@@ -1482,7 +1834,8 @@ export async function exportDatabaseToJson(shopId?: string): Promise<LocalDataba
           purchases: filteredPurs.length,
           suppliers: filteredSups.length,
           supplierPayments: filteredPays.length,
-          expenses: filteredExps.length
+          expenses: filteredExps.length,
+          bankEntries: filteredBank.length
         },
         checksum,
         generator: 'Amul Parlour Local-First IndexedDB Engine'
@@ -1670,10 +2023,11 @@ export async function importDatabaseFromJson(
 
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(
-      ['shops', 'products', 'stockMovements', 'sales', 'purchases', 'suppliers', 'supplierPayments', 'expenses'],
-      'readwrite'
-    );
+    const storeNames = ['shops', 'products', 'stockMovements', 'sales', 'purchases', 'suppliers', 'supplierPayments', 'expenses'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readwrite');
 
     const sStore = tx.objectStore('shops');
     const pStore = tx.objectStore('products');
@@ -1683,6 +2037,7 @@ export async function importDatabaseFromJson(
     const supStore = tx.objectStore('suppliers');
     const payStore = tx.objectStore('supplierPayments');
     const expStore = tx.objectStore('expenses');
+    const bankStore = db.objectStoreNames.contains('bankEntries') ? tx.objectStore('bankEntries') : null;
 
     for (const s of backup.shops) sStore.put(s);
     for (const p of backup.products) pStore.put(p);
@@ -1692,11 +2047,14 @@ export async function importDatabaseFromJson(
     for (const sup of backup.suppliers || []) supStore.put(sup);
     for (const pay of backup.supplierPayments || []) payStore.put(pay);
     for (const exp of backup.expenses || []) expStore.put(exp);
+    if (bankStore && backup.bankEntries) {
+      for (const entry of backup.bankEntries) bankStore.put(entry);
+    }
 
     tx.oncomplete = () => {
       resolve({
         success: true,
-        message: `Restored ${backup.shops.length} shop(s), ${backup.products.length} products, ${backup.sales.length} sales bills, and ${backup.purchases?.length || 0} purchase invoices.`,
+        message: `Restored ${backup.shops.length} shop(s), ${backup.products.length} products, ${backup.sales.length} sales bills, ${backup.purchases?.length || 0} purchase invoices, and ${backup.bankEntries?.length || 0} bank entries.`,
         manifest: backup.manifest,
         safetyBackupId
       });
@@ -1741,10 +2099,11 @@ export async function restoreFromStoredBackup(
 export async function resetDatabaseToFactoryDefaults(): Promise<void> {
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(
-      ['shops', 'products', 'stockMovements', 'sales', 'purchases', 'suppliers', 'supplierPayments', 'expenses', 'backups'],
-      'readwrite'
-    );
+    const storeNames = ['shops', 'products', 'stockMovements', 'sales', 'purchases', 'suppliers', 'supplierPayments', 'expenses', 'backups'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readwrite');
 
     tx.objectStore('shops').clear();
     tx.objectStore('products').clear();
@@ -1755,6 +2114,9 @@ export async function resetDatabaseToFactoryDefaults(): Promise<void> {
     tx.objectStore('supplierPayments').clear();
     tx.objectStore('expenses').clear();
     tx.objectStore('backups').clear();
+    if (db.objectStoreNames.contains('bankEntries')) {
+      tx.objectStore('bankEntries').clear();
+    }
 
     tx.oncomplete = async () => {
       await ensureSeedData(db);

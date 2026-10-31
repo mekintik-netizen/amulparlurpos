@@ -26,7 +26,8 @@ import {
   LogOut, 
   LogIn, 
   Store,
-  Sparkles
+  Sparkles,
+  Landmark
 } from 'lucide-react';
 import { ActiveTab } from './Header.tsx';
 import { Shop } from '../../types/index.ts';
@@ -98,16 +99,30 @@ export const RightSideNavigation: React.FC<RightSideNavigationProps> = ({
       highlight: true
     },
     {
-      key: 'CATALOG' as ActiveTab,
-      label: 'Product Catalog',
-      sub: 'Photos & barcodes',
-      icon: Tag
-    },
-    {
       key: 'EXPENSES' as ActiveTab,
       label: 'Expenses & Cash',
       sub: 'Overheads & P&L',
       icon: Wallet
+    },
+    {
+      key: 'BANK' as ActiveTab,
+      label: 'Bank Statement',
+      sub: 'બેંક એન્ટ્રી & પાસબુક',
+      icon: Landmark,
+      badge: 'UPI'
+    },
+    {
+      key: 'PROFILE' as ActiveTab,
+      label: 'Shop Profile',
+      sub: 'દુકાન & બેંક QR',
+      icon: Store,
+      badge: 'QR'
+    },
+    {
+      key: 'CATALOG' as ActiveTab,
+      label: 'Product Catalog',
+      sub: 'Photos & barcodes',
+      icon: Tag
     },
     {
       key: 'BACKUP' as ActiveTab,

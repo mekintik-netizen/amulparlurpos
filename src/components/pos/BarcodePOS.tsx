@@ -20,16 +20,21 @@ import {
   Banknote, 
   User, 
   Receipt, 
-  RefreshCw,
-  ShoppingBag,
-  Sparkles,
-  ArrowUpRight,
-  Package,
-  ShieldAlert
+  RefreshCw, 
+  ShoppingBag, 
+  Sparkles, 
+  ArrowUpRight, 
+  Package, 
+  ShieldAlert,
+  Usb,
+  Wrench,
+  Printer
 } from 'lucide-react';
 import { Product, SaleBill, SaleItem, Shop, PaymentMode } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
+import { HardwareDiagnosticsModal } from './HardwareDiagnosticsModal.tsx';
+import { useBarcodeScanner } from '../../hooks/useBarcodeScanner.ts';
 
 interface BarcodePOSProps {
   currentShop: Shop;
@@ -67,6 +72,18 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [showUpiModal, setShowUpiModal] = useState(false);
 
+  // Hardware Assistant Modal & Catalog Sync States
+  const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
+  const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
+
+  // Global Hardware Barcode Scanner Gun Listener
+  useBarcodeScanner({
+    onScan: (code) => {
+      handleScannedBarcode(code);
+    },
+    enabled: true
+  });
+
   // Audio feedback for barcode beep
   const barcodeInputRef = useRef<HTMLInputElement>(null);
   const scanBuffer = useRef<string>('');
@@ -88,6 +105,20 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
   useEffect(() => {
     loadProducts();
   }, [currentShop.id]);
+
+  const handleSyncCatalog = async () => {
+    try {
+      setIsSyncingCatalog(true);
+      const res = await AppRepository.products.syncPreFilledCatalog(currentShop.id);
+      await loadProducts();
+      setScanMessage({ text: `Catalog Synced! ${res.total} Amul products ready with barcodes.`, type: 'success' });
+      setTimeout(() => setScanMessage(null), 3500);
+    } catch (err: any) {
+      alert(`Failed to sync catalog: ${err.message}`);
+    } finally {
+      setIsSyncingCatalog(false);
+    }
+  };
 
   // Focus barcode input on mount and window focus
   useEffect(() => {
@@ -362,15 +393,41 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
       <div className="lg:col-span-7 flex flex-col gap-4">
         {/* Scanner Barcode Box */}
         <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-4">
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
             <div className="flex items-center gap-2 text-slate-800 font-bold text-sm">
               <Barcode className="w-5 h-5 text-blue-600" />
               <span>USB HID Barcode Scanner</span>
             </div>
-            <span className="text-xs text-emerald-600 font-medium flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              Scanner Ready
-            </span>
+
+            <div className="flex items-center gap-2">
+              {products.length < 50 && (
+                <button
+                  type="button"
+                  onClick={handleSyncCatalog}
+                  disabled={isSyncingCatalog}
+                  className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                  title="Load full 65+ official Amul products with barcodes"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{isSyncingCatalog ? 'Syncing...' : 'Pre-Fill 65+ Amul Items'}</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsHardwareModalOpen(true)}
+                className="text-[11px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition shadow-2xs"
+                title="Test and diagnose USB Barcode Gun and Thermal Printer"
+              >
+                <Usb className="w-3.5 h-3.5 text-blue-600" />
+                <span>Hardware Assistant</span>
+              </button>
+
+              <span className="text-xs text-emerald-600 font-medium flex items-center gap-1 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                Scanner Ready
+              </span>
+            </div>
           </div>
 
           <form
@@ -744,43 +801,97 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
         </div>
       </div>
 
-      {/* Simulated UPI QR Modal */}
-      {showUpiModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full text-center shadow-2xl">
-            <h4 className="font-bold text-base text-slate-900 mb-1">UPI Dynamic QR</h4>
-            <p className="text-xs text-slate-500 mb-4">
-              Scan with any UPI app (GPay, PhonePe, Paytm, BHIM)
-            </p>
+      {/* Shop Online Payment UPI QR Modal with Real Shop QR & Dynamic UPI */}
+      {showUpiModal && (() => {
+        const effectiveUpi = currentShop.upiId || `amul.${currentShop.shopCode.toLowerCase()}@okhdfcbank`;
+        const dynamicAmountQr = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+          `upi://pay?pa=${effectiveUpi}&pn=${encodeURIComponent(currentShop.name)}&am=${finalAmount.toFixed(2)}&cu=INR`
+        )}`;
+        const hasCustomQr = Boolean(currentShop.qrCodeImageUrl);
+        const activeQrImage = hasCustomQr ? currentShop.qrCodeImageUrl! : dynamicAmountQr;
 
-            <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 inline-block mb-4">
-              {/* Simulated crisp QR pattern */}
-              <div className="w-48 h-48 bg-white border-2 border-slate-900 p-2 flex flex-col items-center justify-center relative">
-                <QrCode className="w-36 h-36 text-slate-900" />
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="bg-blue-600 text-white font-black text-[10px] px-2 py-0.5 rounded-md shadow-xs">
-                    AMUL PAY
-                  </div>
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+            <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-sm w-full text-center shadow-2xl border border-slate-200">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100">
+                <div className="flex items-center gap-1.5 text-left">
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="font-extrabold text-xs text-slate-800">
+                    ગ્રાહક ચુકવણી માટે QR (Customer UPI Pay)
+                  </span>
+                </div>
+                <button
+                  onClick={() => setShowUpiModal(false)}
+                  className="text-slate-400 hover:text-slate-600 font-bold text-sm cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Shop Identity */}
+              <div className="mb-2">
+                <h4 className="font-black text-sm text-slate-900 leading-tight">
+                  {currentShop.regionalName || currentShop.name}
+                </h4>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  {currentShop.bankName || 'Amul Preferred Outlet'}
+                </p>
+              </div>
+
+              {/* Real QR Display Box */}
+              <div className="bg-slate-50 p-4 rounded-2xl border-2 border-slate-800 inline-block mb-3 shadow-xs">
+                <img
+                  src={activeQrImage}
+                  alt="Shop Payment QR Code"
+                  className="w-48 h-48 object-contain mx-auto rounded-lg"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = dynamicAmountQr;
+                  }}
+                />
+              </div>
+
+              {/* Amount Display */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl py-2 px-3 mb-3">
+                <div className="text-[10px] uppercase font-bold text-blue-700 tracking-wider">
+                  ચુકવવાપાત્ર રકમ (Total Net Payable)
+                </div>
+                <div className="font-mono text-2xl font-black text-blue-700">
+                  ₹{finalAmount.toFixed(2)}
+                </div>
+              </div>
+
+              {/* VPA Info */}
+              <div className="text-[11px] font-mono text-slate-600 mb-4 bg-slate-100 py-1.5 px-3 rounded-lg flex items-center justify-between">
+                <span className="font-bold text-slate-500">Shop UPI ID:</span>
+                <span className="font-bold text-blue-600">{effectiveUpi}</span>
+              </div>
+
+              {/* Confirm Payment button */}
+              <div className="space-y-2">
+                <button
+                  onClick={() => setShowUpiModal(false)}
+                  className="w-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white py-2.5 rounded-xl text-xs font-bold transition shadow-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  ચુકવણી મળી ગઈ છે (Payment Received)
+                </button>
+                <div className="text-[10px] text-slate-400">
+                  ગ્રાહક ચુકવણી કરશે તે રકમ સીધી તમારા બેંક સ્ટેટમેન્ટમાં જમા થશે.
                 </div>
               </div>
             </div>
-
-            <div className="font-mono text-xl font-black text-blue-700 mb-1">
-              ₹{finalAmount.toFixed(2)}
-            </div>
-            <div className="text-[11px] text-slate-500 font-mono mb-4">
-              VPA: amul.{currentShop.shopCode.toLowerCase()}@okhdfcbank
-            </div>
-
-            <button
-              onClick={() => setShowUpiModal(false)}
-              className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl text-xs font-bold transition"
-            >
-              Confirmed Payment
-            </button>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* Hardware Diagnostics & Connection Assistant Modal */}
+      <HardwareDiagnosticsModal
+        isOpen={isHardwareModalOpen}
+        onClose={() => setIsHardwareModalOpen(false)}
+        products={products}
+        shopName={currentShop.name}
+        shopCode={currentShop.shopCode}
+      />
     </div>
   );
 };

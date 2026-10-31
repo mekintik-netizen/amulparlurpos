@@ -86,14 +86,24 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
       {/* Top Header & Date Filter */}
       <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80">
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
-          <div>
-            <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-              <Receipt className="w-5 h-5 text-blue-600" />
-              Daily Sales & Cash Counter Report
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Audited retail invoices, payment collections, and product sales rankings.
-            </p>
+          <div className="flex items-center gap-3.5">
+            <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-2xs shrink-0">
+              <img
+                src="/assets/aistudio/images__2__c16e6a94.jpg"
+                alt="Amul"
+                className="h-10 sm:h-12 w-auto object-contain print:h-14"
+                loading="eager"
+              />
+            </div>
+            <div>
+              <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-blue-600" />
+                Daily Sales & Cash Counter Report
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {currentShop.name} ({currentShop.shopCode}) · Audited retail invoices, collections, and rankings.
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-2.5">
@@ -108,8 +118,17 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
             </div>
 
             <button
+              onClick={() => window.print()}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Print Daily Sales Report"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print Report</span>
+            </button>
+
+            <button
               onClick={loadDailySales}
-              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition"
+              className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
               title="Refresh Sales Data"
             >
               <RefreshCw className="w-4 h-4" />

@@ -22,7 +22,9 @@ import {
   AlertCircle,
   Image as ImageIcon,
   Upload,
-  Sparkles
+  Sparkles,
+  Check,
+  X
 } from 'lucide-react';
 import { Product, ProductCategory, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
@@ -40,6 +42,13 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+
+  // Inline Price Editing State
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [inlineCost, setInlineCost] = useState<number>(0);
+  const [inlineSelling, setInlineSelling] = useState<number>(0);
+  const [inlineMrp, setInlineMrp] = useState<number>(0);
+  const [priceSaveNotice, setPriceSaveNotice] = useState<string | null>(null);
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -74,6 +83,50 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
   useEffect(() => {
     loadProducts();
   }, [currentShop.id]);
+
+  const startInlinePriceEdit = (p: Product) => {
+    if (!subCheck.isActive) {
+      alert(`Shop plan is expired (${subCheck.expiryFormatted || 'Expired'}). Editing pricing is locked.`);
+      return;
+    }
+    setEditingPriceId(p.id);
+    setInlineCost(p.costPrice);
+    setInlineSelling(p.sellingPrice);
+    setInlineMrp(p.mrp);
+  };
+
+  const cancelInlinePriceEdit = () => {
+    setEditingPriceId(null);
+  };
+
+  const saveInlinePrice = async (p: Product) => {
+    if (!subCheck.isActive) {
+      alert(`Shop plan is expired. Pricing changes cannot be saved.`);
+      return;
+    }
+    if (inlineCost < 0 || inlineSelling < 0 || inlineMrp < 0 || isNaN(inlineCost) || isNaN(inlineSelling) || isNaN(inlineMrp)) {
+      alert('Please enter valid positive price numbers.');
+      return;
+    }
+
+    try {
+      const updated: Product = {
+        ...p,
+        costPrice: inlineCost,
+        sellingPrice: inlineSelling,
+        mrp: inlineMrp,
+        updatedAt: new Date().toISOString()
+      };
+      await AppRepository.products.save(updated);
+      setEditingPriceId(null);
+      setPriceSaveNotice(`ભાવ સફળતાપૂર્વક અપડેટ થયો: ${p.name} (Wholesale ₹${inlineCost.toFixed(2)} | MRP ₹${inlineMrp.toFixed(2)})`);
+      setTimeout(() => setPriceSaveNotice(null), 3500);
+      await loadProducts();
+      if (onProductChanged) onProductChanged();
+    } catch (err: any) {
+      alert(`Failed to save price: ${err.message}`);
+    }
+  };
 
   const generateBarcode = () => {
     // Generate valid 13-digit EAN-style barcode starting with 8901262 (Amul prefix)
@@ -262,18 +315,38 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
           </p>
         </div>
 
-        <button
-          onClick={openNewProductModal}
-          disabled={!subCheck.isActive}
-          className={`${
-            subCheck.isActive
-              ? 'bg-blue-600 hover:bg-blue-700 text-white'
-              : 'bg-slate-300 text-slate-500 cursor-not-allowed'
-          } text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm`}
-        >
-          <Plus className="w-4 h-4" />
-          {subCheck.isActive ? 'Add New Product' : 'Plan Expired (Read-Only)'}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              try {
+                const res = await AppRepository.products.syncPreFilledCatalog(currentShop.id);
+                await loadProducts();
+                if (onProductChanged) onProductChanged();
+                alert(`Successfully synchronized Amul master catalog! Total ${res.total} products available with barcodes.`);
+              } catch (err: any) {
+                alert(`Failed to sync catalog: ${err.message}`);
+              }
+            }}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+            title="Populate complete official Amul product lineup with barcodes"
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Pre-Fill Amul Catalog (65+ Items)</span>
+          </button>
+
+          <button
+            onClick={openNewProductModal}
+            disabled={!subCheck.isActive}
+            className={`${
+              subCheck.isActive
+                ? 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'
+                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+            } text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm`}
+          >
+            <Plus className="w-4 h-4" />
+            {subCheck.isActive ? 'Add New Product' : 'Plan Expired (Read-Only)'}
+          </button>
+        </div>
       </div>
 
       {/* Catalog Table Card */}
@@ -307,6 +380,13 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
           </div>
         </div>
 
+        {priceSaveNotice && (
+          <div className="mb-4 p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2 shadow-2xs">
+            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span>{priceSaveNotice}</span>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-y border-slate-200">
@@ -324,8 +404,9 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
             <tbody className="divide-y divide-slate-100 font-mono">
               {filtered.map(p => {
                 const isLow = p.currentStock <= p.minStockAlert;
+                const isEditingThis = editingPriceId === p.id;
                 return (
-                  <tr key={p.id} className="hover:bg-slate-50 transition">
+                  <tr key={p.id} className={`transition ${isEditingThis ? 'bg-blue-50/60' : 'hover:bg-slate-50'}`}>
                     <td className="py-2.5 px-3 font-sans">
                       <div className="flex items-center gap-3">
                         <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-200 p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
@@ -354,9 +435,98 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                         {p.category}
                       </span>
                     </td>
-                    <td className="py-2.5 px-2 text-right text-slate-600">₹{p.costPrice.toFixed(2)}</td>
-                    <td className="py-2.5 px-2 text-right font-bold text-blue-700">₹{p.sellingPrice.toFixed(2)}</td>
-                    <td className="py-2.5 px-2 text-right text-slate-800">₹{p.mrp.toFixed(2)}</td>
+
+                    {/* Wholesale Cost Price Cell (Editable) */}
+                    <td className="py-2.5 px-2 text-right">
+                      {isEditingThis ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <span className="text-slate-400 text-[10px]">₹</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={inlineCost}
+                            onChange={e => setInlineCost(Number(e.target.value))}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') saveInlinePrice(p);
+                              if (e.key === 'Escape') cancelInlinePriceEdit();
+                            }}
+                            className="w-16 px-1.5 py-1 text-right bg-white border border-blue-400 rounded-md font-mono text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500"
+                            title="Wholesale Cost Rate (Enter to save)"
+                            autoFocus
+                          />
+                        </div>
+                      ) : (
+                        <span
+                          onClick={() => startInlinePriceEdit(p)}
+                          className="cursor-pointer text-slate-600 hover:text-blue-700 font-mono hover:underline"
+                          title="Click to edit Wholesale Cost Price"
+                        >
+                          ₹{p.costPrice.toFixed(2)}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Selling Price Cell (Editable) */}
+                    <td className="py-2.5 px-2 text-right">
+                      {isEditingThis ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <span className="text-slate-400 text-[10px]">₹</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={inlineSelling}
+                            onChange={e => setInlineSelling(Number(e.target.value))}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') saveInlinePrice(p);
+                              if (e.key === 'Escape') cancelInlinePriceEdit();
+                            }}
+                            className="w-16 px-1.5 py-1 text-right bg-white border border-blue-400 rounded-md font-mono text-xs font-bold text-blue-700 focus:ring-2 focus:ring-blue-500"
+                            title="Retail Selling Price (Enter to save)"
+                          />
+                        </div>
+                      ) : (
+                        <span
+                          onClick={() => startInlinePriceEdit(p)}
+                          className="cursor-pointer font-bold text-blue-700 hover:text-blue-900 font-mono hover:underline"
+                          title="Click to edit Selling Price"
+                        >
+                          ₹{p.sellingPrice.toFixed(2)}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* MRP Cell (Editable) */}
+                    <td className="py-2.5 px-2 text-right">
+                      {isEditingThis ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <span className="text-slate-400 text-[10px]">₹</span>
+                          <input
+                            type="number"
+                            step="0.1"
+                            min="0"
+                            value={inlineMrp}
+                            onChange={e => setInlineMrp(Number(e.target.value))}
+                            onKeyDown={e => {
+                              if (e.key === 'Enter') saveInlinePrice(p);
+                              if (e.key === 'Escape') cancelInlinePriceEdit();
+                            }}
+                            className="w-16 px-1.5 py-1 text-right bg-white border border-blue-400 rounded-md font-mono text-xs font-bold text-slate-900 focus:ring-2 focus:ring-blue-500"
+                            title="Printed MRP (Enter to save)"
+                          />
+                        </div>
+                      ) : (
+                        <span
+                          onClick={() => startInlinePriceEdit(p)}
+                          className="cursor-pointer text-slate-800 hover:text-blue-700 font-mono hover:underline"
+                          title="Click to edit MRP"
+                        >
+                          ₹{p.mrp.toFixed(2)}
+                        </span>
+                      )}
+                    </td>
+
                     <td className="py-2.5 px-3 text-right font-black text-slate-900 text-sm">
                       {p.currentStock} <span className="text-[10px] font-normal text-slate-500 font-sans">{p.unit}</span>
                     </td>
@@ -372,23 +542,50 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                         </span>
                       )}
                     </td>
+
                     <td className="py-2.5 px-3 text-right font-sans">
-                      <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => openEditProductModal(p)}
-                          className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition"
-                          title="Edit Product"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteProduct(p.id)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition"
-                          title="Delete Product"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      {isEditingThis ? (
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => saveInlinePrice(p)}
+                            className="p-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition shadow-xs cursor-pointer"
+                            title="Save Prices (Enter)"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={cancelInlinePriceEdit}
+                            className="p-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg transition cursor-pointer"
+                            title="Cancel (Esc)"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => startInlinePriceEdit(p)}
+                            className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-lg transition cursor-pointer"
+                            title="Quick Edit Prices (Wholesale &amp; MRP)"
+                          >
+                            <Tag className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => openEditProductModal(p)}
+                            className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition cursor-pointer"
+                            title="Edit Full Product Details"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteProduct(p.id)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition cursor-pointer"
+                            title="Delete Product"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );

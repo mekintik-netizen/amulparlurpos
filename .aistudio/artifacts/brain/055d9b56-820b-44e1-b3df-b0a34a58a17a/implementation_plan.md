@@ -1,144 +1,149 @@
-# In-Card Admin Registration Tab on First Open
+# Implementation Plan: Shop Profile Settings, Custom Bank UPI QR & Bank Statement Tab
 
-Provide a dedicated **Admin Registration** tab directly on the main login card when opening the webpage for the first time, allowing one-time setup of the master admin ID and password, which then locks permanently.
-
-### User Review & Critical Decisions
-
-> [!IMPORTANT]
-> The setup flow is embedded directly inside the login card as a segmented tab rather than a modal or full-screen wizard.
-> - **Default Tab on First Open**: When no admin exists in IndexedDB, the card displays 3 tabs: **Admin Register** (active by default), **Shop Counter**, and **Admin HQ**.
-> - **Permanent Lock**: Once the single Master Admin account is created, the "Admin Register" tab disappears permanently, leaving only **Shop Counter** and **Admin HQ**.
-> - **Password Recovery**: The admin sets a secret recovery question and answer during registration so the password can be recovered anytime from the "Forgot Password?" link on the Admin HQ tab.
+This plan outlines the architecture and execution steps to introduce a dedicated **Shop Profile** management tab, a custom merchant **Bank/UPI QR Code** scanner at POS checkout, and a comprehensive **Bank Statement & Entries (બેંક એન્ટ્રી / પાસબુક)** tab for tracking all digital bank transactions.
 
 ---
 
-### 1. Overview & Core Concept
+## 1. User Requirements Summary
+1. **Custom Shop UPI QR Code at POS Checkout:**
+   - Replace the generic QR code at checkout with the shopkeeper's actual UPI payment QR.
+   - Support uploading a photo/image of the shop's PhonePe/GPay/Paytm/BharatPe QR standee or entering the shop's UPI ID (`merchant@upi`) to generate an instant dynamic UPI QR with pre-filled bill amount.
+   - Display the shop's bank name, UPI ID, and scan instructions so customers can scan and pay directly into the merchant's account.
 
-- **What It Does**: When the application runs for the first time with an uninitialized or empty database, the login screen displays a prominent "Admin Register" tab. The user inputs their desired Admin ID, Password, and a Security Recovery Question/Answer. Submitting creates the sole administrator, locks further admin creation, and immediately logs the administrator into the Admin HQ portal.
-- **Target Audience / Persona**: Shop franchise owners and Amul parlour administrators during initial local system deployment.
-- **Key Value**: Streamlined, intuitive onboarding without jarring full-screen takeovers or confusing popups, while maintaining strict local security and single-admin enforcement.
+2. **Dedicated "Shop Profile" (દુકાન પ્રોફાઇલ & સેટિંગ્સ) Tab:**
+   - Tab in the navigation for managing shop credentials and payment settings.
+   - Edit Shop Name, Owner Name, Contact Phone, Email, Physical Address, City, Pin Code.
+   - Edit GSTIN and FSSAI License Number.
+   - Bank Account Information: Bank Name, Account Holder Name, Account Number, IFSC Code, and Shop UPI ID.
+   - Upload, preview, and delete custom Shop QR code image.
+   - One-click "Print Merchant QR Standee" to print a counter display card for the shop.
 
----
-
-### 2. User Experience & Visual Design
-
-#### Visual Layout & Tab States
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        FIRST-TIME WEBPAGE OPEN                         │
-│                        (No Admin Initialized)                          │
-├────────────────────────────────────────────────────────────────────────┤
-│  ┌───────────────────────┬───────────────────────┬───────────────────┐ │
-│  │   🛡️ Admin Register   │     🏪 Shop Counter   │    🔒 Admin HQ    │ │
-│  │      (Active Tab)     │                       │                   │ │
-│  └───────────────────────┴───────────────────────┴───────────────────┘ │
-│                                                                        │
-│  Admin Username / ID:                                                  │
-│  [ admin                                                            ]  │
-│                                                                        │
-│  Password (min 6 characters):                                          │
-│  [ ••••••••••••                                                   👁 ] │
-│                                                                        │
-│  Confirm Password:                                                     │
-│  [ ••••••••••••                                                   👁 ] │
-│                                                                        │
-│  Security Recovery Question:                                           │
-│  [ What was the name of your first school?                          ▼ ] │
-│                                                                        │
-│  Security Recovery Answer:                                             │
-│  [ St. Xavier's                                                     ]  │
-│                                                                        │
-│  ┌──────────────────────────────────────────────────────────────────┐  │
-│  │            [ Create Admin Account & Log In ]                     │  │
-│  └──────────────────────────────────────────────────────────────────┘  │
-└────────────────────────────────────────────────────────────────────────┘
-
-                                   ▼ Once Created
-
-┌────────────────────────────────────────────────────────────────────────┐
-│                        NORMAL / SUBSEQUENT USE                         │
-│                        (Master Admin Initialized)                      │
-├────────────────────────────────────────────────────────────────────────┤
-│  ┌───────────────────────────────────┬───────────────────────────────┐ │
-│  │           🏪 Shop Counter         │          🔒 Admin HQ          │ │
-│  │            (Cashier POS)          │     (Forgot Password link)    │ │
-│  └───────────────────────────────────┴───────────────────────────────┘ │
-│  * "Admin Register" tab is permanently gone. Only 1 Admin can exist.   │
-└────────────────────────────────────────────────────────────────────────┘
-```
-
-#### Visual Styling & Theme Tokens
-- **Tab Design**: Clean segmented button bar with micro-animations and active indicator styling (`bg-white text-slate-900 shadow-xs font-bold` in light mode, `bg-neutral-800 text-white` in dark mode).
-- **Security Recovery Question**: Clean native select with standard presets (first school, childhood pet, birth city, favorite sports team, custom) and secret answer field.
-- **Micro-Interactions**: Show/hide toggle for password visibility, inline validation errors for mismatched passwords or length under 6 characters, and instant transition into the application.
+3. **Dedicated "Bank Statement & Entries" (બેંક સ્ટેટમેન્ટ & એન્ટ્રી) Tab:**
+   - View a complete passbook/statement of all bank and UPI financial movements.
+   - **Automatic Inflows (Credit):** All POS sales completed via UPI / Bank Transfer.
+   - **Automatic Outflows (Debit):** All supplier purchase payments made via Bank Transfer / UPI, and expense payments logged with Bank/UPI.
+   - **Manual Bank Entries:** Ability to record manual bank transactions (e.g., cash deposited into bank, cash withdrawal from ATM, bank interest received, bank charges, loan EMI, electricity bill paid from bank).
+   - KPI metrics: Total Bank Inflow, Total Bank Outflow, Current Calculated Bank Balance, and Total UPI Collections.
+   - Filter by date range, transaction type, search by UTR / Reference / Party name.
+   - Export Bank Statement to CSV / Excel and Print Passbook Statement.
 
 ---
 
-### 3. Key Product Decisions & Trade-Offs
+## 2. Proposed Architecture & Data Models
 
-- **Decision 1: Direct In-Card Tab vs. Modal / Full-Screen Wizard**
-  - *Chosen Approach*: Embed the registration directly as the active tab inside the login card.
-  - *Why*: Directly aligns with user feedback (*"paheli var webpage opne karta admin rajistesan nu aek teb opane thay"*). Eliminates intrusive modals and keeps the user anchored in the login screen.
-  - *Alternative Considered*: Full-screen setup wizard (rejected by user as too complex/disruptive).
+### A. Shop Profile & Payment Settings in `types/index.ts`
+Enhance the `Shop` interface with:
+```typescript
+export interface Shop {
+  id: string;
+  name: string;
+  regionalName?: string;
+  ownerName: string;
+  phone: string;
+  email: string;
+  address: string;
+  city?: string;
+  pincode?: string;
+  gstin?: string;
+  fssaiNumber?: string;
+  // Bank & UPI configuration
+  bankName?: string;
+  accountHolderName?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+  upiId?: string;           // e.g. amulparlour@okaxis
+  qrCodeImageUrl?: string;  // Base64 or image URL of merchant QR code
+  createdAt: string;
+  updatedAt: string;
+  subscription?: ShopSubscription;
+}
+```
 
-- **Decision 2: Single-Admin Enforced by Storage Layer**
-  - *Chosen Approach*: The client checks `isMasterAdminInitialized()` on mount. Once `performOneTimeAdminSetup()` executes, the storage rejects any additional admin creation attempts.
-  - *Why*: Ensures strict single-administrator ownership and prevents unauthorized admin registrations from any client.
+### B. Bank Entry Model in `types/index.ts`
+```typescript
+export interface BankEntry {
+  id: string;
+  shopId: string;
+  date: string;
+  type: 'CREDIT' | 'DEBIT';
+  category: 'UPI_SALE' | 'SUPPLIER_PAYMENT' | 'EXPENSE' | 'CASH_DEPOSIT' | 'CASH_WITHDRAWAL' | 'BANK_CHARGES' | 'INTEREST' | 'OTHER';
+  amount: number;
+  referenceNumber: string; // UTR / Bill No / Ref No
+  description: string;
+  partyName?: string;      // Customer / Supplier / Bank
+  paymentMode: 'UPI' | 'NEFT_RTGS' | 'CHEQUE' | 'NET_BANKING' | 'OTHER';
+  sourceId?: string;       // Order ID or Purchase ID if automatically synced
+  createdAt: string;
+}
+```
 
-- **Decision 3: Seamless Immediate Login upon Admin Creation**
-  - *Chosen Approach*: Upon successful registration, the tab triggers `onLoginSuccess(session)` directly, landing the admin in the Admin HQ portal immediately without re-typing credentials.
-  - *Why*: High-speed, frictionless onboarding experience.
+### C. Persistent Storage in `storage/repositories.ts`
+- Add `AppRepository.bankEntries`:
+  - `getAll(shopId: string): Promise<BankEntry[]>`
+  - `add(entry: BankEntry): Promise<void>`
+  - `delete(id: string): Promise<void>`
+  - `getStatement(shopId: string, startDate?: string, endDate?: string): Promise<BankStatementSummary>`
+- Hook order completion (when payment mode is `UPI` or `BANK_TRANSFER`) to automatically record a credit in `bankEntries`.
+- Hook purchase bill settlement (when payment mode is `BANK_TRANSFER` or `UPI`) to automatically record a debit in `bankEntries`.
 
 ---
 
-### 4. Technical Architecture & Data Strategy
+## 3. UI Component Plan
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           LoginPage Component                           │
-│  - State: activeTab ('ADMIN_REGISTER' | 'SHOP_USER' | 'ADMIN')          │
-│  - State: hasMasterAdmin (boolean)                                      │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Mount:                                                                 │
-│    isMasterAdminInitialized() ──► false ──► hasMasterAdmin = false      │
-│                                         ──► activeTab = 'ADMIN_REGISTER'│
-│                                                                         │
-│  Form Submission ('ADMIN_REGISTER'):                                    │
-│    performOneTimeAdminSetup({                                           │
-│      username, password, securityQuestion, securityAnswer               │
-│    })                                                                   │
-│      │                                                                  │
-│      ▼                                                                  │
-│  auth.ts (IndexedDB / Local Storage):                                   │
-│    - Hashes password with SHA-256 + salt                                │
-│    - Hashes security answer with SHA-256 + salt                         │
-│    - Saves LocalUser (role: 'ADMIN')                                    │
-│    - Creates and returns AuthSession                                    │
-│      │                                                                  │
-│      ▼                                                                  │
-│  LoginPage:                                                             │
-│    - setHasMasterAdmin(true)  (tab disappears permanently)             │
-│    - onLoginSuccess(session)   (enters Admin HQ portal)                 │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+1. **`src/components/profile/ShopProfileManagement.tsx` (New Component):**
+   - Clean, professional tab with Amul branding.
+   - **Shop Identity Section:** Business Name, Gujarati Name, Owner, Phone, Email, Address, GSTIN, FSSAI.
+   - **Bank & UPI Details:** Bank Name, Account Number, IFSC, Account Holder, and UPI ID.
+   - **Merchant QR Code Studio:**
+     - Live preview of current QR (either uploaded photo or dynamic vector QR generated from UPI ID).
+     - File upload button (drag & drop or click to upload PhonePe/GPay/Paytm QR).
+     - Remove / replace QR button.
+     - Printable A4 / Standee tent-card with Amul Branding: "Scan Here to Pay via GPay / PhonePe / Paytm / BHIM".
+   - Save Changes button with toast notifications and subscription check.
 
-#### Component & State Mapping
-1. **`src/components/auth/LoginPage.tsx`**:
-   - Update tab type: `type LoginTab = 'SHOP_USER' | 'ADMIN' | 'ADMIN_REGISTER'`.
-   - On load, query `isMasterAdminInitialized()`.
-   - If `false`, set `hasMasterAdmin(false)` and `activeTab('ADMIN_REGISTER')`.
-   - When `!hasMasterAdmin`, render the 3-button segmented tab bar: `Admin Register`, `Shop Counter`, `Admin HQ`.
-   - When `activeTab === 'ADMIN_REGISTER'`, render the in-card registration form with Admin ID, Password, Confirm Password, Security Question & Answer, and Submit button.
-   - When submitted, call `performOneTimeAdminSetup()`, set `hasMasterAdmin(true)`, and call `onLoginSuccess(session)`.
-   - When `hasMasterAdmin` is `true`, render the 2-button segmented tab bar: `Shop Counter` and `Admin HQ`.
+2. **`src/components/banking/BankStatementManagement.tsx` (New Component):**
+   - **KPI Summary Cards:**
+     - Total Inflow (UPI Sales + Bank Credits)
+     - Total Outflow (Supplier Payments + Debits)
+     - Net Bank Balance
+     - Today's UPI Collection Count & Value
+   - **Action Bar:**
+     - "+ Add Bank Entry (કેશ જમા / ઉપાડ / ચાર્જીસ)" button opening a modal.
+     - Date Range Picker (Today, This Week, This Month, Custom).
+     - Type Filter (All, Credit / આવક, Debit / ખર્ચ).
+     - Search bar for UTR / Reference / Party name.
+     - Export to CSV / Excel and Print Statement buttons with official branded header.
+   - **Statement Table:**
+     - Date & Time
+     - Type (Credit [Green] / Debit [Red])
+     - Category (UPI વેચાણ, સપ્લાયર પેમેન્ટ, ખર્ચ, બેંક એન્ટ્રી)
+     - Party / Account Name
+     - Reference / UTR Number
+     - Credit Amount (₹)
+     - Debit Amount (₹)
+     - Running Balance (₹)
+     - Action (Delete for manual entries)
 
-2. **Verification Plan**:
-   - Verify zero-state loads with the "Admin Register" tab active by default.
-   - Test password match validation, minimum length check (6 characters).
-   - Test admin creation and verify immediate transition to Admin HQ.
-   - Reload page and confirm only "Shop Counter" and "Admin HQ" appear.
-   - Verify "Forgot Password?" still recovers the admin password using the registered security answer.
-   - Run `npm test -- --run` to ensure all 84 test suites pass.
-   - Run `compile_applet` to ensure zero compilation or type errors.
+3. **POS Checkout Modal Enhancement (`src/components/pos/CheckoutModal.tsx`):**
+   - When payment mode is `UPI`:
+     - If the shop has an uploaded `qrCodeImageUrl`, render the shopkeeper's authentic QR code image.
+     - If the shop has a `upiId`, generate a dynamic QR code using `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=` with the encoded `upi://pay?pa={upiId}&pn={shopName}&am={finalTotal}&cu=INR`.
+     - Display: Shop Name, Merchant UPI ID, and exact amount to be paid.
+     - Quick "Copy UPI ID" button.
+     - Direct confirmation: "ગ્રાહકે પેમેન્ટ કર્યા પછી Pay & Print પર ક્લિક કરો".
+
+4. **Navigation Integration (`src/components/layout/Sidebar.tsx` & `src/App.tsx`):**
+   - Add **"બેંક સ્ટેટમેન્ટ" (Bank Statement)** tab with a bank/wallet icon.
+   - Add **"દુકાન પ્રોફાઇલ" (Shop Profile)** tab with a store/settings icon.
+   - Accessible to Cashier / Admin / Master Admin roles with appropriate permission control.
+
+---
+
+## 4. Verification & Testing
+- Unit tests in `test/bank-and-profile.test.ts`:
+  - Verify shop profile updating and persistence of bank details and QR image.
+  - Verify automatic creation of bank entries on UPI sales and supplier payments.
+  - Verify manual bank entry creation (cash deposit, withdrawal, charges) and running balance calculations.
+  - Verify POS checkout modal displays merchant custom QR when uploaded or UPI ID format.
+- Run `npm test` and `compile_applet`.
+- Repackage offline zip.

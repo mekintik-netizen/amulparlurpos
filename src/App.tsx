@@ -36,6 +36,8 @@ import { BackupRestoreModal } from './components/common/BackupRestoreModal.tsx';
 import { TestSuiteModal } from './components/tests/TestSuiteModal.tsx';
 import { ReportsHub } from './components/reports/ReportsHub.tsx';
 import { BackupManagementView } from './components/backup/BackupManagementView.tsx';
+import { ShopProfileManagement } from './components/profile/ShopProfileManagement.tsx';
+import { BankStatementManagement } from './components/banking/BankStatementManagement.tsx';
 import { RightSideNavigation } from './components/layout/RightSideNavigation.tsx';
 import { Shop, SaleBill } from './types/index.ts';
 import { AppRepository } from './storage/repositories.ts';
@@ -298,6 +300,23 @@ export default function App() {
 
               {activeTab === 'EXPENSES' && (
                 <ExpenseManagement currentShop={currentShop} />
+              )}
+
+              {activeTab === 'BANK' && (
+                <BankStatementManagement
+                  currentShop={currentShop}
+                  onOpenProfileTab={() => setActiveTab('PROFILE')}
+                />
+              )}
+
+              {activeTab === 'PROFILE' && (
+                <ShopProfileManagement
+                  currentShop={currentShop}
+                  onShopUpdated={(updated) => {
+                    setCurrentShop(updated);
+                    setShops((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+                  }}
+                />
               )}
 
               {activeTab === 'CATALOG' && (

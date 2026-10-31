@@ -9,6 +9,8 @@
 
 import {
   BackupSettings,
+  BankEntry,
+  BankStatementSummary,
   DailyFinancialSummary,
   DailySalesReportSummary,
   DailyStockReportRow,
@@ -100,6 +102,9 @@ export const AppRepository = {
         return;
       }
       return localDb.deleteProduct(productId);
+    },
+    syncPreFilledCatalog: async (shopId: string): Promise<{ added: number; total: number }> => {
+      return localDb.syncPreFilledAmulCatalogForShop(shopId);
     }
   },
 
@@ -328,7 +333,64 @@ export const AppRepository = {
     }
   },
 
-  // 7. Reports & Audits
+  // 7. Banking & Passbook Statement
+  banking: {
+    getByShop: async (
+      shopId: string,
+      startDate?: string,
+      endDate?: string,
+      category?: string
+    ): Promise<BankEntry[]> => {
+      if (isBackendConnected()) {
+        const params = new URLSearchParams({ shopId });
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        if (category) params.append('category', category);
+        const res = await fetch(`${API_BASE_URL}/api/banking/entries?${params.toString()}`);
+        if (!res.ok) throw new Error('Failed to fetch bank entries');
+        return res.json();
+      }
+      return localDb.getBankEntriesByShop(shopId, startDate, endDate, category);
+    },
+    saveEntry: async (
+      entry: Omit<BankEntry, 'id' | 'createdAt'> & { id?: string }
+    ): Promise<BankEntry> => {
+      if (isBackendConnected()) {
+        const res = await fetch(`${API_BASE_URL}/api/banking/entries`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(entry)
+        });
+        if (!res.ok) throw new Error('Failed to save bank entry');
+        return res.json();
+      }
+      return localDb.saveBankEntry(entry);
+    },
+    deleteEntry: async (id: string): Promise<void> => {
+      if (isBackendConnected()) {
+        await fetch(`${API_BASE_URL}/api/banking/entries/${id}`, { method: 'DELETE' });
+        return;
+      }
+      return localDb.deleteBankEntry(id);
+    },
+    getSummary: async (
+      shopId: string,
+      startDate?: string,
+      endDate?: string
+    ): Promise<BankStatementSummary> => {
+      if (isBackendConnected()) {
+        const params = new URLSearchParams({ shopId });
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        const res = await fetch(`${API_BASE_URL}/api/banking/summary?${params.toString()}`);
+        if (!res.ok) throw new Error('Failed to fetch bank summary');
+        return res.json();
+      }
+      return localDb.getBankStatementSummary(shopId, startDate, endDate);
+    }
+  },
+
+  // 8. Reports & Audits
   reports: {
     getDailyStock: async (shopId: string, date: string): Promise<DailyStockReportRow[]> => {
       if (isBackendConnected()) {

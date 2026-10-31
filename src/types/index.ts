@@ -58,6 +58,7 @@ export interface Shop {
   id: string; // Internal UUID
   shopCode: string; // e.g. "AP-2026-1001"
   name: string;
+  regionalName?: string; // Gujarati shop name, e.g. 'અમૂલ પ્રેફર્ડ આઉટલેટ'
   ownerName: string;
   phone: string;
   email: string;
@@ -67,6 +68,12 @@ export interface Shop {
   pincode: string;
   gstNumber?: string;
   fssaiNumber?: string;
+  bankName?: string; // e.g. 'State Bank of India (SBI)'
+  accountHolderName?: string; // e.g. 'Rajesh Patel'
+  accountNumber?: string; // e.g. '384910204928'
+  ifscCode?: string; // e.g. 'SBIN0000315'
+  upiId?: string; // e.g. 'amulparlour.anand@sbi'
+  qrCodeImageUrl?: string; // Base64 data URL or custom image URL for the shop's payment QR
   approvalStatus: ShopApprovalStatus;
   subscriptionPlanId: SubscriptionPlanId;
   subscriptionStatus: SubscriptionStatus;
@@ -327,6 +334,49 @@ export interface DailyFinancialSummary {
 }
 
 // ==========================================
+// BANKING & PASSBOOK STATEMENT
+// ==========================================
+
+export type BankEntryType = 'CREDIT' | 'DEBIT';
+
+export type BankEntryCategory = 
+  | 'UPI_SALE'            // Customer UPI payment received at POS counter
+  | 'SUPPLIER_PAYMENT'    // Bank/UPI payment to GCMMF or distributor
+  | 'CASH_DEPOSIT'        // Cash counter deposit into bank account
+  | 'CASH_WITHDRAWAL'     // Cash drawn from bank for cash box / change
+  | 'EXPENSE'             // Shop electricity, rent or parlour maintenance paid from bank
+  | 'BANK_CHARGES'        // Bank SMS/maintenance/cheque return charges
+  | 'INTEREST'            // Savings/FD interest credited by bank
+  | 'DRAWINGS'            // Owner personal withdrawal
+  | 'OTHER';
+
+export interface BankEntry {
+  id: string;
+  shopId: string;
+  date: string; // ISO-8601 string or YYYY-MM-DD
+  type: BankEntryType; // CREDIT (Money in) | DEBIT (Money out)
+  category: BankEntryCategory;
+  amount: number;
+  referenceNumber: string; // Bill #, UTR #, Cheque #, or Cash deposit slip #
+  description: string;
+  partyName?: string; // Customer, Supplier, EB, Bank, etc.
+  paymentMode: 'UPI' | 'NEFT_RTGS' | 'CHEQUE' | 'NET_BANKING' | 'CASH_DEPOSIT' | 'OTHER';
+  sourceId?: string; // Links to SaleBill.id, PurchaseBill.id or Expense.id
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface BankStatementSummary {
+  totalCredits: number;
+  totalDebits: number;
+  netBalance: number;
+  upiSalesTotal: number;
+  upiSalesCount: number;
+  supplierPaymentsTotal: number;
+  cashDepositsTotal: number;
+}
+
+// ==========================================
 // AUTOMATED BACKUP & INTEGRITY MANIFEST
 // ==========================================
 
@@ -344,6 +394,7 @@ export interface BackupManifest {
     suppliers: number;
     supplierPayments: number;
     expenses: number;
+    bankEntries?: number;
   };
   checksum: string;
   generator: string;
@@ -359,6 +410,7 @@ export interface LocalDatabaseExport {
   suppliers: Supplier[];
   supplierPayments: SupplierPayment[];
   expenses: Expense[];
+  bankEntries?: BankEntry[];
   settings?: Record<string, any>;
 }
 
@@ -389,7 +441,7 @@ export interface BackupSettings {
 export interface SyncOutboxEntry {
   id: string;
   shopId: string;
-  entityType: 'SHOP' | 'PRODUCT' | 'SALE' | 'PURCHASE' | 'MOVEMENT' | 'SUPPLIER' | 'EXPENSE';
+  entityType: 'SHOP' | 'PRODUCT' | 'SALE' | 'PURCHASE' | 'MOVEMENT' | 'SUPPLIER' | 'EXPENSE' | 'BANK_ENTRY';
   entityId: string;
   operation: 'INSERT' | 'UPDATE' | 'DELETE';
   payload: any;

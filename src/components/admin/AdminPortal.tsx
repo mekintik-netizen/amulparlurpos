@@ -489,16 +489,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
           )}
 
-          {/* Top Bar with Register Shop Action */}
+          {/* Top Bar with Register Shop Action & Official Brand Artwork */}
           <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <Store className="w-5 h-5 text-blue-600" />
-                Amul Parlour Franchise & Shop Management
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Register new shops as Admin, assign plans, and verify shop owner credentials.
-              </p>
+            <div className="flex items-center gap-3.5">
+              <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-2xs shrink-0 hidden sm:block">
+                <img
+                  src="/assets/aistudio/images__2__c16e6a94.jpg"
+                  alt="Amul"
+                  className="h-10 w-auto object-contain"
+                  loading="eager"
+                />
+              </div>
+              <div>
+                <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
+                  <Store className="w-5 h-5 text-blue-600" />
+                  Amul Parlour Franchise & Shop Management
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Register new shops as Admin, assign plans, and verify shop owner credentials.
+                </p>
+              </div>
             </div>
 
             <div className="flex items-center gap-3">

@@ -225,10 +225,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </button>
         )}
 
-        {/* Amul Brand Header */}
+        {/* Amul Brand Header with Official Logo Artwork */}
         <div className="text-center mb-5">
-          <div className="inline-flex items-center justify-center p-2.5 bg-[#005A9C] text-white rounded-2xl shadow-xs mb-2.5">
-            <span className="font-black text-xl tracking-tight uppercase">Amul</span>
+          <div className="flex justify-center mb-2">
+            <div className="bg-white p-2 rounded-2xl border border-slate-200 dark:border-neutral-800 shadow-xs inline-block">
+              <img
+                src="/assets/aistudio/images__2__c16e6a94.jpg"
+                alt="Amul - The Taste of India"
+                className="h-16 max-w-[240px] w-auto object-contain mx-auto"
+                loading="eager"
+              />
+            </div>
           </div>
           <h1 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
             Amul Preferred Parlour

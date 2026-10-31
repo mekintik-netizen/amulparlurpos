@@ -27,7 +27,9 @@ import {
   RefreshCw,
   Eye,
   Trash2,
-  Edit3
+  Edit3,
+  Barcode,
+  Sparkles
 } from 'lucide-react';
 import { Product, PurchaseBill, PurchaseItem, PurchaseBillStatus, PaymentMode, Shop, Supplier } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
@@ -60,10 +62,14 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   const [notes, setNotes] = useState('');
   const [purchaseItems, setPurchaseItems] = useState<PurchaseItem[]>([]);
 
-  // Item row input state
+  // Item row input state & quick barcode scan
   const [selectedProductId, setSelectedProductId] = useState('');
   const [itemQty, setItemQty] = useState<number>(10);
   const [itemRate, setItemRate] = useState<number>(0);
+  const [itemMrp, setItemMrp] = useState<number>(0);
+  const [itemSearchBarcode, setItemSearchBarcode] = useState('');
+  const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
+  const qtyInputRef = React.useRef<HTMLInputElement>(null);
 
   // Supplier Modal State
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
@@ -100,6 +106,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
       if (prodList.length > 0 && !selectedProductId) {
         setSelectedProductId(prodList[0].id);
         setItemRate(prodList[0].costPrice);
+        setItemMrp(prodList[0].mrp);
       }
     } catch (err) {
       console.error('Failed to load purchase data:', err);
@@ -120,6 +127,38 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     }
   }, [selectedProductId, products]);
 
+  const handleSyncCatalog = async () => {
+    try {
+      setIsSyncingCatalog(true);
+      const res = await AppRepository.products.syncPreFilledCatalog(currentShop.id);
+      await loadData();
+      if (onStockUpdated) onStockUpdated();
+      alert(`Successfully synchronized ${res.total} Amul products with barcodes!`);
+    } catch (err: any) {
+      alert(`Failed to sync catalog: ${err.message}`);
+    } finally {
+      setIsSyncingCatalog(false);
+    }
+  };
+
+  const handleBarcodeSearchInPurchase = (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    const matched = products.find(
+      p => p.barcode === trimmed || p.name.toLowerCase().includes(trimmed.toLowerCase())
+    );
+    if (matched) {
+      setSelectedProductId(matched.id);
+      setItemRate(matched.costPrice);
+      setItemMrp(matched.mrp);
+      setItemSearchBarcode('');
+      setTimeout(() => {
+        qtyInputRef.current?.focus();
+        qtyInputRef.current?.select();
+      }, 50);
+    }
+  };
+
   // Add Item to Purchase Items Table
   const handleAddItem = () => {
     const prod = products.find(p => p.id === selectedProductId);
@@ -130,6 +169,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
       const updated = [...purchaseItems];
       updated[existingIndex].quantity += itemQty;
       updated[existingIndex].purchaseRate = itemRate;
+      if (itemMrp > 0) updated[existingIndex].mrp = itemMrp;
       updated[existingIndex].total = updated[existingIndex].quantity * itemRate;
       setPurchaseItems(updated);
     } else {
@@ -140,7 +180,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
         quantity: itemQty,
         unit: prod.unit,
         purchaseRate: itemRate,
-        mrp: prod.mrp,
+        mrp: itemMrp > 0 ? itemMrp : prod.mrp,
         total: itemQty * itemRate
       };
       setPurchaseItems([...purchaseItems, newItem]);
@@ -171,6 +211,14 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     setPurchaseItems(updated);
   };
 
+  // Direct editing of item MRP in purchase bill
+  const updateItemMrp = (index: number, newMrp: number) => {
+    if (newMrp < 0 || isNaN(newMrp)) return;
+    const updated = [...purchaseItems];
+    updated[index].mrp = newMrp;
+    setPurchaseItems(updated);
+  };
+
   const openNewPurchaseModal = () => {
     if (!subCheck.isActive) {
       alert(`Cannot record new purchase: ${subCheck.message}. All previous purchases and supplier balances are preserved.`);
@@ -188,6 +236,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     if (products.length > 0) {
       setSelectedProductId(products[0].id);
       setItemRate(products[0].costPrice);
+      setItemMrp(products[0].mrp);
     }
     setIsPurchaseModalOpen(true);
   };
@@ -379,6 +428,19 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
           </div>
 
           <div className="flex items-center gap-2">
+            {products.length < 50 && (
+              <button
+                type="button"
+                onClick={handleSyncCatalog}
+                disabled={isSyncingCatalog}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                title="Populate full 65+ official Amul products with barcodes into shop"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>{isSyncingCatalog ? 'Syncing...' : 'Pre-Fill 65+ Amul Products'}</span>
+              </button>
+            )}
+
             <button
               onClick={openNewPurchaseModal}
               disabled={!subCheck.isActive}
@@ -395,7 +457,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
 
             <button
               onClick={() => setIsSupplierModalOpen(true)}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition flex items-center gap-1.5"
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
             >
               <Users className="w-3.5 h-3.5 text-blue-600" />
               Add Supplier
@@ -714,37 +776,82 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 </div>
               </div>
 
-              {/* Add Product Items Row */}
-              <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-3 space-y-2">
-                <div className="text-xs font-bold text-blue-900">Add Delivered Items</div>
+              {/* Add Product Items Row (Quantity-Focused with Barcode Scanner) */}
+              <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
+                    <Barcode className="w-4 h-4 text-blue-600" />
+                    <span>Add Delivered Items (Scan Barcode or Pick Item)</span>
+                  </div>
+                  <span className="text-[10px] text-blue-600 font-medium">
+                    Barcode gun scan selects item automatically — only enter quantity!
+                  </span>
+                </div>
+
+                {/* Quick Barcode Scanner / Search Input */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={itemSearchBarcode}
+                    onChange={(e) => {
+                      setItemSearchBarcode(e.target.value);
+                      handleBarcodeSearchInPurchase(e.target.value);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleBarcodeSearchInPurchase(itemSearchBarcode);
+                      }
+                    }}
+                    placeholder="⚡ Point barcode gun & scan product barcode (or type product name)..."
+                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-blue-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                  />
+                  <Barcode className="w-4 h-4 text-blue-500 absolute left-2.5 top-2" />
+                </div>
+
                 <div className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-12 sm:col-span-5">
-                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Product</label>
+                  <div className="col-span-12 sm:col-span-4">
+                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Select Item from Catalog</label>
                     <select
                       value={selectedProductId}
-                      onChange={e => setSelectedProductId(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                      onChange={e => {
+                        setSelectedProductId(e.target.value);
+                        const prod = products.find(p => p.id === e.target.value);
+                        if (prod) {
+                          setItemRate(prod.costPrice);
+                          setItemMrp(prod.mrp);
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium"
                     >
                       {products.map(p => (
                         <option key={p.id} value={p.id}>
-                          {p.name} (Cur: {p.currentStock})
+                          {p.name} · ₹{p.costPrice.toFixed(2)} [MRP ₹{p.mrp.toFixed(2)}]
                         </option>
                       ))}
                     </select>
                   </div>
 
-                  <div className="col-span-4 sm:col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Quantity</label>
+                  <div className="col-span-6 sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-blue-800 mb-0.5">Quantity *</label>
                     <input
+                      ref={qtyInputRef}
                       type="number"
                       min="1"
                       value={itemQty}
                       onChange={e => setItemQty(Number(e.target.value))}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs"
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddItem();
+                        }
+                      }}
+                      className="w-full px-2.5 py-1.5 bg-white border-2 border-blue-400 rounded-lg font-mono text-xs font-bold text-blue-900 focus:ring-2 focus:ring-blue-600"
+                      title="Press Enter after typing quantity to add"
                     />
                   </div>
 
-                  <div className="col-span-4 sm:col-span-3">
+                  <div className="col-span-6 sm:col-span-2">
                     <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Cost Rate (₹)</label>
                     <input
                       type="number"
@@ -752,17 +859,31 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                       min="0.1"
                       value={itemRate}
                       onChange={e => setItemRate(Number(e.target.value))}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs font-bold"
+                      title="Wholesale purchase price from distributor"
                     />
                   </div>
 
-                  <div className="col-span-4 sm:col-span-2">
+                  <div className="col-span-6 sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Retail MRP (₹)</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={itemMrp}
+                      onChange={e => setItemMrp(Number(e.target.value))}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs"
+                      title="Printed Retail MRP"
+                    />
+                  </div>
+
+                  <div className="col-span-6 sm:col-span-2">
                     <button
                       type="button"
                       onClick={handleAddItem}
-                      className="w-full bg-blue-600 hover:bg-blue-700 text-white py-1.5 rounded-lg text-xs font-bold transition"
+                      className="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white py-1.5 rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
                     >
-                      + Add
+                      + Add Item
                     </button>
                   </div>
                 </div>
@@ -773,9 +894,10 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 font-bold text-slate-600 border-b border-slate-200 text-[10px] uppercase">
                     <tr>
-                      <th className="py-2 px-3">Item Name</th>
-                      <th className="py-2 px-2 text-right">Qty (Editable)</th>
+                      <th className="py-2 px-3">Item Name &amp; Barcode</th>
+                      <th className="py-2 px-2 text-right">Qty</th>
                       <th className="py-2 px-2 text-right">Cost Rate (₹)</th>
+                      <th className="py-2 px-2 text-right">MRP (₹)</th>
                       <th className="py-2 px-3 text-right">Total</th>
                       <th className="py-2 px-2 text-center">Del</th>
                     </tr>
@@ -783,7 +905,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                   <tbody className="divide-y divide-slate-100 font-mono">
                     {purchaseItems.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="py-4 text-center text-slate-400 font-sans">
+                        <td colSpan={6} className="py-4 text-center text-slate-400 font-sans">
                           No items added yet. Use the form above to add delivered products.
                         </td>
                       </tr>
@@ -815,7 +937,22 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                                 min="0.1"
                                 value={item.purchaseRate}
                                 onChange={e => updateItemRate(idx, Number(e.target.value))}
-                                className="w-20 px-1.5 py-1 text-right bg-white border border-slate-300 rounded-md text-xs font-mono font-bold focus:ring-1 focus:ring-blue-500"
+                                className="w-18 px-1.5 py-1 text-right bg-white border border-slate-300 rounded-md text-xs font-mono font-bold focus:ring-1 focus:ring-blue-500"
+                                title="Wholesale dealer rate"
+                              />
+                            </div>
+                          </td>
+                          <td className="py-2 px-2 text-right">
+                            <div className="inline-flex items-center gap-1 justify-end font-sans">
+                              <span className="text-slate-400 text-[11px]">₹</span>
+                              <input
+                                type="number"
+                                step="0.1"
+                                min="0.1"
+                                value={item.mrp}
+                                onChange={e => updateItemMrp(idx, Number(e.target.value))}
+                                className="w-18 px-1.5 py-1 text-right bg-white border border-slate-300 rounded-md text-xs font-mono text-slate-700 focus:ring-1 focus:ring-blue-500"
+                                title="Printed MRP"
                               />
                             </div>
                           </td>
@@ -826,7 +963,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                             <button
                               type="button"
                               onClick={() => handleRemoveItem(idx)}
-                              className="text-slate-400 hover:text-rose-600 transition p-1"
+                              className="text-slate-400 hover:text-rose-600 transition p-1 cursor-pointer"
                               title="Remove line item"
                             >
                               <Trash2 className="w-3.5 h-3.5" />

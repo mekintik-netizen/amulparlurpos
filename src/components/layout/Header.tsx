@@ -24,7 +24,9 @@ import {
   Sun,
   Moon,
   FileText,
-  Database
+  Database,
+  Landmark,
+  QrCode
 } from 'lucide-react';
 import { Shop } from '../../types/index.ts';
 import { AuthSession } from '../../storage/auth.ts';
@@ -37,6 +39,8 @@ export type ActiveTab =
   | 'SALES' 
   | 'REPORTS'
   | 'EXPENSES'
+  | 'BANK'
+  | 'PROFILE'
   | 'CATALOG'
   | 'BACKUP'
   | 'ADMIN';
@@ -79,15 +83,20 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center justify-between h-16 gap-3">
           {/* Brand Logo & Title */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="bg-white text-[#005A9C] font-black text-xl px-2.5 py-1 rounded-lg tracking-wider border-2 border-[#E31837] shadow-xs flex items-center gap-1.5">
-              <span className="text-[#E31837]">Amul</span>
-              <span className="text-xs font-bold uppercase text-slate-800 tracking-normal bg-slate-100 px-1 py-0.5 rounded">
+            <div className="bg-white px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xs flex items-center gap-2">
+              <img
+                src="/assets/aistudio/images__2__c16e6a94.jpg"
+                alt="Amul"
+                className="h-8 sm:h-9 w-auto object-contain"
+                loading="eager"
+              />
+              <span className="text-[11px] font-extrabold uppercase text-[#005A9C] tracking-wide bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
                 Parlour
               </span>
             </div>
 
-            <div className="hidden 2xl:block">
-              <div className="font-extrabold text-sm tracking-tight leading-tight flex items-center gap-1.5">
+            <div className="hidden xl:block">
+              <div className="font-extrabold text-xs tracking-tight leading-tight flex items-center gap-1.5 text-white">
                 The Taste of India
                 <span className="text-[10px] font-normal text-blue-200">| Web POS Portal</span>
               </div>
@@ -166,6 +175,32 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Calculator className="w-4 h-4" />
               <span>P&L & Expenses</span>
+            </button>
+
+            <button
+              onClick={() => onTabChange('BANK')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                activeTab === 'BANK'
+                  ? 'bg-white text-[#005A9C] shadow-sm'
+                  : 'text-emerald-200 bg-blue-900/40 hover:bg-blue-800'
+              }`}
+              title="Bank Statement, Passbook & UPI Entries (બેંક સ્ટેટમેન્ટ)"
+            >
+              <Landmark className="w-4 h-4 text-emerald-300" />
+              <span>Bank Statement</span>
+            </button>
+
+            <button
+              onClick={() => onTabChange('PROFILE')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                activeTab === 'PROFILE'
+                  ? 'bg-white text-[#005A9C] shadow-sm'
+                  : 'text-blue-100 hover:bg-blue-800/60'
+              }`}
+              title="Shop Profile & Bank QR Settings (દુકાન પ્રોફાઇલ)"
+            >
+              <Store className="w-4 h-4" />
+              <span>Shop Profile & QR</span>
             </button>
 
             <button

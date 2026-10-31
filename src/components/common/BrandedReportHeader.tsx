@@ -53,17 +53,18 @@ export const BrandedReportHeader: React.FC<BrandedReportHeaderProps> = ({
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
         {/* Left: Official Amul Brand Badge & Shop Details */}
         <div className="flex items-start gap-4">
-          {/* Amul Brand Emblem */}
+          {/* Official Amul Brand Artwork */}
           <div className="shrink-0 flex flex-col items-center">
-            <div className="bg-[#005A9C] text-white px-3 py-1.5 rounded-xl border-2 border-[#E31837] shadow-sm flex items-center gap-1.5 font-sans">
-              <span className="text-[#E31837] font-black text-xl tracking-wider bg-white px-2 py-0.5 rounded-md">Amul</span>
-              <div className="flex flex-col text-left leading-none">
-                <span className="text-[10px] font-black uppercase tracking-wider text-amber-200">The Taste of India</span>
-                <span className="text-[9px] font-semibold text-blue-100">Preferred Outlet</span>
-              </div>
+            <div className="bg-white p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs">
+              <img
+                src="/assets/aistudio/images__2__c16e6a94.jpg"
+                alt="Amul - The Taste of India"
+                className="h-14 sm:h-16 w-auto object-contain print:h-16"
+                loading="eager"
+              />
             </div>
-            <span className="text-[8px] font-bold text-slate-400 mt-1 uppercase tracking-widest font-mono">
-              GCMMF Network
+            <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-widest font-mono">
+              The Taste of India
             </span>
           </div>
 
