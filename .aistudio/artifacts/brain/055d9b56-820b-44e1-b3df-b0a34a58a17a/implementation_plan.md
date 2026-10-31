@@ -1,103 +1,144 @@
-# Implementation Plan: Master Admin Setup, Password Recovery & Shop Management
+# In-Card Admin Registration Tab on First Open
 
-This plan implements the complete workflow requested by the user:
-1. **One-Time Master Admin Creation**: When opening the webpage for the first time, guide the user to create the ONE AND ONLY Master Admin ID. Once created, admin creation is permanently locked.
-2. **Admin Password Recovery via Security Question**: During admin setup, save a secret security question & answer. If the admin forgets their password, they answer their question to securely reset their password.
-3. **Shop Profile Registration with Unique ID & Password**: Inside Admin Portal, when creating a new shop, the admin provides full shop details and sets a dedicated, unique Shop Owner Login ID and Password.
-4. **Shop Owner Password Management by Admin**: Inside Admin Portal, add a "Reset Shop Password" tool so the admin can change or reset any shop's password at any time.
-5. **1-Month Subscription Auto-Activation & Renewal**: Fix the 1-month subscription so that newly registered shops are immediately active for 30 days upon creation, and the Admin can extend or renew for +30 days with a single click.
+Provide a dedicated **Admin Registration** tab directly on the main login card when opening the webpage for the first time, allowing one-time setup of the master admin ID and password, which then locks permanently.
 
----
+### User Review & Critical Decisions
 
-## 1. Architecture & Workflow Diagram
-
-```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        FIRST-TIME SYSTEM INITIALIZATION                │
-├────────────────────────────────────────────────────────────────────────┤
-│ • Initial Open (No Admin in DB):                                       │
-│   - Detects `!hasMasterAdmin` in IndexedDB                             │
-│   - Launches "One-Time Master Admin Setup" wizard                      │
-│   - Admin enters: Username, Password, Security Question & Answer       │
-│   - Saves Master Admin with cryptographic salt & SHA-256 hash          │
-│   - Permanently locks admin registration (single master admin only)    │
-│                                                                        │
-│ • Admin Forgot Password Flow:                                          │
-│   - Admin clicks "Forgot Password?" on Admin HQ tab                    │
-│   - Prompts for Admin Username -> displays saved Security Question     │
-│   - Validates secret answer -> allows setting new Admin Password       │
-└────────────────────────────────────────────────────────────────────────┘
-
-┌────────────────────────────────────────────────────────────────────────┐
-│                        ADMIN PORTAL SHOP & CREDENTIALS                 │
-├────────────────────────────────────────────────────────────────────────┤
-│ • Shop Registration:                                                   │
-│   - Admin fills Shop Profile (Name, Owner, Phone, City, GST, FSSAI)   │
-│   - Admin sets Unique Shop Owner Login ID & Password                   │
-│   - 1-Month Plan is auto-activated for 30 days from creation date      │
-│   - Both Shop record and User record are saved safely in IndexedDB    │
-│                                                                        │
-│ • Shop Password Reset by Admin:                                        │
-│   - Admin Portal shops table includes "Change / Reset Password" button │
-│   - Admin enters new password for that specific shop                   │
-│   - Updates shop user's salt & passwordHash immediately                │
-│                                                                        │
-│ • 1-Month Subscription Extension:                                      │
-│   - Status display (Days remaining & Expiry date)                      │
-│   - "Activate / Extend +30 Days" button extends 30 days cleanly        │
-└────────────────────────────────────────────────────────────────────────┘
-```
+> [!IMPORTANT]
+> The setup flow is embedded directly inside the login card as a segmented tab rather than a modal or full-screen wizard.
+> - **Default Tab on First Open**: When no admin exists in IndexedDB, the card displays 3 tabs: **Admin Register** (active by default), **Shop Counter**, and **Admin HQ**.
+> - **Permanent Lock**: Once the single Master Admin account is created, the "Admin Register" tab disappears permanently, leaving only **Shop Counter** and **Admin HQ**.
+> - **Password Recovery**: The admin sets a secret recovery question and answer during registration so the password can be recovered anytime from the "Forgot Password?" link on the Admin HQ tab.
 
 ---
 
-## 2. Proposed File Changes
+### 1. Overview & Core Concept
 
-### 1. `src/storage/auth.ts`
-- Add security question support:
-  - Extend `LocalUser` interface to include `securityQuestion?: string` and `securityAnswerHash?: string`.
-  - Update `isMasterAdminInitialized()` to check whether a real user-created master admin exists in `appSettings` or users store.
-  - Add `setupInitialMasterAdmin(params: { username, fullName, password, securityQuestion, securityAnswer })`:
-    - Checks that no master admin exists yet.
-    - Hashes password with salt.
-    - Hashes or normalizes security answer.
-    - Sets `master_admin_initialized` flag in `appSettings`.
-  - Add `getAdminSecurityQuestion(username: string)`:
-    - Retrieves the configured security question for password recovery.
-  - Add `resetAdminPasswordWithSecurityAnswer(username, securityAnswer, newPassword)`:
-    - Validates security answer.
-    - Updates admin password hash with a fresh cryptographically random salt.
-  - Add `adminResetShopPassword(shopCode: string, newPassword: string)`:
-    - Allows an authenticated admin to reset a shop owner's / cashier's password.
+- **What It Does**: When the application runs for the first time with an uninitialized or empty database, the login screen displays a prominent "Admin Register" tab. The user inputs their desired Admin ID, Password, and a Security Recovery Question/Answer. Submitting creates the sole administrator, locks further admin creation, and immediately logs the administrator into the Admin HQ portal.
+- **Target Audience / Persona**: Shop franchise owners and Amul parlour administrators during initial local system deployment.
+- **Key Value**: Streamlined, intuitive onboarding without jarring full-screen takeovers or confusing popups, while maintaining strict local security and single-admin enforcement.
 
-### 2. `src/components/auth/AdminRegistration.tsx`
-- Enhance the initial setup form:
-  - Add selectable preset security questions (e.g. "What was your first school name?", "What is your birthplace?", "What is your favorite Amul ice cream?") plus custom question input.
-  - Secret answer input field.
-  - Clean error handling and immediate login on completion.
+---
 
-### 3. `src/components/auth/AdminPasswordResetModal.tsx` *(NEW)*
-- Modal for admin password reset:
-  - Step 1: Enter admin username.
-  - Step 2: Answer the security question.
-  - Step 3: Enter new password and confirm.
+### 2. User Experience & Visual Design
 
-### 4. `src/components/auth/LoginPage.tsx`
-- Add "Forgot Admin Password?" link on the Admin HQ tab to open `AdminPasswordResetModal`.
-- On launch, if `!hasMasterAdmin`, open the `AdminRegistration` wizard full screen so the user creates the single master admin first.
+#### Visual Layout & Tab States
 
-### 5. `src/components/admin/AdminPortal.tsx`
-- In `handleSaveShop`:
-  - When creating a new shop, auto-set `subscriptionStatus: 'ACTIVE'`, `approvalStatus: 'APPROVED'`, `subscriptionStartDate: now`, `subscriptionExpiryDate: now + 30 days`.
-  - Provide input fields for Unique Shop Owner Login ID and Password.
-  - Register the shop user account automatically.
-- In the Shop Management Table:
-  - Add a **"Reset Password"** button for each shop that opens a modal allowing the admin to set a new password for that shop.
-  - Add a dedicated **"Extend 30 Days"** button with clear visual countdown indicator.
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        FIRST-TIME WEBPAGE OPEN                         │
+│                        (No Admin Initialized)                          │
+├────────────────────────────────────────────────────────────────────────┤
+│  ┌───────────────────────┬───────────────────────┬───────────────────┐ │
+│  │   🛡️ Admin Register   │     🏪 Shop Counter   │    🔒 Admin HQ    │ │
+│  │      (Active Tab)     │                       │                   │ │
+│  └───────────────────────┴───────────────────────┴───────────────────┘ │
+│                                                                        │
+│  Admin Username / ID:                                                  │
+│  [ admin                                                            ]  │
+│                                                                        │
+│  Password (min 6 characters):                                          │
+│  [ ••••••••••••                                                   👁 ] │
+│                                                                        │
+│  Confirm Password:                                                     │
+│  [ ••••••••••••                                                   👁 ] │
+│                                                                        │
+│  Security Recovery Question:                                           │
+│  [ What was the name of your first school?                          ▼ ] │
+│                                                                        │
+│  Security Recovery Answer:                                             │
+│  [ St. Xavier's                                                     ]  │
+│                                                                        │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │            [ Create Admin Account & Log In ]                     │  │
+│  └──────────────────────────────────────────────────────────────────┘  │
+└────────────────────────────────────────────────────────────────────────┘
 
-### 6. Verification & Automated Tests
-- Run `npm test -- --run` to ensure all 77+ tests pass and write new tests for:
-  - Initial master admin setup & single admin lock.
-  - Security question password reset.
-  - Admin shop password reset.
-  - 1-month subscription auto-activation and 30-day extension.
-- Run `npm run lint` and `npm run build` / `compile_applet`.
+                                   ▼ Once Created
+
+┌────────────────────────────────────────────────────────────────────────┐
+│                        NORMAL / SUBSEQUENT USE                         │
+│                        (Master Admin Initialized)                      │
+├────────────────────────────────────────────────────────────────────────┤
+│  ┌───────────────────────────────────┬───────────────────────────────┐ │
+│  │           🏪 Shop Counter         │          🔒 Admin HQ          │ │
+│  │            (Cashier POS)          │     (Forgot Password link)    │ │
+│  └───────────────────────────────────┴───────────────────────────────┘ │
+│  * "Admin Register" tab is permanently gone. Only 1 Admin can exist.   │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Visual Styling & Theme Tokens
+- **Tab Design**: Clean segmented button bar with micro-animations and active indicator styling (`bg-white text-slate-900 shadow-xs font-bold` in light mode, `bg-neutral-800 text-white` in dark mode).
+- **Security Recovery Question**: Clean native select with standard presets (first school, childhood pet, birth city, favorite sports team, custom) and secret answer field.
+- **Micro-Interactions**: Show/hide toggle for password visibility, inline validation errors for mismatched passwords or length under 6 characters, and instant transition into the application.
+
+---
+
+### 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Direct In-Card Tab vs. Modal / Full-Screen Wizard**
+  - *Chosen Approach*: Embed the registration directly as the active tab inside the login card.
+  - *Why*: Directly aligns with user feedback (*"paheli var webpage opne karta admin rajistesan nu aek teb opane thay"*). Eliminates intrusive modals and keeps the user anchored in the login screen.
+  - *Alternative Considered*: Full-screen setup wizard (rejected by user as too complex/disruptive).
+
+- **Decision 2: Single-Admin Enforced by Storage Layer**
+  - *Chosen Approach*: The client checks `isMasterAdminInitialized()` on mount. Once `performOneTimeAdminSetup()` executes, the storage rejects any additional admin creation attempts.
+  - *Why*: Ensures strict single-administrator ownership and prevents unauthorized admin registrations from any client.
+
+- **Decision 3: Seamless Immediate Login upon Admin Creation**
+  - *Chosen Approach*: Upon successful registration, the tab triggers `onLoginSuccess(session)` directly, landing the admin in the Admin HQ portal immediately without re-typing credentials.
+  - *Why*: High-speed, frictionless onboarding experience.
+
+---
+
+### 4. Technical Architecture & Data Strategy
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           LoginPage Component                           │
+│  - State: activeTab ('ADMIN_REGISTER' | 'SHOP_USER' | 'ADMIN')          │
+│  - State: hasMasterAdmin (boolean)                                      │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  Mount:                                                                 │
+│    isMasterAdminInitialized() ──► false ──► hasMasterAdmin = false      │
+│                                         ──► activeTab = 'ADMIN_REGISTER'│
+│                                                                         │
+│  Form Submission ('ADMIN_REGISTER'):                                    │
+│    performOneTimeAdminSetup({                                           │
+│      username, password, securityQuestion, securityAnswer               │
+│    })                                                                   │
+│      │                                                                  │
+│      ▼                                                                  │
+│  auth.ts (IndexedDB / Local Storage):                                   │
+│    - Hashes password with SHA-256 + salt                                │
+│    - Hashes security answer with SHA-256 + salt                         │
+│    - Saves LocalUser (role: 'ADMIN')                                    │
+│    - Creates and returns AuthSession                                    │
+│      │                                                                  │
+│      ▼                                                                  │
+│  LoginPage:                                                             │
+│    - setHasMasterAdmin(true)  (tab disappears permanently)             │
+│    - onLoginSuccess(session)   (enters Admin HQ portal)                 │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Component & State Mapping
+1. **`src/components/auth/LoginPage.tsx`**:
+   - Update tab type: `type LoginTab = 'SHOP_USER' | 'ADMIN' | 'ADMIN_REGISTER'`.
+   - On load, query `isMasterAdminInitialized()`.
+   - If `false`, set `hasMasterAdmin(false)` and `activeTab('ADMIN_REGISTER')`.
+   - When `!hasMasterAdmin`, render the 3-button segmented tab bar: `Admin Register`, `Shop Counter`, `Admin HQ`.
+   - When `activeTab === 'ADMIN_REGISTER'`, render the in-card registration form with Admin ID, Password, Confirm Password, Security Question & Answer, and Submit button.
+   - When submitted, call `performOneTimeAdminSetup()`, set `hasMasterAdmin(true)`, and call `onLoginSuccess(session)`.
+   - When `hasMasterAdmin` is `true`, render the 2-button segmented tab bar: `Shop Counter` and `Admin HQ`.
+
+2. **Verification Plan**:
+   - Verify zero-state loads with the "Admin Register" tab active by default.
+   - Test password match validation, minimum length check (6 characters).
+   - Test admin creation and verify immediate transition to Admin HQ.
+   - Reload page and confirm only "Shop Counter" and "Admin HQ" appear.
+   - Verify "Forgot Password?" still recovers the admin password using the registered security answer.
+   - Run `npm test -- --run` to ensure all 84 test suites pass.
+   - Run `compile_applet` to ensure zero compilation or type errors.

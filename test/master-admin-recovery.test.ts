@@ -53,6 +53,7 @@ describe('Master Admin Security Question & Shop Credential Management', () => {
       shopCode: 'AP-2026-9999',
       name: 'Amul Test Parlour Anand',
       ownerName: 'Manish Patel',
+      email: 'owner@amulparlour.com',
       phone: '+91 98980 12345',
       address: 'Station Road',
       city: 'Anand',
@@ -79,13 +80,15 @@ describe('Master Admin Security Question & Shop Credential Management', () => {
     expect(typeof AdminPasswordResetModal).toBe('function');
   });
 
-  it('verifies LoginPage.tsx contains Forgot Password link and AdminPasswordResetModal', () => {
+  it('verifies LoginPage.tsx contains In-Card Admin Register tab, Forgot Password link and AdminPasswordResetModal', () => {
     const loginPath = path.resolve(process.cwd(), 'src/components/auth/LoginPage.tsx');
     const content = fs.readFileSync(loginPath, 'utf8');
 
     expect(content).toContain('Forgot Password?');
     expect(content).toContain('AdminPasswordResetModal');
-    expect(content).toContain('isOneTimeSetupOpen');
+    expect(content).toContain('ADMIN_REGISTER');
+    expect(content).toContain('Admin Register');
+    expect(content).toContain('performOneTimeAdminSetup');
   });
 
   it('verifies AdminRegistration.tsx contains Security Question selection and secret answer', () => {
