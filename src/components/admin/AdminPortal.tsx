@@ -11,7 +11,7 @@
  * - Quick verification and plan upgrade modal
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, 
   ShieldCheck, 
@@ -34,12 +34,17 @@ import {
   Calendar,
   RotateCcw,
   RefreshCw,
-  X
+  X,
+  Trash2,
+  Upload,
+  QrCode,
+  LogOut
 } from 'lucide-react';
 import { Shop, ShopApprovalStatus, SubscriptionPlanId, SubscriptionStatus, SUBSCRIPTION_PLANS } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
-import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShopCashierAccount, adminResetShopPassword } from '../../storage/auth.ts';
+import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShopCashierAccount, adminResetShopPassword, clearActiveSession } from '../../storage/auth.ts';
 import { isShopSubscriptionActive, activateOneMonthSubscription, renewShopSubscription } from '../../storage/subscription.ts';
+import { getAdminAuthConfig, updateAdminAuthConfig, subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/firebase.ts';
 import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
 import { MonthlyRevenueChart } from './MonthlyRevenueChart.tsx';
 import amulLogo from '../../assets/logo.ts';
@@ -49,13 +54,15 @@ interface AdminPortalProps {
   activeShopId: string;
   currentUser?: AuthSession | null;
   onShopsUpdated?: () => void;
+  onLogout?: () => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({ 
   onSelectShop, 
   activeShopId,
   currentUser,
-  onShopsUpdated
+  onShopsUpdated,
+  onLogout
 }) => {
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
@@ -119,12 +126,91 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [resetShopPasswordSuccess, setResetShopPasswordSuccess] = useState<string | null>(null);
   const [resetShopPasswordError, setResetShopPasswordError] = useState<string | null>(null);
 
+  // Dynamic Master Admin Payment QR state
+  const [adminAuthConfig, setAdminAuthConfig] = useState<AdminAuthConfig | null>(null);
+  const [paymentQrUrl, setPaymentQrUrl] = useState<string>('');
+  const [isSavingQr, setIsSavingQr] = useState(false);
+  const [qrToast, setQrToast] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Shop Deletion State & Confirmation
+  const [shopToDelete, setShopToDelete] = useState<Shop | null>(null);
+  const [isDeletingShop, setIsDeletingShop] = useState(false);
+
   // Keep admin session synced
   useEffect(() => {
     if (currentUser?.role === 'ADMIN') {
       setIsAdminAuthenticated(true);
     }
   }, [currentUser]);
+
+  // Sync Master Admin Auth Config (including Payment QR) from Firestore in real-time
+  useEffect(() => {
+    const unsub = subscribeToAdminAuthConfig((cfg) => {
+      setAdminAuthConfig(cfg);
+      if (cfg?.paymentQrUrl) {
+        setPaymentQrUrl(cfg.paymentQrUrl);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  const handleQrFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload a valid image file (PNG, JPG, WebP).');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Image size exceeds 2MB limit. Please upload a smaller QR image.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result as string;
+      setPaymentQrUrl(base64);
+      try {
+        setIsSavingQr(true);
+        await updateAdminAuthConfig({ paymentQrUrl: base64 });
+        setQrToast('Master Payment QR updated and synced to Cloud Firestore!');
+        setTimeout(() => setQrToast(null), 4000);
+      } catch (err: any) {
+        alert(`Failed to save QR code to Firestore: ${err?.message || err}`);
+      } finally {
+        setIsSavingQr(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleDeleteShopConfirm = async () => {
+    if (!shopToDelete) return;
+    try {
+      setIsDeletingShop(true);
+      await AppRepository.shops.delete(shopToDelete.id);
+      setToastMessage(`Shop "${shopToDelete.name}" (${shopToDelete.shopCode}) deleted successfully.`);
+      setTimeout(() => setToastMessage(null), 4000);
+      setShopToDelete(null);
+      await loadShops();
+      if (onShopsUpdated) onShopsUpdated();
+    } catch (err: any) {
+      alert(`Failed to delete shop: ${err?.message || err}`);
+    } finally {
+      setIsDeletingShop(false);
+    }
+  };
+
+  const handleAdminLogout = () => {
+    clearActiveSession();
+    setIsAdminAuthenticated(false);
+    if (onLogout) {
+      onLogout();
+    }
+  };
 
   const loadShops = async () => {
     try {
@@ -527,11 +613,77 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </button>
 
               <button
-                onClick={() => setIsAdminAuthenticated(false)}
-                className="text-xs text-slate-500 hover:text-slate-800 font-semibold px-3 py-2 rounded-xl border border-slate-200 cursor-pointer"
+                onClick={handleAdminLogout}
+                className="bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                title="Logout Master Admin and wipe all active session tokens"
               >
-                Lock Admin
+                <LogOut className="w-4 h-4" />
+                <span>Logout Admin</span>
               </button>
+            </div>
+          </div>
+
+          {/* Master Admin Dynamic Payment QR Upload Section (Synced with Firestore) */}
+          <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#005A9C] flex items-center justify-center border border-blue-200 shrink-0">
+                  <QrCode className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                    <span>Admin Master Subscription UPI QR Code</span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
+                      Live Cloud Sync
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Upload your UPI / GPay / PhonePe QR code. When any parlour subscription expires, this QR is dynamically shown to the counter cashier with renewal contact info (<strong className="text-slate-800">+919173598234</strong>).
+                  </p>
+                  {qrToast && (
+                    <div className="mt-2 text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 p-2 rounded-lg border border-emerald-200 animate-in fade-in duration-200">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                      <span>{qrToast}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-4 shrink-0">
+                {paymentQrUrl ? (
+                  <div className="relative group w-16 h-16 rounded-xl border-2 border-dashed border-blue-300 p-1 bg-white overflow-hidden shadow-2xs">
+                    <img 
+                      src={paymentQrUrl} 
+                      alt="Current Master Payment QR" 
+                      className="w-full h-full object-contain"
+                    />
+                  </div>
+                ) : (
+                  <div className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 bg-slate-50 text-[10px] text-center p-1">
+                    No QR Set
+                  </div>
+                )}
+
+                <div>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleQrFileUpload}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isSavingQr}
+                    className="bg-[#005A9C] hover:bg-blue-800 disabled:bg-slate-400 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{isSavingQr ? 'Saving QR...' : (paymentQrUrl ? 'Change QR Image' : 'Upload QR Image')}</span>
+                  </button>
+                  <div className="text-[10px] text-slate-400 mt-1 font-mono text-center">PNG, JPG &lt; 2MB</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -749,6 +901,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                             className="bg-slate-900 hover:bg-slate-800 text-white px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer"
                           >
                             Switch POS
+                          </button>
+                          <button
+                            onClick={() => setShopToDelete(shop)}
+                            className="px-2 py-1 text-rose-600 hover:text-white hover:bg-rose-600 border border-rose-200 hover:border-rose-600 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                            title={`Delete parlour ${shop.name} (${shop.shopCode})`}
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Delete</span>
                           </button>
                         </div>
                       </td>
@@ -1292,6 +1452,48 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Shop Confirmation Modal */}
+      {shopToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-200">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center mb-4">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            
+            <h3 className="font-extrabold text-base text-slate-900 mb-1">
+              Delete Parlour & Franchise Data?
+            </h3>
+            
+            <p className="text-xs text-slate-600 mb-4 leading-relaxed">
+              Are you sure you want to permanently delete <strong className="text-slate-900">{shopToDelete.name}</strong> ({shopToDelete.shopCode})?
+              <br /><br />
+              <span className="text-rose-700 font-semibold bg-rose-50 p-2 rounded-lg border border-rose-200 block">
+                Warning: This removes the shop record from IndexedDB and Cloud Firestore.
+              </span>
+            </p>
+
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShopToDelete(null)}
+                disabled={isDeletingShop}
+                className="w-1/3 py-2.5 px-3 rounded-xl border border-slate-300 text-xs font-bold text-slate-600 hover:bg-slate-100 transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteShopConfirm}
+                disabled={isDeletingShop}
+                className="flex-1 py-2.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+              >
+                {isDeletingShop ? 'Deleting Shop...' : 'Yes, Delete Parlour'}
+              </button>
+            </div>
           </div>
         </div>
       )}

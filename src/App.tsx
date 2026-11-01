@@ -39,9 +39,13 @@ import { BackupManagementView } from './components/backup/BackupManagementView.t
 import { ShopProfileManagement } from './components/profile/ShopProfileManagement.tsx';
 import { BankStatementManagement } from './components/banking/BankStatementManagement.tsx';
 import { RightSideNavigation } from './components/layout/RightSideNavigation.tsx';
+import { MorningGreetingModal } from './components/common/MorningGreetingModal.tsx';
+import { SubscriptionExpiredLockOverlay } from './components/common/SubscriptionExpiredLockOverlay.tsx';
 import { Shop, SaleBill } from './types/index.ts';
 import { AppRepository } from './storage/repositories.ts';
 import { AuthSession, UserRole, getActiveSession, clearActiveSession, ensureDefaultAccountsSeeded } from './storage/auth.ts';
+import { isShopSubscriptionActive } from './storage/subscription.ts';
+import { startShopRealtimeSync, startAdminShopsRealtimeSync } from './storage/firestoreSync.ts';
 import { Theme, getStoredTheme, applyTheme } from './storage/theme.ts';
 import { RefreshCw, AlertCircle, Store, Shield } from 'lucide-react';
 
@@ -163,6 +167,29 @@ export default function App() {
     return () => clearInterval(interval);
   }, [currentShop?.id]);
 
+  // Real-time Firestore sync for active shop data (bills, inventory, expenses, bank statements)
+  useEffect(() => {
+    if (!currentShop?.id) return;
+    const unsubShop = startShopRealtimeSync(currentShop.id, () => {
+      loadShops();
+    });
+    return () => unsubShop.unsubscribeAll();
+  }, [currentShop?.id]);
+
+  // Real-time Firestore sync for Admin HQ shops collection
+  useEffect(() => {
+    if (currentUser?.role !== 'ADMIN') return;
+    const unsubAdmin = startAdminShopsRealtimeSync((updatedShops) => {
+      setShops(updatedShops);
+      setCurrentShop((prev) => {
+        if (!prev) return updatedShops[0] || null;
+        const match = updatedShops.find((s) => s.id === prev.id);
+        return match || prev;
+      });
+    });
+    return () => unsubAdmin();
+  }, [currentUser?.role]);
+
   const handleSaleComplete = (bill: SaleBill) => {
     setActiveReceiptBill(bill);
   };
@@ -238,8 +265,16 @@ export default function App() {
     );
   }
 
+  // Check subscription expiry for cashiers
+  const isCashier = currentUser?.role === 'SHOP_USER';
+  const subCheck = currentShop ? isShopSubscriptionActive(currentShop) : null;
+  const isShopPlanExpired = isCashier && subCheck !== null && !subCheck.isActive;
+
   return (
     <div className="min-h-screen bg-slate-100/90 dark:bg-slate-950 flex flex-col font-sans text-slate-900 dark:text-slate-100 selection:bg-blue-600 selection:text-white transition-colors duration-200">
+      {/* Professional Morning Greeting Modal (5:00 AM - 11:59 AM) */}
+      <MorningGreetingModal />
+
       {/* 1. Amul Brand Header & Navigation with User Session & Logout */}
       <Header
         activeTab={activeTab}
@@ -267,6 +302,13 @@ export default function App() {
       <div className="flex-1 flex overflow-hidden">
         <main className="flex-1 overflow-y-auto max-w-7xl w-full mx-auto p-4 sm:p-6">
           {currentShop ? (
+            isShopPlanExpired ? (
+              <SubscriptionExpiredLockOverlay
+                currentShop={currentShop}
+                onLogout={handleLogout}
+                onCheckStatus={loadShops}
+              />
+            ) : (
             <>
               {activeTab === 'POS' && (
                 <BarcodePOS
@@ -339,9 +381,11 @@ export default function App() {
                   activeShopId={currentShop.id}
                   currentUser={currentUser}
                   onShopsUpdated={loadShops}
+                  onLogout={handleLogout}
                 />
               )}
             </>
+            )
           ) : (
             <div className="bg-white rounded-2xl p-12 text-center max-w-md mx-auto shadow-sm border border-slate-200">
               <AlertCircle className="w-10 h-10 text-amber-500 mx-auto mb-3" />

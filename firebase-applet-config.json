@@ -1,11 +1,9 @@
 {
-  "projectId": "rare-tensor-353bd",
-  "appId": "1:69538069896:web:26e4b4c4f84d314c090e3d",
-  "apiKey": "AIzaSyCf_4lclSTY1iGI5CgNZvW5UkBPdoXTOZg",
-  "authDomain": "rare-tensor-353bd.firebaseapp.com",
-  "storageBucket": "rare-tensor-353bd.firebasestorage.app",
-  "messagingSenderId": "69538069896",
-  "measurementId": "",
-  "oAuthClientId": "69538069896-s1n95rkormk1fb454edo2o8n1ekorviv.apps.googleusercontent.com",
-  "recaptchaSiteKey": ""
+  "projectId": "amulparlour",
+  "appId": "1:377416187206:web:5b0e68ad46f0a2aaf9b947",
+  "apiKey": "AIzaSyBZL8JkkYe0He8gpE4PrruHKPAaZw1o9BA",
+  "authDomain": "amulparlour.firebaseapp.com",
+  "storageBucket": "amulparlour.firebasestorage.app",
+  "messagingSenderId": "377416187206",
+  "measurementId": "G-3C2T45FYC6"
 }

@@ -45,15 +45,16 @@ import {
 } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { BrandedReportHeader } from '../common/BrandedReportHeader.tsx';
+import { SalesProfitAnalytics } from './SalesProfitAnalytics.tsx';
 
 interface ReportsHubProps {
   currentShop: Shop | null;
 }
 
-type ReportType = 'SALES' | 'STOCK' | 'PNL' | 'PURCHASES' | 'EXPENSES';
+type ReportType = 'ANALYTICS' | 'SALES' | 'STOCK' | 'PNL' | 'PURCHASES' | 'EXPENSES';
 
 export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
-  const [selectedReport, setSelectedReport] = useState<ReportType>('SALES');
+  const [selectedReport, setSelectedReport] = useState<ReportType>('ANALYTICS');
   const [selectedDate, setSelectedDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [loading, setLoading] = useState(true);
 
@@ -173,6 +174,11 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
 
   // Titles mapping
   const reportTitles: Record<ReportType, { title: string; subtitle: string; ref: string }> = {
+    ANALYTICS: {
+      title: 'Sales & Profit Analytics Dashboard',
+      subtitle: 'Comparative sales growth, item margin breakdown, and 30-day profit trend analytics.',
+      ref: `RPT-ANL-${selectedDate.replace(/-/g, '')}`
+    },
     SALES: {
       title: 'Daily Sales & Cash Register Report',
       subtitle: 'Complete breakdown of counter POS sales, tax reconciliations, and tender modes.',
@@ -262,6 +268,7 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
         <div className="flex items-center gap-2 pt-4 overflow-x-auto scrollbar-none">
           {(
             [
+              { key: 'ANALYTICS', label: '📊 Sales & Profit Analytics', icon: TrendingUp },
               { key: 'SALES', label: '1. Daily Sales Report', icon: Receipt },
               { key: 'STOCK', label: '2. Stock Audit Report', icon: Package },
               { key: 'PNL', label: '3. P&L Financials', icon: DollarSign },
@@ -289,25 +296,29 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
         </div>
       </div>
 
-      {/* Printable Report Document (Rendered for both Screen and PDF Print) */}
-      <div id="printable-report" className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 p-6 print:p-0 print:border-none print:shadow-none transition-colors">
-        {/* Standard Branded Header */}
-        <BrandedReportHeader
-          currentShop={currentShop}
-          reportTitle={activeMeta.title}
-          reportSubtitle={activeMeta.subtitle}
-          reportDate={selectedDate}
-          referenceCode={activeMeta.ref}
-        />
+      {/* Render Selected View */}
+      {selectedReport === 'ANALYTICS' ? (
+        <SalesProfitAnalytics currentShop={currentShop} />
+      ) : (
+        /* Printable Report Document (Rendered for both Screen and PDF Print) */
+        <div id="printable-report" className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 p-6 print:p-0 print:border-none print:shadow-none transition-colors">
+          {/* Standard Branded Header */}
+          <BrandedReportHeader
+            currentShop={currentShop}
+            reportTitle={activeMeta.title}
+            reportSubtitle={activeMeta.subtitle}
+            reportDate={selectedDate}
+            referenceCode={activeMeta.ref}
+          />
 
-        {loading ? (
-          <div className="py-16 text-center text-slate-400 font-sans">
-            <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-600" />
-            Loading report data for {selectedDate}...
-          </div>
-        ) : (
-          <div>
-            {/* 1. SALES REPORT VIEW */}
+          {loading ? (
+            <div className="py-16 text-center text-slate-400 font-sans">
+              <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2 text-blue-600" />
+              Loading report data for {selectedDate}...
+            </div>
+          ) : (
+            <div>
+              {/* 1. SALES REPORT VIEW */}
             {selectedReport === 'SALES' && (
               <div className="space-y-4">
                 {/* Sales Summary KPIs */}
@@ -681,6 +692,7 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
           </div>
         </div>
       </div>
-    </div>
-  );
+    )}
+  </div>
+);
 };

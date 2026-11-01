@@ -379,8 +379,13 @@ export async function authenticateLocalUser(params: {
 export function getActiveSession(): AuthSession | null {
   if (typeof window === 'undefined') return null;
   try {
-    const raw = sessionStorage.getItem(SESSION_KEY);
+    let raw = sessionStorage.getItem(SESSION_KEY);
+    // Check localStorage only if trusted device persisted session exists
+    if (!raw) {
+      raw = localStorage.getItem(SESSION_KEY);
+    }
     if (!raw) return null;
+
     const session = JSON.parse(raw) as AuthSession;
     if (session.tokenExpiresAt && session.tokenExpiresAt < Date.now()) {
       clearActiveSession();
@@ -392,10 +397,22 @@ export function getActiveSession(): AuthSession | null {
   }
 }
 
-export function saveSession(session: AuthSession): void {
+export function saveSession(session: AuthSession, isTrustedDevice = false): void {
   if (typeof window === 'undefined') return;
   try {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    const sessionWithExpiry: AuthSession = {
+      ...session,
+      tokenExpiresAt: Date.now() + 60 * 60 * 1000 // 60 minutes
+    };
+    const serialized = JSON.stringify(sessionWithExpiry);
+
+    if (isTrustedDevice) {
+      localStorage.setItem(SESSION_KEY, serialized);
+      sessionStorage.setItem(SESSION_KEY, serialized);
+    } else {
+      localStorage.removeItem(SESSION_KEY);
+      sessionStorage.setItem(SESSION_KEY, serialized);
+    }
   } catch (err) {
     console.error('Failed to save session:', err);
   }
@@ -405,6 +422,7 @@ export function clearActiveSession(): void {
   if (typeof window === 'undefined') return;
   try {
     sessionStorage.removeItem(SESSION_KEY);
+    localStorage.removeItem(SESSION_KEY);
   } catch (err) {
     console.error('Failed to clear session:', err);
   }

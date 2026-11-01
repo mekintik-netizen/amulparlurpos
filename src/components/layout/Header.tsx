@@ -291,29 +291,36 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
 
-            {/* Shop Switcher (for Admins or selecting shop) */}
+            {/* Shop Switcher (Only for Master Admin in Admin HQ; Cashiers strictly bound to their assigned shop) */}
             {currentShop && (
-              <div className="relative group">
-                <select
-                  value={currentShop.id}
-                  disabled={!isAdmin && !!currentUser?.shopId}
-                  onChange={(e) => {
-                    const found = shops.find((s) => s.id === e.target.value);
-                    if (found) onSelectShop(found);
-                  }}
-                  className={`bg-blue-950/70 border border-blue-400/40 text-white text-xs font-bold py-1.5 pl-2.5 pr-8 rounded-xl appearance-none transition ${
-                    !isAdmin && currentUser?.shopId ? 'cursor-not-allowed opacity-90' : 'cursor-pointer hover:bg-blue-950'
-                  } focus:outline-hidden focus:ring-2 focus:ring-white`}
-                  title={!isAdmin && currentUser?.shopId ? 'Bound to logged-in cashier shop' : 'Select active shop'}
+              isAdmin ? (
+                <div className="relative group">
+                  <select
+                    value={currentShop.id}
+                    onChange={(e) => {
+                      const found = shops.find((s) => s.id === e.target.value);
+                      if (found) onSelectShop(found);
+                    }}
+                    className="bg-blue-950/70 border border-blue-400/40 text-white text-xs font-bold py-1.5 pl-2.5 pr-8 rounded-xl appearance-none transition cursor-pointer hover:bg-blue-950 focus:outline-hidden focus:ring-2 focus:ring-white"
+                    title="Master Admin: Switch active parlour"
+                  >
+                    {shops.map((s) => (
+                      <option key={s.id} value={s.id} className="bg-slate-900 text-white">
+                        {s.shopCode} - {s.name.slice(0, 18)}...
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown className="w-3.5 h-3.5 text-blue-300 absolute right-2.5 top-2.5 pointer-events-none" />
+                </div>
+              ) : (
+                <div 
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-950/70 border border-blue-400/30 text-white text-xs font-bold rounded-xl"
+                  title={`Bound to Shop: ${currentShop.name} (${currentShop.shopCode})`}
                 >
-                  {shops.map((s) => (
-                    <option key={s.id} value={s.id} className="bg-slate-900 text-white">
-                      {s.shopCode} - {s.name.slice(0, 18)}...
-                    </option>
-                  ))}
-                </select>
-                <ChevronDown className="w-3.5 h-3.5 text-blue-300 absolute right-2.5 top-2.5 pointer-events-none" />
-              </div>
+                  <Store className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                  <span className="truncate max-w-[140px]">{currentShop.shopCode}</span>
+                </div>
+              )
             )}
 
             {/* Global Theme Toggle Button */}

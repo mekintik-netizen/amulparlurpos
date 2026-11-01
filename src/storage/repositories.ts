@@ -26,6 +26,15 @@ import {
   SupplierPayment
 } from '../types/index.ts';
 import * as localDb from './db.ts';
+import { 
+  syncShopToCloud, 
+  deleteShopFromCloud, 
+  syncProductToCloud, 
+  deleteProductFromCloud, 
+  syncSaleBillToCloud, 
+  syncExpenseToCloud, 
+  syncBankEntryToCloud 
+} from './firestoreSync.ts';
 
 export const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
 
@@ -62,7 +71,17 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to save shop to backend');
         return res.json();
       }
-      return localDb.saveShop(shop);
+      const saved = await localDb.saveShop(shop);
+      syncShopToCloud(saved).catch(() => {});
+      return saved;
+    },
+    delete: async (id: string): Promise<void> => {
+      if (isBackendConnected()) {
+        await fetch(`${API_BASE_URL}/api/shops/${id}`, { method: 'DELETE' });
+        return;
+      }
+      await localDb.deleteShop(id);
+      deleteShopFromCloud(id).catch(() => {});
     }
   },
 
@@ -94,20 +113,26 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to save product');
         return res.json();
       }
-      return localDb.saveProduct(product);
+      const saved = await localDb.saveProduct(product);
+      syncProductToCloud(saved).catch(() => {});
+      return saved;
     },
     delete: async (productId: string): Promise<void> => {
       if (isBackendConnected()) {
         await fetch(`${API_BASE_URL}/api/products/${productId}`, { method: 'DELETE' });
         return;
       }
-      return localDb.deleteProduct(productId);
+      await localDb.deleteProduct(productId);
+      deleteProductFromCloud(productId).catch(() => {});
     },
     syncPreFilledCatalog: async (shopId: string): Promise<{ added: number; total: number }> => {
       return localDb.syncPreFilledAmulCatalogForShop(shopId);
     },
     prefillMasterCatalog: async (shopId: string, overwriteExisting = false): Promise<Product[]> => {
-      return localDb.prefillMasterAmulCatalogWithZeroStock(shopId, overwriteExisting);
+      const list = await localDb.prefillMasterAmulCatalogWithZeroStock(shopId, overwriteExisting);
+      // Batch sync products to Firestore in background
+      list.forEach(p => syncProductToCloud(p).catch(() => {}));
+      return list;
     }
   },
 
@@ -152,7 +177,9 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to adjust stock and prices');
         return res.json();
       }
-      return localDb.adjustStockAndPrices(shopId, productId, newStock, costPrice, sellingPrice, mrp, reason);
+      const updated = await localDb.adjustStockAndPrices(shopId, productId, newStock, costPrice, sellingPrice, mrp, reason);
+      syncProductToCloud(updated).catch(() => {});
+      return updated;
     }
   },
 
@@ -168,7 +195,9 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to process sale bill');
         return res.json();
       }
-      return localDb.createSaleBill(billData);
+      const bill = await localDb.createSaleBill(billData);
+      syncSaleBillToCloud(bill).catch(() => {});
+      return bill;
     },
     getAll: async (): Promise<SaleBill[]> => {
       if (isBackendConnected()) {
@@ -317,7 +346,9 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to record expense');
         return res.json();
       }
-      return localDb.createExpense(expenseData);
+      const exp = await localDb.createExpense(expenseData);
+      syncExpenseToCloud(exp).catch(() => {});
+      return exp;
     },
     getByShop: async (shopId: string, dateStr?: string): Promise<Expense[]> => {
       if (isBackendConnected()) {
@@ -367,7 +398,9 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to save bank entry');
         return res.json();
       }
-      return localDb.saveBankEntry(entry);
+      const saved = await localDb.saveBankEntry(entry);
+      syncBankEntryToCloud(saved).catch(() => {});
+      return saved;
     },
     deleteEntry: async (id: string): Promise<void> => {
       if (isBackendConnected()) {

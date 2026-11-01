@@ -319,6 +319,18 @@ export async function saveShop(shop: Shop): Promise<Shop> {
   });
 }
 
+export async function deleteShop(id: string): Promise<void> {
+  const db = await openAppDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('shops', 'readwrite');
+    const store = tx.objectStore('shops');
+    const req = store.delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+
 // ==========================================
 // PRODUCT OPERATIONS
 // ==========================================

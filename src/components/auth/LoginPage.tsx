@@ -23,7 +23,10 @@ import {
   performOneTimeAdminSetup 
 } from '../../storage/auth.ts';
 import { AdminPasswordResetModal } from './AdminPasswordResetModal.tsx';
+import { AdminPhone2FAModal } from './AdminPhone2FAModal.tsx';
 import amulLogo from '../../assets/logo.ts';
+import { getAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from '../../storage/firebase.ts';
+import { saveSession } from '../../storage/auth.ts';
 import { 
   Store, 
   Shield, 
@@ -38,7 +41,8 @@ import {
   CheckCircle2, 
   KeyRound,
   HelpCircle,
-  Sparkles
+  Sparkles,
+  Smartphone
 } from 'lucide-react';
 
 export type LoginTab = 'SHOP_USER' | 'ADMIN' | 'ADMIN_REGISTER';
@@ -68,8 +72,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   onClose,
   isModal = false
 }) => {
-  const [activeTab, setActiveTab] = useState<LoginTab>(initialRole);
+  const [activeTab, setActiveTab] = useState<LoginTab>(initialRole === 'ADMIN' ? 'ADMIN' : 'SHOP_USER');
   const [hasMasterAdmin, setHasMasterAdmin] = useState<boolean>(true);
+  const [adminConfig, setAdminConfig] = useState<AdminAuthConfig>(DEFAULT_ADMIN_AUTH_CONFIG);
 
   // Backward-compatible reference for tests
   const isOneTimeSetupOpen = !hasMasterAdmin;
@@ -78,6 +83,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isTrustedDevice, setIsTrustedDevice] = useState(false);
+
+  // 2FA Phone Auth States
+  const [is2FAModalOpen, setIs2FAModalOpen] = useState(false);
+  const [pendingAdminSession, setPendingAdminSession] = useState<AuthSession | null>(null);
 
   // Admin Registration Tab Form States
   const [regUsername, setRegUsername] = useState('admin');
@@ -105,12 +115,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         await ensureDefaultAccountsSeeded();
         const hasAdmin = await isMasterAdminInitialized();
         setHasMasterAdmin(hasAdmin);
-        if (!hasAdmin) {
-          // First-time webpage open: directly activate the Admin Register tab
-          setActiveTab('ADMIN_REGISTER');
-        } else if (initialRole) {
-          setActiveTab(initialRole);
-        }
+        const config = await getAdminAuthConfig();
+        setAdminConfig(config);
       } catch (err) {
         console.error('Error verifying master admin status:', err);
       }
@@ -132,17 +138,38 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setResetSuccessMessage(null);
     setLoading(true);
 
+    const enteredUsername = username.trim();
+    const enteredPassword = password;
+    // Clear password state on submit for privacy & anti-shoulder surfing
+    setPassword('');
+
     try {
       const session = await authenticateLocalUser({
-        username,
-        password,
+        username: enteredUsername,
+        password: enteredPassword,
         role: activeTab === 'ADMIN' ? 'ADMIN' : 'SHOP_USER'
       });
-      onLoginSuccess(session);
+
+      if (activeTab === 'ADMIN') {
+        // Trigger Real-time SMS Phone OTP 2FA for Master Admin
+        setPendingAdminSession(session);
+        setIs2FAModalOpen(true);
+      } else {
+        saveSession(session, false);
+        onLoginSuccess(session);
+      }
     } catch (err: any) {
       setError(err?.message || 'Authentication failed. Please verify credentials.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handle2FAVerified = () => {
+    if (pendingAdminSession) {
+      saveSession(pendingAdminSession, isTrustedDevice);
+      setIs2FAModalOpen(false);
+      onLoginSuccess(pendingAdminSession);
     }
   };
 
@@ -248,26 +275,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </p>
         </div>
 
-        {/* Segmented Control: 3 tabs on first open, 2 tabs once Admin is created */}
-        <div className={`grid ${!hasMasterAdmin ? 'grid-cols-3' : 'grid-cols-2'} gap-1 bg-slate-100 dark:bg-neutral-900 p-1 rounded-xl mb-4 text-[11px] font-semibold`}>
-          
-          {/* Admin Register Tab (Only shown on first open when no Master Admin exists) */}
-          {!hasMasterAdmin && (
-            <button
-              type="button"
-              onClick={() => handleTabChange('ADMIN_REGISTER')}
-              className={`py-2 px-1.5 rounded-lg flex items-center justify-center gap-1 transition-all cursor-pointer ${
-                activeTab === 'ADMIN_REGISTER'
-                  ? 'bg-red-600 text-white shadow-xs font-bold'
-                  : 'text-red-700 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/40'
-              }`}
-              title="First-Time Master Admin Registration"
-            >
-              <ShieldPlus className="w-3.5 h-3.5 shrink-0" />
-              <span className="truncate">Admin Register</span>
-            </button>
-          )}
-
+        {/* Segmented Control: 2 tabs (Shop Counter & Admin HQ) */}
+        <div className="grid grid-cols-2 gap-1 bg-slate-100 dark:bg-neutral-900 p-1 rounded-xl mb-4 text-[11px] font-semibold">
           {/* Shop Counter Tab */}
           <button
             type="button"
@@ -279,7 +288,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             }`}
           >
             <Store className="w-3.5 h-3.5 text-[#005A9C] shrink-0" />
-            <span className="truncate">Shop Counter</span>
+            <span className="truncate">Shop Counter (કૅશિયર)</span>
           </button>
 
           {/* Admin HQ Tab */}
@@ -293,7 +302,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             }`}
           >
             <Shield className="w-3.5 h-3.5 text-[#E31837] shrink-0" />
-            <span className="truncate">Admin HQ</span>
+            <span className="truncate">Admin HQ (માલિક)</span>
           </button>
         </div>
 
@@ -462,9 +471,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </form>
         )}
 
-        {/* TAB 2 & 3: STANDARD LOGIN FORM (Shop Counter or Admin HQ) */}
+        {/* STANDARD LOGIN FORM (Shop Counter or Admin HQ) */}
         {activeTab !== 'ADMIN_REGISTER' && (
-          <form onSubmit={handleLogin} className="space-y-3.5">
+          <form onSubmit={handleLogin} className="space-y-3.5" autoComplete="off">
             
             {/* Username / ID Input */}
             <div>
@@ -477,6 +486,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   placeholder={activeTab === 'ADMIN' ? 'Admin Username (e.g. admin)' : 'Cashier ID / username'}
+                  autoComplete="username"
                   className={`w-full text-xs rounded-xl px-3.5 py-2.5 transition focus:outline-hidden focus:ring-2 focus:ring-black dark:focus:ring-white ${
                     activeTab === 'ADMIN'
                       ? 'bg-black text-white border border-neutral-800 placeholder:text-neutral-500 font-mono'
@@ -510,6 +520,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
+                  autoComplete="new-password"
                   className={`w-full text-xs rounded-xl pl-3.5 pr-10 py-2.5 transition focus:outline-hidden focus:ring-2 focus:ring-black dark:focus:ring-white ${
                     activeTab === 'ADMIN'
                       ? 'bg-black text-white border border-neutral-800 placeholder:text-neutral-500'
@@ -529,13 +540,42 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               </div>
             </div>
 
+            {/* Admin Device Trust Checkbox */}
+            {activeTab === 'ADMIN' && (
+              <div className="pt-0.5">
+                <label className="flex items-center gap-2 cursor-pointer select-none text-[11px] text-slate-600 dark:text-neutral-400">
+                  <input
+                    type="checkbox"
+                    checked={isTrustedDevice}
+                    onChange={(e) => setIsTrustedDevice(e.target.checked)}
+                    className="w-4 h-4 rounded text-red-600 focus:ring-red-500 border-slate-300 dark:border-neutral-700 bg-white dark:bg-neutral-800"
+                  />
+                  <span>Trust this device (Keep 1-hour session)</span>
+                </label>
+                <p className="text-[10px] text-slate-400 dark:text-neutral-500 ml-6 mt-0.5">
+                  {isTrustedDevice 
+                    ? 'Personal device: Stays authenticated for 60 mins across reloads.'
+                    : 'Shop / Public computer: Session wiped immediately on tab close.'}
+                </p>
+              </div>
+            )}
+
             {/* Main Log In Button */}
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-2.5 px-4 rounded-xl font-bold text-xs text-white bg-black hover:bg-neutral-900 active:bg-neutral-950 border border-neutral-800 shadow-xs transition-all cursor-pointer disabled:opacity-50"
+              className="w-full py-2.5 px-4 rounded-xl font-bold text-xs text-white bg-black hover:bg-neutral-900 active:bg-neutral-950 border border-neutral-800 shadow-xs transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
             >
-              {loading ? 'Logging In...' : activeTab === 'ADMIN' ? 'Log In as Admin' : 'Log In to Counter'}
+              {loading ? (
+                <span>Logging In...</span>
+              ) : activeTab === 'ADMIN' ? (
+                <>
+                  <Smartphone className="w-4 h-4 text-amber-400" />
+                  <span>Verify Credentials & Send SMS OTP</span>
+                </>
+              ) : (
+                <span>Log In to Counter</span>
+              )}
             </button>
           </form>
         )}
@@ -559,6 +599,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           setUsername(recoveredAdminUsername);
           setResetSuccessMessage('Password updated successfully! Please enter your new password to sign in.');
           setError(null);
+        }}
+      />
+
+      {/* Real-time SMS Phone OTP 2FA Modal */}
+      <AdminPhone2FAModal
+        isOpen={is2FAModalOpen}
+        phoneNumber={adminConfig.superAdminPhone || '+919173598234'}
+        onVerified={handle2FAVerified}
+        onCancel={() => {
+          setIs2FAModalOpen(false);
+          setPendingAdminSession(null);
         }}
       />
 
