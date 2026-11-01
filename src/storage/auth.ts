@@ -12,6 +12,7 @@
  */
 
 import { openAppDatabase } from './db.ts';
+import { getAdminAuthConfig, updateAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from './firebase.ts';
 
 export type UserRole = 'ADMIN' | 'SHOP_USER';
 
@@ -331,6 +332,55 @@ export async function authenticateLocalUser(params: {
   const users = await getAllLocalUsers();
 
   const user = users.find(u => u.username === cleanUsername);
+
+  // If Admin user not found locally or password check fails, check Cloud Firestore adminSettings
+  if (params.role === 'ADMIN') {
+    try {
+      const cloudConfig = await getAdminAuthConfig();
+      const cloudUsername = (cloudConfig.adminUsername || 'admin').trim().toLowerCase();
+      if (cloudConfig.adminPasswordHash && cloudConfig.adminSalt && (cleanUsername === cloudUsername || !user)) {
+        const cloudComputedHash = await hashPasswordWithSalt(params.password, cloudConfig.adminSalt);
+        if (cloudComputedHash === cloudConfig.adminPasswordHash) {
+          // Cloud credentials match! Sync into local IndexedDB
+          let adminUser = user;
+          if (!adminUser) {
+            adminUser = {
+              id: `usr-admin-${Date.now()}`,
+              username: cloudUsername,
+              fullName: cloudConfig.adminName || 'Master Administrator',
+              role: 'ADMIN',
+              isMasterAdmin: true,
+              salt: cloudConfig.adminSalt,
+              passwordHash: cloudConfig.adminPasswordHash,
+              createdAt: new Date().toISOString(),
+              lastLoginAt: new Date().toISOString()
+            };
+            users.push(adminUser);
+          } else {
+            adminUser.salt = cloudConfig.adminSalt;
+            adminUser.passwordHash = cloudConfig.adminPasswordHash;
+            adminUser.lastLoginAt = new Date().toISOString();
+          }
+          await saveAllLocalUsers(users);
+
+          const session: AuthSession = {
+            userId: adminUser.id,
+            username: adminUser.username,
+            fullName: adminUser.fullName,
+            role: adminUser.role,
+            tokenExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
+            loggedInAt: new Date().toISOString()
+          };
+
+          saveSession(session);
+          return session;
+        }
+      }
+    } catch (cloudErr) {
+      console.warn('[Auth] Remote admin check skipped:', cloudErr);
+    }
+  }
+
   if (!user) {
     throw new Error('Invalid username or password.');
   }
@@ -671,4 +721,82 @@ export async function canUserCreateShops(currentUser?: AuthSession | null): Prom
 
   return { allowed: true };
 }
+
+/**
+ * Retrieve Master Admin profile information (Username, SuperAdmin Email & Phone from authConfig)
+ */
+export async function getMasterAdminProfile(): Promise<{ username: string; email: string; phone: string }> {
+  const users = await getAllLocalUsers();
+  const admin = users.find(u => u.role === 'ADMIN' && u.isMasterAdmin) || users.find(u => u.role === 'ADMIN');
+  
+  let cloudConfig: AdminAuthConfig | null = null;
+  try {
+    cloudConfig = await getAdminAuthConfig();
+  } catch (err) {
+    console.warn('[Auth] Could not fetch cloud admin auth config:', err);
+  }
+
+  const username = admin?.username || cloudConfig?.adminUsername || 'admin';
+  const email = cloudConfig?.superAdminEmail || DEFAULT_ADMIN_AUTH_CONFIG.superAdminEmail;
+  const phone = cloudConfig?.superAdminPhone || DEFAULT_ADMIN_AUTH_CONFIG.superAdminPhone;
+
+  return { username, email, phone };
+}
+
+/**
+ * Reset Master Admin password via verified 2FA recovery flow.
+ * Instantly updates Firestore 'adminSettings/authConfig' collection and local IndexedDB.
+ */
+export async function resetAdminPasswordViaTwoFactor(newPassword: string): Promise<{ username: string }> {
+  if (!newPassword || newPassword.length < 6) {
+    throw new Error('New password must be at least 6 characters long.');
+  }
+
+  const profile = await getMasterAdminProfile();
+  const cleanUsername = profile.username.trim().toLowerCase();
+
+  const newSalt = generateSalt();
+  const newHash = await hashPasswordWithSalt(newPassword, newSalt);
+
+  // 1. Instant Cloud Firestore update
+  try {
+    await updateAdminAuthConfig({
+      adminUsername: cleanUsername,
+      adminPasswordHash: newHash,
+      adminSalt: newSalt,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (cloudErr: any) {
+    console.error('[Auth] Failed to update admin password in Firestore:', cloudErr);
+    // Still proceed to update local storage so admin is not locked out
+  }
+
+  // 2. Local IndexedDB update
+  const users = await getAllLocalUsers();
+  let admin = users.find(u => u.role === 'ADMIN' && (u.username === cleanUsername || u.isMasterAdmin))
+    || users.find(u => u.role === 'ADMIN');
+
+  if (admin) {
+    admin.username = cleanUsername;
+    admin.salt = newSalt;
+    admin.passwordHash = newHash;
+  } else {
+    admin = {
+      id: `usr-admin-${Date.now()}`,
+      username: cleanUsername,
+      fullName: 'Master Administrator',
+      role: 'ADMIN',
+      isMasterAdmin: true,
+      salt: newSalt,
+      passwordHash: newHash,
+      createdAt: new Date().toISOString()
+    };
+    users.push(admin);
+  }
+
+  await saveAllLocalUsers(users);
+
+  return { username: cleanUsername };
+}
+
 

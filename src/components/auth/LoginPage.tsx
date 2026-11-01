@@ -23,6 +23,7 @@ import {
   performOneTimeAdminSetup 
 } from '../../storage/auth.ts';
 import { AdminPasswordResetModal } from './AdminPasswordResetModal.tsx';
+import { AdminCredentialsRecoveryModal } from './AdminCredentialsRecoveryModal.tsx';
 import { AdminPhone2FAModal } from './AdminPhone2FAModal.tsx';
 import amulLogo from '../../assets/logo.ts';
 import { getAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from '../../storage/firebase.ts';
@@ -508,9 +509,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                     type="button"
                     onClick={() => setIsForgotModalOpen(true)}
                     className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-1 font-semibold"
+                    title="Forgot Password? Recover Admin Username and reset password via 2FA"
                   >
                     <KeyRound className="w-3 h-3" />
-                    <span>Forgot Password?</span>
+                    <span>Forgot Username / Password?</span>
                   </button>
                 )}
               </div>
@@ -591,13 +593,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         </p>
       </div>
 
-      {/* Forgot Admin Password Modal */}
-      <AdminPasswordResetModal
+      {/* 2FA Master Admin Forgot Username / Password Recovery Modal */}
+      <AdminCredentialsRecoveryModal
         isOpen={isForgotModalOpen}
         onClose={() => setIsForgotModalOpen(false)}
-        onSuccess={(recoveredAdminUsername) => {
+        onSuccess={(recoveredAdminUsername, message) => {
           setUsername(recoveredAdminUsername);
-          setResetSuccessMessage('Password updated successfully! Please enter your new password to sign in.');
+          setPassword('');
+          setResetSuccessMessage(message || 'Admin credentials successfully updated! You can now log in with your new password.');
           setError(null);
         }}
       />

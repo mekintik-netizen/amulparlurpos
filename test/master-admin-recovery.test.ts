@@ -108,4 +108,22 @@ describe('Master Admin Security Question & Shop Credential Management', () => {
     expect(content).toContain('handleAdminResetShopPassword');
     expect(content).toContain('adminResetShopPassword');
   });
+
+  it('verifies AdminCredentialsRecoveryModal exports correctly and LoginPage connects to 2FA recovery', () => {
+    const modalPath = path.resolve(process.cwd(), 'src/components/auth/AdminCredentialsRecoveryModal.tsx');
+    expect(fs.existsSync(modalPath)).toBe(true);
+
+    const modalContent = fs.readFileSync(modalPath, 'utf8');
+    expect(modalContent).toContain('AdminCredentialsRecoveryModal');
+    expect(modalContent).toContain('PHONE_OTP');
+    expect(modalContent).toContain('GOOGLE_AUTH');
+    expect(modalContent).toContain('RESET_PASSWORD');
+    expect(modalContent).toContain('superAdminPhone');
+    expect(modalContent).toContain('superAdminEmail');
+
+    const loginPath = path.resolve(process.cwd(), 'src/components/auth/LoginPage.tsx');
+    const loginContent = fs.readFileSync(loginPath, 'utf8');
+    expect(loginContent).toContain('Forgot Username / Password?');
+    expect(loginContent).toContain('AdminCredentialsRecoveryModal');
+  });
 });

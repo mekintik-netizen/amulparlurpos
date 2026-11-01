@@ -55,6 +55,9 @@ export interface AdminAuthConfig {
   superAdminPhone: string;
   paymentQrUrl?: string; // Master Admin's uploaded Payment QR
   adminName?: string;
+  adminUsername?: string;
+  adminPasswordHash?: string;
+  adminSalt?: string;
   updatedAt?: string;
 }
 
@@ -62,7 +65,8 @@ export const DEFAULT_ADMIN_AUTH_CONFIG: AdminAuthConfig = {
   superAdminEmail: "mekintik@gmail.com",
   superAdminPhone: "+919173598234",
   paymentQrUrl: "",
-  adminName: "Master Admin"
+  adminName: "Master Admin",
+  adminUsername: "admin"
 };
 
 /**
