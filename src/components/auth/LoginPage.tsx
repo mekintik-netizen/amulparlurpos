@@ -23,6 +23,7 @@ import {
   performOneTimeAdminSetup 
 } from '../../storage/auth.ts';
 import { AdminPasswordResetModal } from './AdminPasswordResetModal.tsx';
+import amulLogo from '../../assets/logo.ts';
 import { 
   Store, 
   Shield, 
@@ -230,7 +231,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           <div className="flex justify-center mb-2">
             <div className="bg-white p-2 rounded-2xl border border-slate-200 dark:border-neutral-800 shadow-xs inline-block">
               <img
-                src="/assets/aistudio/images__2__c16e6a94.jpg"
+                src={amulLogo}
                 alt="Amul - The Taste of India"
                 className="h-16 max-w-[240px] w-auto object-contain mx-auto"
                 loading="eager"

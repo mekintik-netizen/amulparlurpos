@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
+import amulLogo from '../../assets/logo.ts';
 
 interface ShopProfileManagementProps {
   currentShop: Shop;
@@ -628,7 +629,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
               {/* Amul Brand Header */}
               <div className="flex flex-col items-center justify-center mb-4 border-b-2 border-[#E31837] pb-3">
                 <img
-                  src="/assets/aistudio/images__2__c16e6a94.jpg"
+                  src={amulLogo}
                   alt="Amul"
                   className="h-10 w-auto object-contain mb-1"
                 />

@@ -1,149 +1,94 @@
-# Implementation Plan: Shop Profile Settings, Custom Bank UPI QR & Bank Statement Tab
+# Pre-fill Amul Catalog with 0 Stock & Role-Based Navigation Optimization
 
-This plan outlines the architecture and execution steps to introduce a dedicated **Shop Profile** management tab, a custom merchant **Bank/UPI QR Code** scanner at POS checkout, and a comprehensive **Bank Statement & Entries (બેંક એન્ટ્રી / પાસબુક)** tab for tracking all digital bank transactions.
-
----
-
-## 1. User Requirements Summary
-1. **Custom Shop UPI QR Code at POS Checkout:**
-   - Replace the generic QR code at checkout with the shopkeeper's actual UPI payment QR.
-   - Support uploading a photo/image of the shop's PhonePe/GPay/Paytm/BharatPe QR standee or entering the shop's UPI ID (`merchant@upi`) to generate an instant dynamic UPI QR with pre-filled bill amount.
-   - Display the shop's bank name, UPI ID, and scan instructions so customers can scan and pay directly into the merchant's account.
-
-2. **Dedicated "Shop Profile" (દુકાન પ્રોફાઇલ & સેટિંગ્સ) Tab:**
-   - Tab in the navigation for managing shop credentials and payment settings.
-   - Edit Shop Name, Owner Name, Contact Phone, Email, Physical Address, City, Pin Code.
-   - Edit GSTIN and FSSAI License Number.
-   - Bank Account Information: Bank Name, Account Holder Name, Account Number, IFSC Code, and Shop UPI ID.
-   - Upload, preview, and delete custom Shop QR code image.
-   - One-click "Print Merchant QR Standee" to print a counter display card for the shop.
-
-3. **Dedicated "Bank Statement & Entries" (બેંક સ્ટેટમેન્ટ & એન્ટ્રી) Tab:**
-   - View a complete passbook/statement of all bank and UPI financial movements.
-   - **Automatic Inflows (Credit):** All POS sales completed via UPI / Bank Transfer.
-   - **Automatic Outflows (Debit):** All supplier purchase payments made via Bank Transfer / UPI, and expense payments logged with Bank/UPI.
-   - **Manual Bank Entries:** Ability to record manual bank transactions (e.g., cash deposited into bank, cash withdrawal from ATM, bank interest received, bank charges, loan EMI, electricity bill paid from bank).
-   - KPI metrics: Total Bank Inflow, Total Bank Outflow, Current Calculated Bank Balance, and Total UPI Collections.
-   - Filter by date range, transaction type, search by UTR / Reference / Party name.
-   - Export Bank Statement to CSV / Excel and Print Passbook Statement.
+Pre-fill the authentic 65+ Amul catalog with 0 initial stock quantity across all shops (making purchase entry and barcode scanning instant) and streamline role-based navigation so Shop Profile and Bank Statement are directly available to Cashiers, while the Admin tab is reserved strictly for franchise management and subscription plans.
 
 ---
 
-## 2. Proposed Architecture & Data Models
+### User Review & Critical Decisions
 
-### A. Shop Profile & Payment Settings in `types/index.ts`
-Enhance the `Shop` interface with:
-```typescript
-export interface Shop {
-  id: string;
-  name: string;
-  regionalName?: string;
-  ownerName: string;
-  phone: string;
-  email: string;
-  address: string;
-  city?: string;
-  pincode?: string;
-  gstin?: string;
-  fssaiNumber?: string;
-  // Bank & UPI configuration
-  bankName?: string;
-  accountHolderName?: string;
-  accountNumber?: string;
-  ifscCode?: string;
-  upiId?: string;           // e.g. amulparlour@okaxis
-  qrCodeImageUrl?: string;  // Base64 or image URL of merchant QR code
-  createdAt: string;
-  updatedAt: string;
-  subscription?: ShopSubscription;
-}
+> [!IMPORTANT]
+> - **Catalog 0-Stock Initialization**: When any shop (new or existing) has 0 products, the system will automatically seed all 65+ authentic Amul products (Milk, Curd, Ghee, Butter, Paneer, Ice Cream, Chocolates, Beverages) with their genuine EAN-13 barcodes, MRP, and **quantity = 0**. This allows immediate stock inwards and purchases without manual product typing.
+> - **One-Click Catalog Replenish**: In the Catalog tab, a dedicated button *"Pre-fill Master Amul Catalog (0 Stock)" (અમુલ કેટલોગ 0 સ્ટોક સાથે ભરો)* will allow shop owners to restore or refresh the complete Amul product master list anytime.
+> - **Role Separation**: Cashier / Shop Counter users will have direct, prominent access to **Shop Profile & QR** and **Bank Statement**, while the **Admin & Shops** tab will be hidden from cashiers and shown only to logged-in Master Administrators.
+
+---
+
+### 1. Overview & Core Concept
+
+- **What It Does**:
+  1. Ensures no shop ever sees an empty or blank catalog. All standard Amul items are pre-loaded with official barcodes and zero quantity.
+  2. Enables immediate purchase entry (`Purchases Khata`) where the merchant only needs to scan the barcode or select an item and enter the received quantity and cost.
+  3. Tailors the user interface to counter reality: Cashiers need fast billing, stock checks, bank passbook tracking, and payment QR settings. The Master Admin portal is reserved exclusively for the app owner for shop onboarding, franchise approvals, and subscription plan management.
+
+- **Target Audience / Persona**:
+  - **Amul Parlour Cashier / Franchise Owner**: Operates daily billing, tracks UPI payments, inputs purchase deliveries, and updates bank QR.
+  - **Master Admin**: App owner registering new parlour franchises and configuring subscription plans.
+
+---
+
+### 2. User Experience & Visual Design
+
+- **Navigation Restructuring**:
+  - **For Shop Counter / Cashier (`SHOP_USER`)**:
+    - Top Header and Right Dock will prominently feature:
+      1. `POS Billing` (કાઉન્ટર બિલિંગ)
+      2. `Purchases` (માલ ખરીદી & સ્ટોક ઇનવર્ડ)
+      3. `Stock Reports` (સ્ટોક ઓડિટ)
+      4. `Daily Sales` (દૈનિક વેચાણ)
+      5. `PDF Reports` (રિપોર્ટ્સ હબ)
+      6. `P&L & Expenses` (ખર્ચ)
+      7. `Bank Statement` (બેંક એન્ટ્રી & પાસબુક)
+      8. `Shop Profile & QR` (દુકાન પ્રોફાઇલ & સેટિંગ્સ)
+      9. `Product Catalog` (પ્રોડક્ટ કેટલોગ - 65+ આઇટમ્સ)
+      10. `Backup & Safety` (બેકઅપ)
+    - The `Admin & Shops` tab is **hidden** for Cashiers so they never see or get confused by franchise management.
+  - **For Master Admin (`ADMIN`)**:
+    - Direct access to `Admin HQ Portal` for registering new shops, viewing subscription status, and resetting cashier credentials, with the ability to inspect any shop counter.
+
+- **Catalog Experience**:
+  - Zero-state banner replaced with auto-populated 65+ Amul inventory cards showing `Stock: 0 નંગ (Out of Stock / Ready for Purchase)`.
+  - In Purchase Entry (`Purchases Khata`), typing or barcode scanning instantly auto-completes any Amul product so cashiers only type the received quantity.
+
+---
+
+### 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Automatic 0-Stock Seeding on New Shop Creation and on Retrieval**
+  - *Chosen Approach*: Update `saveShop` in `src/storage/db.ts` and `AdminPortal.tsx` to automatically seed the 65+ Amul items with `currentStock = 0` whenever a new shop is created. In addition, `getProductsByShop` will auto-seed if a shop has 0 items.
+  - *Why*: Eliminates the "blank catalog" issue forever, regardless of how or when a shop was registered.
+
+- **Decision 2: Cashier Direct Access to Bank & Profile**
+  - *Chosen Approach*: Keep `BANK` and `PROFILE` tabs permanently available for authenticated cashier sessions in both `Header.tsx` and `RightSideNavigation.tsx`. Hide `ADMIN` tab if `session.role !== 'ADMIN'`.
+  - *Why*: Directly aligns with user requirement ("admin to khali mara mate chhe, shop profile and bank statement shop login ma aapo").
+
+---
+
+### 4. Technical Architecture & Component Mapping
+
+```
+┌────────────────────────────────────────────────────────┐
+│                   Dual Authentication                  │
+│   Cashier Login (Shop Counter) │ Admin Login (Owner)   │
+└───────────────┬──────────────────────────┬─────────────┘
+                │                          │
+        Role: SHOP_USER               Role: ADMIN
+                │                          │
+┌───────────────▼────────────────┐ ┌───────▼─────────────┐
+│     Shop Counter Interface     │ │  Master Admin HQ    │
+│  - POS Billing (Fast Scan)     │ │  - Shop Onboarding  │
+│  - Purchases (Pre-filled items)│ │  - Subscriptions    │
+│  - Bank Statement & Passbook   │ │  - Credential Reset │
+│  - Shop Profile & Merchant QR  │ └─────────────────────┘
+│  - Catalog (65+ Amul items)    │
+│  - Reports & Daily Sales       │
+└────────────────────────────────┘
 ```
 
-### B. Bank Entry Model in `types/index.ts`
-```typescript
-export interface BankEntry {
-  id: string;
-  shopId: string;
-  date: string;
-  type: 'CREDIT' | 'DEBIT';
-  category: 'UPI_SALE' | 'SUPPLIER_PAYMENT' | 'EXPENSE' | 'CASH_DEPOSIT' | 'CASH_WITHDRAWAL' | 'BANK_CHARGES' | 'INTEREST' | 'OTHER';
-  amount: number;
-  referenceNumber: string; // UTR / Bill No / Ref No
-  description: string;
-  partyName?: string;      // Customer / Supplier / Bank
-  paymentMode: 'UPI' | 'NEFT_RTGS' | 'CHEQUE' | 'NET_BANKING' | 'OTHER';
-  sourceId?: string;       // Order ID or Purchase ID if automatically synced
-  createdAt: string;
-}
-```
+- **Database Layer (`src/storage/db.ts`)**:
+  - In `getProductsByShop(shopId)`: If product count for `shopId` is 0, auto-insert all 65+ `getSeedProductsForShop(shopId)` with `currentStock: 0`.
+  - In `AdminPortal.tsx` shop creation handler: Immediately call `seedShopAmulCatalog(newShop.id)`.
+  - Add `resetShopCatalogToDefault(shopId)` utility to restore default Amul items with 0 stock.
 
-### C. Persistent Storage in `storage/repositories.ts`
-- Add `AppRepository.bankEntries`:
-  - `getAll(shopId: string): Promise<BankEntry[]>`
-  - `add(entry: BankEntry): Promise<void>`
-  - `delete(id: string): Promise<void>`
-  - `getStatement(shopId: string, startDate?: string, endDate?: string): Promise<BankStatementSummary>`
-- Hook order completion (when payment mode is `UPI` or `BANK_TRANSFER`) to automatically record a credit in `bankEntries`.
-- Hook purchase bill settlement (when payment mode is `BANK_TRANSFER` or `UPI`) to automatically record a debit in `bankEntries`.
-
----
-
-## 3. UI Component Plan
-
-1. **`src/components/profile/ShopProfileManagement.tsx` (New Component):**
-   - Clean, professional tab with Amul branding.
-   - **Shop Identity Section:** Business Name, Gujarati Name, Owner, Phone, Email, Address, GSTIN, FSSAI.
-   - **Bank & UPI Details:** Bank Name, Account Number, IFSC, Account Holder, and UPI ID.
-   - **Merchant QR Code Studio:**
-     - Live preview of current QR (either uploaded photo or dynamic vector QR generated from UPI ID).
-     - File upload button (drag & drop or click to upload PhonePe/GPay/Paytm QR).
-     - Remove / replace QR button.
-     - Printable A4 / Standee tent-card with Amul Branding: "Scan Here to Pay via GPay / PhonePe / Paytm / BHIM".
-   - Save Changes button with toast notifications and subscription check.
-
-2. **`src/components/banking/BankStatementManagement.tsx` (New Component):**
-   - **KPI Summary Cards:**
-     - Total Inflow (UPI Sales + Bank Credits)
-     - Total Outflow (Supplier Payments + Debits)
-     - Net Bank Balance
-     - Today's UPI Collection Count & Value
-   - **Action Bar:**
-     - "+ Add Bank Entry (કેશ જમા / ઉપાડ / ચાર્જીસ)" button opening a modal.
-     - Date Range Picker (Today, This Week, This Month, Custom).
-     - Type Filter (All, Credit / આવક, Debit / ખર્ચ).
-     - Search bar for UTR / Reference / Party name.
-     - Export to CSV / Excel and Print Statement buttons with official branded header.
-   - **Statement Table:**
-     - Date & Time
-     - Type (Credit [Green] / Debit [Red])
-     - Category (UPI વેચાણ, સપ્લાયર પેમેન્ટ, ખર્ચ, બેંક એન્ટ્રી)
-     - Party / Account Name
-     - Reference / UTR Number
-     - Credit Amount (₹)
-     - Debit Amount (₹)
-     - Running Balance (₹)
-     - Action (Delete for manual entries)
-
-3. **POS Checkout Modal Enhancement (`src/components/pos/CheckoutModal.tsx`):**
-   - When payment mode is `UPI`:
-     - If the shop has an uploaded `qrCodeImageUrl`, render the shopkeeper's authentic QR code image.
-     - If the shop has a `upiId`, generate a dynamic QR code using `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=` with the encoded `upi://pay?pa={upiId}&pn={shopName}&am={finalTotal}&cu=INR`.
-     - Display: Shop Name, Merchant UPI ID, and exact amount to be paid.
-     - Quick "Copy UPI ID" button.
-     - Direct confirmation: "ગ્રાહકે પેમેન્ટ કર્યા પછી Pay & Print પર ક્લિક કરો".
-
-4. **Navigation Integration (`src/components/layout/Sidebar.tsx` & `src/App.tsx`):**
-   - Add **"બેંક સ્ટેટમેન્ટ" (Bank Statement)** tab with a bank/wallet icon.
-   - Add **"દુકાન પ્રોફાઇલ" (Shop Profile)** tab with a store/settings icon.
-   - Accessible to Cashier / Admin / Master Admin roles with appropriate permission control.
-
----
-
-## 4. Verification & Testing
-- Unit tests in `test/bank-and-profile.test.ts`:
-  - Verify shop profile updating and persistence of bank details and QR image.
-  - Verify automatic creation of bank entries on UPI sales and supplier payments.
-  - Verify manual bank entry creation (cash deposit, withdrawal, charges) and running balance calculations.
-  - Verify POS checkout modal displays merchant custom QR when uploaded or UPI ID format.
-- Run `npm test` and `compile_applet`.
-- Repackage offline zip.
+- **Navigation Components (`Header.tsx` & `RightSideNavigation.tsx`)**:
+  - Conditional rendering: only show `ADMIN` tab button when `currentUser?.role === 'ADMIN'`.
+  - Ensure `BANK` and `PROFILE` tabs are prominently positioned and styled for shop users.

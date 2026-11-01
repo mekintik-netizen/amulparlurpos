@@ -42,6 +42,7 @@ import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShop
 import { isShopSubscriptionActive, activateOneMonthSubscription, renewShopSubscription } from '../../storage/subscription.ts';
 import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
 import { MonthlyRevenueChart } from './MonthlyRevenueChart.tsx';
+import amulLogo from '../../assets/logo.ts';
 
 interface AdminPortalProps {
   onSelectShop: (shop: Shop) => void;
@@ -494,7 +495,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             <div className="flex items-center gap-3.5">
               <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-2xs shrink-0 hidden sm:block">
                 <img
-                  src="/assets/aistudio/images__2__c16e6a94.jpg"
+                  src={amulLogo}
                   alt="Amul"
                   className="h-10 w-auto object-contain"
                   loading="eager"

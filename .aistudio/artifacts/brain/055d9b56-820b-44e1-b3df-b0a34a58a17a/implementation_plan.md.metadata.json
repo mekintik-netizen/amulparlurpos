@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for Shop Profile settings, custom merchant UPI payment QR code, and a dedicated Bank Statement & Entries passbook tab in Amul Parlour POS.",
-  "updatedAt":  "2026-10-31T16:05:26.138876739Z",
+  "summary":  "Implementation plan for pre-filling 65+ authentic Amul products with 0 initial quantity for all shops, and separating Cashier vs Admin navigation so Shop Profile and Bank Statement are directly available to Cashiers while Admin is reserved exclusively for franchise registration and subscription plans.",
+  "updatedAt":  "2026-10-31T18:13:16.631845459Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

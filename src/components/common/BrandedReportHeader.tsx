@@ -10,6 +10,7 @@
 import React from 'react';
 import { Shop } from '../../types/index.ts';
 import { Calendar, Clock, MapPin, Phone, ShieldCheck, FileText } from 'lucide-react';
+import amulLogo from '../../assets/logo.ts';
 
 interface BrandedReportHeaderProps {
   currentShop: Shop | null;
@@ -57,7 +58,7 @@ export const BrandedReportHeader: React.FC<BrandedReportHeaderProps> = ({
           <div className="shrink-0 flex flex-col items-center">
             <div className="bg-white p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs">
               <img
-                src="/assets/aistudio/images__2__c16e6a94.jpg"
+                src={amulLogo}
                 alt="Amul - The Taste of India"
                 className="h-14 sm:h-16 w-auto object-contain print:h-16"
                 loading="eager"

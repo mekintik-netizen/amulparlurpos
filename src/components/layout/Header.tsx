@@ -31,6 +31,7 @@ import {
 import { Shop } from '../../types/index.ts';
 import { AuthSession } from '../../storage/auth.ts';
 import { Theme } from '../../storage/theme.ts';
+import amulLogo from '../../assets/logo.ts';
 
 export type ActiveTab = 
   | 'POS' 
@@ -85,7 +86,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-3 shrink-0">
             <div className="bg-white px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xs flex items-center gap-2">
               <img
-                src="/assets/aistudio/images__2__c16e6a94.jpg"
+                src={amulLogo}
                 alt="Amul"
                 className="h-8 sm:h-9 w-auto object-contain"
                 loading="eager"

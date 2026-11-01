@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { DailyStockReportRow, Product, Shop, StockMovement } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
+import amulLogo from '../../assets/logo.ts';
 
 interface DailyStockReportProps {
   currentShop: Shop;
@@ -184,7 +185,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
           <div className="flex items-center gap-3.5">
             <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-2xs shrink-0">
               <img
-                src="/assets/aistudio/images__2__c16e6a94.jpg"
+                src={amulLogo}
                 alt="Amul"
                 className="h-10 sm:h-12 w-auto object-contain print:h-14"
                 loading="eager"
