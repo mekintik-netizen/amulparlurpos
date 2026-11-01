@@ -330,8 +330,18 @@ export async function getProductsByShop(shopId: string): Promise<Product[]> {
     const store = tx.objectStore('products');
     const index = store.index('shopId');
     const req = index.getAll(shopId);
-    req.onsuccess = () => {
+    req.onsuccess = async () => {
       const list = (req.result || []) as Product[];
+      if (list.length === 0) {
+        // Automatically populate authentic 65+ Amul items with 0 stock so catalog is never blank!
+        try {
+          const seeded = await prefillMasterAmulCatalogWithZeroStock(shopId);
+          resolve(seeded);
+          return;
+        } catch (e) {
+          console.warn('Auto-seed products failed for shop:', shopId, e);
+        }
+      }
       resolve(
         list.map((p) => ({
           ...p,
@@ -342,6 +352,91 @@ export async function getProductsByShop(shopId: string): Promise<Product[]> {
     req.onerror = () => reject(req.error);
   });
 }
+
+/**
+ * Pre-fills or resets the full authentic 65+ Amul product catalog
+ * for a shop with initial currentStock = 0, along with official Amul suppliers.
+ */
+export async function prefillMasterAmulCatalogWithZeroStock(
+  shopId: string,
+  overwriteExisting = false
+): Promise<Product[]> {
+  const db = await openAppDatabase();
+  const seedProducts = getSeedProductsForShop(shopId, true);
+  const seedSuppliers = getSeedSuppliersForShop(shopId);
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['products', 'suppliers'], 'readwrite');
+    const prodStore = tx.objectStore('products');
+    const supStore = tx.objectStore('suppliers');
+    const prodIndex = prodStore.index('shopId');
+    const getReq = prodIndex.getAll(shopId);
+
+    getReq.onsuccess = () => {
+      const existingList = (getReq.result || []) as Product[];
+      const existingMap = new Map<string, Product>();
+      existingList.forEach((p) => {
+        existingMap.set(p.barcode, p);
+      });
+
+      for (const p of seedProducts) {
+        const existing = existingMap.get(p.barcode);
+        if (existing) {
+          if (overwriteExisting) {
+            const updated: Product = {
+              ...existing,
+              name: p.name,
+              regionalName: p.regionalName,
+              category: p.category,
+              unit: p.unit,
+              mrp: p.mrp,
+              costPrice: p.costPrice,
+              sellingPrice: p.sellingPrice,
+              currentStock: 0,
+              minStockAlert: p.minStockAlert,
+              imageUrl: p.imageUrl,
+              updatedAt: new Date().toISOString()
+            };
+            prodStore.put(updated);
+          }
+        } else {
+          prodStore.add(p);
+        }
+      }
+
+      // Also ensure standard Amul suppliers are seeded for purchases
+      const supIndex = supStore.index('shopId');
+      const supReq = supIndex.getAll(shopId);
+      supReq.onsuccess = () => {
+        const existingSups = (supReq.result || []) as Supplier[];
+        if (existingSups.length === 0) {
+          for (const s of seedSuppliers) {
+            supStore.add(s);
+          }
+        }
+      };
+    };
+
+    tx.oncomplete = () => {
+      const readTx = db.transaction('products', 'readonly');
+      const store = readTx.objectStore('products');
+      const req = store.index('shopId').getAll(shopId);
+      req.onsuccess = () => {
+        const list = (req.result || []) as Product[];
+        resolve(
+          list.map((p) => ({
+            ...p,
+            imageUrl: p.imageUrl || getAmulProductPresetImage(p.name, p.category)
+          }))
+        );
+      };
+      req.onerror = () => reject(req.error);
+    };
+
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
 
 export async function getProductById(id: string): Promise<Product | null> {
   const db = await openAppDatabase();

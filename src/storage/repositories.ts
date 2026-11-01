@@ -105,6 +105,9 @@ export const AppRepository = {
     },
     syncPreFilledCatalog: async (shopId: string): Promise<{ added: number; total: number }> => {
       return localDb.syncPreFilledAmulCatalogForShop(shopId);
+    },
+    prefillMasterCatalog: async (shopId: string, overwriteExisting = false): Promise<Product[]> => {
+      return localDb.prefillMasterAmulCatalogWithZeroStock(shopId, overwriteExisting);
     }
   },
 

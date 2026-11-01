@@ -165,7 +165,7 @@ export const getSeedBankEntriesForShop = (shopId: string): BankEntry[] => [
  * 65+ Authentic Amul Products across all official categories
  * Pre-filled with accurate EAN-13 barcodes, units, MRPs, and wholesale cost prices.
  */
-export const getSeedProductsForShop = (shopId: string): Product[] => {
+export const getSeedProductsForShop = (shopId: string, zeroStock = false): Product[] => {
   const masterList: Array<{
     barcode: string;
     sku: string;
@@ -287,7 +287,7 @@ export const getSeedProductsForShop = (shopId: string): Product[] => {
       mrp: item.mrp,
       costPrice: item.costPrice,
       sellingPrice: item.mrp,
-      currentStock: item.initialStock,
+      currentStock: zeroStock ? 0 : item.initialStock,
       minStockAlert: item.minStockAlert,
       isActive: true,
       imageUrl: getAmulProductPresetImage(item.name, item.category),

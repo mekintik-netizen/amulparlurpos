@@ -280,6 +280,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
       await AppRepository.shops.save(shopData);
 
+      // Automatically prefill authentic Amul catalog (65+ items with 0 stock) & default suppliers for new shop
+      if (!editingShop) {
+        await AppRepository.products.prefillMasterCatalog(shopData.id, false);
+      }
+
       // If registering a new shop and cashier account creation is enabled
       if (!editingShop && createCashierAccount && cashierUsername.trim()) {
         const cleanUser = cashierUsername.trim().toLowerCase();

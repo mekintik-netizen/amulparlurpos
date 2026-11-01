@@ -229,20 +229,20 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Backup & Safety</span>
             </button>
 
-            {/* Admin tab is prominent for Admin or accessible for authorized views */}
-            <button
-              onClick={() => onTabChange('ADMIN')}
-              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
-                activeTab === 'ADMIN'
-                  ? 'bg-white text-[#E31837] shadow-sm'
-                  : isAdmin
-                  ? 'text-amber-200 bg-blue-900/40 hover:bg-blue-800'
-                  : 'text-blue-100 hover:bg-blue-800/60'
-              }`}
-            >
-              <ShieldCheck className="w-4 h-4" />
-              <span>Admin & Shops</span>
-            </button>
+            {/* Admin tab is only visible for Master Admin ("admin to khali mara mate chhe") */}
+            {isAdmin && (
+              <button
+                onClick={() => onTabChange('ADMIN')}
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                  activeTab === 'ADMIN'
+                    ? 'bg-white text-[#E31837] shadow-sm'
+                    : 'text-amber-200 bg-blue-900/40 hover:bg-blue-800'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 text-amber-300" />
+                <span>Admin & Shops</span>
+              </button>
+            )}
 
             {/* Dedicated Shop Login & Admin Login Buttons in Navigation */}
             <div className="h-6 w-px bg-white/20 mx-1 hidden sm:block" />

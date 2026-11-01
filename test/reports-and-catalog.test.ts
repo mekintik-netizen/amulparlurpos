@@ -145,5 +145,36 @@ describe('Product Image Presets & Catalog Photos', () => {
       ]).toContain(prod.category);
     });
   });
+
+  it('provides 0 initial stock quantity when zeroStock flag is enabled for pre-filling blank shops', () => {
+    const zeroStockProducts = getSeedProductsForShop('shop-zero-stock-test', true);
+    expect(zeroStockProducts.length).toBeGreaterThanOrEqual(65);
+
+    zeroStockProducts.forEach((prod) => {
+      expect(prod.currentStock).toBe(0);
+      expect(prod.barcode).toBeDefined();
+      expect(prod.barcode.length).toBeGreaterThanOrEqual(12);
+      expect(prod.mrp).toBeGreaterThan(0);
+      expect(prod.costPrice).toBeGreaterThan(0);
+    });
+  });
+
+  it('restricts Admin tab to master admin and keeps Bank Statement & Shop Profile accessible to cashiers', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+
+    const headerContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/layout/Header.tsx'), 'utf8');
+    // Header must condition Admin tab with isAdmin
+    expect(headerContent).toContain('{isAdmin &&');
+    // Header must include Bank and Profile tabs
+    expect(headerContent).toContain("'BANK'");
+    expect(headerContent).toContain("'PROFILE'");
+
+    const rightNavContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/layout/RightSideNavigation.tsx'), 'utf8');
+    // Right navigation must filter adminOnly items for non-admin sessions
+    expect(rightNavContent).toContain("!item.adminOnly || currentUser?.role === 'ADMIN'");
+    expect(rightNavContent).toContain("key: 'BANK'");
+    expect(rightNavContent).toContain("key: 'PROFILE'");
+  });
 });
 

@@ -128,6 +128,21 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     }
   };
 
+  const handlePrefillZeroStock = async (forceOverwrite = false) => {
+    try {
+      setLoading(true);
+      const list = await AppRepository.products.prefillMasterCatalog(currentShop.id, forceOverwrite);
+      setProducts(list);
+      if (onProductChanged) onProductChanged();
+      setPriceSaveNotice(`અમુલ માસ્ટર કેટલોગ 65+ આઇટમ્સ અને બારકોડ સાથે 0 સ્ટોકમાં સફળતાપૂર્વક અપડેટ થયું! (${list.length} Items ready with 0 stock)`);
+      setTimeout(() => setPriceSaveNotice(null), 5000);
+    } catch (err: any) {
+      alert(`Failed to prefill catalog: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const generateBarcode = () => {
     // Generate valid 13-digit EAN-style barcode starting with 8901262 (Amul prefix)
     const rand = Math.floor(100000 + Math.random() * 900000);
@@ -317,21 +332,21 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
 
         <div className="flex items-center gap-2">
           <button
-            onClick={async () => {
-              try {
-                const res = await AppRepository.products.syncPreFilledCatalog(currentShop.id);
-                await loadProducts();
-                if (onProductChanged) onProductChanged();
-                alert(`Successfully synchronized Amul master catalog! Total ${res.total} products available with barcodes.`);
-              } catch (err: any) {
-                alert(`Failed to sync catalog: ${err.message}`);
+            onClick={() => {
+              if (products.length > 0) {
+                if (window.confirm('તમામ 65+ અમુલ પ્રોડક્ટ્સને 0 શરૂઆત સ્ટોક (Zero Stock) સાથે રીસેટ/અપડેટ કરવા માંગો છો?')) {
+                  handlePrefillZeroStock(true);
+                }
+              } else {
+                handlePrefillZeroStock(false);
               }
             }}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-            title="Populate complete official Amul product lineup with barcodes"
+            disabled={loading}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+            title="Populate complete official Amul product lineup with 0 stock and barcodes"
           >
             <Sparkles className="w-4 h-4" />
-            <span>Pre-Fill Amul Catalog (65+ Items)</span>
+            <span>Pre-Fill Amul Catalog (0 Stock)</span>
           </button>
 
           <button
@@ -592,6 +607,32 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
               })}
             </tbody>
           </table>
+
+          {filtered.length === 0 && (
+            <div className="py-12 text-center">
+              <div className="w-14 h-14 bg-blue-50 text-[#005A9C] rounded-2xl flex items-center justify-center mx-auto mb-3">
+                <Package className="w-7 h-7" />
+              </div>
+              <h3 className="font-extrabold text-sm text-slate-800">
+                {products.length === 0 ? 'કેટલોગમાં કોઈ પ્રોડક્ટ નથી (Catalog is Blank)' : 'કોઈ મેળ ખાતી પ્રોડક્ટ નથી (No Products Found)'}
+              </h3>
+              <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
+                {products.length === 0
+                  ? 'તમારી દુકાનમાં 65+ અમુલ આઇટમ્સ (દૂધ, દહીં, ઘી, બટર, ચીઝ, આઈસ્ક્રીમ) 0 નંગ સ્ટોક સાથે ઉમેરો જેથી માલ ખરીદી (Purchase) અને બિલિંગમાં સરળતા રહે.'
+                  : 'કૃપા કરીને સર્ચ ટર્મ અથવા કેટેગરી ફિલ્ટર બદલીને ફરી તપાસો.'}
+              </p>
+              {products.length === 0 && (
+                <button
+                  onClick={() => handlePrefillZeroStock(false)}
+                  disabled={loading}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition inline-flex items-center gap-2 cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Pre-fill Master Amul Catalog (0 Stock) • 65+ આઇટમ્સ ભરો</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

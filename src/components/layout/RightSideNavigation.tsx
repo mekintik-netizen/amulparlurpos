@@ -176,7 +176,9 @@ export const RightSideNavigation: React.FC<RightSideNavigationProps> = ({
 
       {/* Main Function Navigation List */}
       <div className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
+        {navItems
+          .filter((item) => !item.adminOnly || currentUser?.role === 'ADMIN')
+          .map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.key;
 
