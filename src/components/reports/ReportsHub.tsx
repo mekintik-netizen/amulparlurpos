@@ -118,7 +118,7 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
       ]);
     } else if (selectedReport === 'STOCK') {
       headers = ['Product Name', 'Barcode', 'Category', 'Opening', 'Stock In', 'Sales Qty', 'Stock Out', 'Closing Stock', 'Status'];
-      rowsData = stockRows.map(r => [
+      rowsData = stockRows.filter(r => r.closingStock > 0).map(r => [
         `"${r.productName.replace(/"/g, '""')}"`,
         r.barcode,
         r.category,
@@ -433,14 +433,18 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
-                      {stockRows.length === 0 ? (
-                        <tr>
-                          <td colSpan={8} className="text-center py-8 text-slate-400 font-sans">
-                            No inventory items found.
-                          </td>
-                        </tr>
-                      ) : (
-                        stockRows.map(r => (
+                      {(() => {
+                        const activeStockRows = stockRows.filter(r => r.closingStock > 0);
+                        if (activeStockRows.length === 0) {
+                          return (
+                            <tr>
+                              <td colSpan={8} className="text-center py-8 text-slate-400 font-sans">
+                                કોઈ સક્રિય સ્ટોક આઇટમ્સ નથી / No active stock items (quantity &gt; 0) found. All zero-stock items are excluded.
+                              </td>
+                            </tr>
+                          );
+                        }
+                        return activeStockRows.map(r => (
                           <tr key={r.productId} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
                             <td className="py-2.5 px-3 font-sans">
                               <div className="font-bold text-slate-900 dark:text-white">{r.productName}</div>
@@ -470,8 +474,8 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
                               </span>
                             </td>
                           </tr>
-                        ))
-                      )}
+                        ));
+                      })()}
                     </tbody>
                   </table>
                 </div>

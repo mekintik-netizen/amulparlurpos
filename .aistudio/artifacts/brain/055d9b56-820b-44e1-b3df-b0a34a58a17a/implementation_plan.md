@@ -1,104 +1,107 @@
-# Pre-fill Amul Catalog with 0 Stock & Role-Based Navigation Optimization
+# Purchase Bill Print Rebranding, Stock Report Zero-Stock Filter & Bank Passbook Print Stylesheet
 
-Pre-fill the authentic 65+ Amul catalog with 0 initial stock quantity across all shops (making purchase entry and barcode scanning instant) and streamline role-based navigation so Shop Profile and Bank Statement are directly available to Cashiers, while the Admin tab is reserved strictly for franchise management and subscription plans.
+A comprehensive upgrade to the print and reporting system in the Amul Parlour POS application:
+1. Rebrand Purchase invoice print action and preview headers to prominently read **"BILL PRINT"** with a clean A4 invoice layout.
+2. Filter out zero-stock items from both the Stock Report display and print view so only active available items (**quantity $\ge 1$**) are shown and printed, saving paper pages.
+3. Implement a dedicated `@media print` stylesheet for Bank Passbook to automatically strip away webpage navigation bars, dock menus, filter controls, and action buttons, leaving a clean, official bank ledger document.
 
 ---
 
 ### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> - **Catalog 0-Stock Initialization**: When any shop (new or existing) has 0 products, the system will automatically seed all 65+ authentic Amul products (Milk, Curd, Ghee, Butter, Paneer, Ice Cream, Chocolates, Beverages) with their genuine EAN-13 barcodes, MRP, and **quantity = 0**. This allows immediate stock inwards and purchases without manual product typing.
-> - **One-Click Catalog Replenish**: In the Catalog tab, a dedicated button *"Pre-fill Master Amul Catalog (0 Stock)" (અમુલ કેટલોગ 0 સ્ટોક સાથે ભરો)* will allow shop owners to restore or refresh the complete Amul product master list anytime.
-> - **Role Separation**: Cashier / Shop Counter users will have direct, prominent access to **Shop Profile & QR** and **Bank Statement**, while the **Admin & Shops** tab will be hidden from cashiers and shown only to logged-in Master Administrators.
+> - **Purchase Bill "BILL PRINT" Branding**: The purchase print action buttons (in the purchase history table, view modal, and purchase entry confirmation) and the printout header will explicitly and prominently display **"BILL PRINT"** (બિલ પ્રિન્ટ) while keeping the full A4 layout with parlour details, agency name, bill number, item table, and totals.
+> - **Stock Report Active-Stock Rule**: Items with `closingStock <= 0` are automatically excluded from the stock report print layout and default table view, ensuring only items with **1 or more units** are printed. A quick filter toggle *"બધા આઇટમ્સ (Include 0 Stock)"* is available on screen for audit reconciliation without cluttering prints.
+> - **Bank Passbook Print Layout Isolation**: When printing the passbook, all peripheral UI (main app header, right-side dock navigation, KPI stat cards, search bars, filter buttons, CSV buttons) are hidden via `@media print`. The print document features a parlour bank ledger header (Shop name, GSTIN, Bank A/C & IFSC, statement date range) followed by the clean transaction table with credit, debit, and running balance columns.
 
 ---
 
 ### 1. Overview & Core Concept
 
 - **What It Does**:
-  1. Ensures no shop ever sees an empty or blank catalog. All standard Amul items are pre-loaded with official barcodes and zero quantity.
-  2. Enables immediate purchase entry (`Purchases Khata`) where the merchant only needs to scan the barcode or select an item and enter the received quantity and cost.
-  3. Tailors the user interface to counter reality: Cashiers need fast billing, stock checks, bank passbook tracking, and payment QR settings. The Master Admin portal is reserved exclusively for the app owner for shop onboarding, franchise approvals, and subscription plan management.
-
+  - Delivers dedicated, professional print outputs for two essential parlour workflows: Purchase Invoices ("BILL PRINT") and Bank Passbook Ledgers.
+  - Streamlines daily stock audits by eliminating 0-stock clutter from printouts, condensing multi-page stock printouts into crisp, readable single/double pages.
 - **Target Audience / Persona**:
-  - **Amul Parlour Cashier / Franchise Owner**: Operates daily billing, tracks UPI payments, inputs purchase deliveries, and updates bank QR.
-  - **Master Admin**: App owner registering new parlour franchises and configuring subscription plans.
+  - **Amul Parlour Franchise Owner & Cashier**: Needs quick "BILL PRINT" receipts for distributor delivery acknowledgments, concise stock counts without blank lines, and clean bank passbook printouts for chartered accountants and tax audits.
+- **Key Value**:
+  - Paper conservation, faster physical verification, and clean official records without browser navigation artifacts.
 
 ---
 
 ### 2. User Experience & Visual Design
 
-- **Navigation Restructuring**:
-  - **For Shop Counter / Cashier (`SHOP_USER`)**:
-    - Top Header and Right Dock will prominently feature:
-      1. `POS Billing` (કાઉન્ટર બિલિંગ)
-      2. `Purchases` (માલ ખરીદી & સ્ટોક ઇનવર્ડ)
-      3. `Stock Reports` (સ્ટોક ઓડિટ)
-      4. `Daily Sales` (દૈનિક વેચાણ)
-      5. `PDF Reports` (રિપોર્ટ્સ હબ)
-      6. `P&L & Expenses` (ખર્ચ)
-      7. `Bank Statement` (બેંક એન્ટ્રી & પાસબુક)
-      8. `Shop Profile & QR` (દુકાન પ્રોફાઇલ & સેટિંગ્સ)
-      9. `Product Catalog` (પ્રોડક્ટ કેટલોગ - 65+ આઇટમ્સ)
-      10. `Backup & Safety` (બેકઅપ)
-    - The `Admin & Shops` tab is **hidden** for Cashiers so they never see or get confused by franchise management.
-  - **For Master Admin (`ADMIN`)**:
-    - Direct access to `Admin HQ Portal` for registering new shops, viewing subscription status, and resetting cashier credentials, with the ability to inspect any shop counter.
+- **Purchase "BILL PRINT" Workflow**:
+  - In Purchase Management table rows, action buttons include a blue/slate button labeled **"BILL PRINT"** with `<Printer />` icon.
+  - In the View Purchase Details modal, a primary action button labeled **"BILL PRINT"** opens the A4 printable invoice.
+  - The printed invoice header prominently features:
+    ```
+    ┌────────────────────────────────────────────────────────┐
+    │                       BILL PRINT                       │
+    │             Amul Parlour Purchase Invoice              │
+    ├────────────────────────────┬───────────────────────────┤
+    │ Parlour Details:           │ Agency & Invoice Details: │
+    │ Anand Super Parlour        │ Shreeji Amul Agency       │
+    │ GSTIN: 24AAACA1234A1Z5     │ Bill No: AMUL-BL-9821     │
+    │ Phone: +91 98765 43210     │ Date: 02-Nov-2026         │
+    ├────────────────────────────┴───────────────────────────┤
+    │ Item Name       Qty   Unit   Cost Rate   MRP   Total   │
+    │ Amul Taaza 500  40    Pouch  ₹24.50      ₹27   ₹980.00 │
+    ├────────────────────────────────────────────────────────┤
+    │ Total SKUs: 1   Total Units: 40    Grand Total: ₹980.00│
+    └────────────────────────────────────────────────────────┘
+    ```
 
-- **Catalog Experience**:
-  - Zero-state banner replaced with auto-populated 65+ Amul inventory cards showing `Stock: 0 નંગ (Out of Stock / Ready for Purchase)`.
-  - In Purchase Entry (`Purchases Khata`), typing or barcode scanning instantly auto-completes any Amul product so cashiers only type the received quantity.
+- **Stock Report Zero-Stock Filter View**:
+  - Both `DailyStockReport.tsx` and `ReportsHub.tsx` filter rows to `closingStock > 0`.
+  - Header displays active count: e.g., *"સક્રિય સ્ટોક ધરાવતી આઇટમ્સ (Active Stock Items): 24"* (excluding 41 zero-stock products).
+  - Print layout strictly excludes all items with 0 stock, ensuring compact paper usage.
+
+- **Bank Passbook Clean Print View**:
+  - When the cashier clicks **"પ્રિન્ટ પાસબુક" (Print Passbook)**, browser print preview displays:
+    - Official Amul Parlour Bank Statement Header (Shop name, account number, IFSC, date window).
+    - Summary row: Opening Balance, Total Credits, Total Debits, Closing Net Balance.
+    - Transaction ledger: Date, Reference/Mode, Particulars/Party, Credit (+), Debit (-), Running Balance.
+    - Total exclusion of webpage chrome, sidebars, dock buttons, and filter bars.
 
 ---
 
 ### 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Automatic 0-Stock Seeding on New Shop Creation and on Retrieval**
-  - *Chosen Approach*: Update `saveShop` in `src/storage/db.ts` and `AdminPortal.tsx` to automatically seed the 65+ Amul items with `currentStock = 0` whenever a new shop is created. In addition, `getProductsByShop` will auto-seed if a shop has 0 items.
-  - *Why*: Eliminates the "blank catalog" issue forever, regardless of how or when a shop was registered.
+- **Decision 1: Dedicated Print Modal & Printable Component for Purchase Bill**
+  - *Chosen Approach*: Add a standalone printable invoice modal with `@media print` CSS so clicking "BILL PRINT" opens the preview and directly invokes `window.print()` with a dedicated print layout.
+  - *Why*: Prevents modal backdrop or background purchase management controls from polluting the printout.
 
-- **Decision 2: Cashier Direct Access to Bank & Profile**
-  - *Chosen Approach*: Keep `BANK` and `PROFILE` tabs permanently available for authenticated cashier sessions in both `Header.tsx` and `RightSideNavigation.tsx`. Hide `ADMIN` tab if `session.role !== 'ADMIN'`.
-  - *Why*: Directly aligns with user requirement ("admin to khali mara mate chhe, shop profile and bank statement shop login ma aapo").
+- **Decision 2: Stock Report Zero-Stock Filter Precedence**
+  - *Chosen Approach*: Default `showZeroStock` to `false` in `DailyStockReport` and enforce `closingStock > 0` during print and PDF generation in both `DailyStockReport.tsx` and `ReportsHub.tsx`.
+  - *Why*: Parlour catalogs often contain 65+ standard Amul items, of which only 15–25 are stocked on any given day. Printing zero-stock items wastes 3–4 pages of thermal or A4 paper.
+
+- **Decision 3: Passbook Print Scoping via CSS Class**
+  - *Chosen Approach*: Wrap the printable passbook ledger in `.passbook-printable-area` and apply `@media print` rules in `src/index.css` to hide all sibling elements (`header`, `.right-side-nav`, `.no-print`) when printing.
+  - *Why*: Guarantees zero web clutter on any browser (Chrome, Edge, Firefox) without altering standard screen interactivity.
 
 ---
 
 ### 4. Technical Architecture & Component Mapping
 
 ```
-┌────────────────────────────────────────────────────────┐
-│                   Dual Authentication                  │
-│   Cashier Login (Shop Counter) │ Admin Login (Owner)   │
-└───────────────┬──────────────────────────┬─────────────┘
-                │                          │
-        Role: SHOP_USER               Role: ADMIN
-                │                          │
-┌───────────────▼────────────────┐ ┌───────▼─────────────┐
-│     Shop Counter Interface     │ │  Master Admin HQ    │
-│  - POS Billing (Fast Scan)     │ │  - Shop Onboarding  │
-│  - Purchases (Pre-filled items)│ │  - Subscriptions    │
-│  - Bank Statement & Passbook   │ │  - Credential Reset │
-│  - Shop Profile & Merchant QR  │ └─────────────────────┘
-│  - Catalog (65+ Amul items)    │
-│  - Reports & Daily Sales       │
-└────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           Amul Parlour POS                              │
+└────────────────────────────────────┬────────────────────────────────────┘
+                                     │
+           ┌─────────────────────────┼─────────────────────────┐
+           ▼                         ▼                         ▼
+┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐
+│  Purchase Management  │ │  Daily Stock Report   │ │ Bank Statement Passbk │
+│  - "BILL PRINT" btn   │ │  - closingStock > 0   │ │  - .passbook-print    │
+│  - PurchasePrintModal │ │  - Zero-stock filter  │ │  - @media print rule  │
+│  - A4 invoice layout  │ │  - Paper optimization │ │  - Hide nav & chrome  │
+└───────────────────────┘ └───────────────────────┘ └───────────────────────┘
 ```
 
-- **Database Layer (`src/storage/db.ts`)**:
-  - In `getProductsByShop(shopId)`: If product count for `shopId` is 0, auto-insert all 65+ `getSeedProductsForShop(shopId)` with `currentStock: 0`.
-  - In `AdminPortal.tsx` shop creation handler: Immediately call `seedShopAmulCatalog(newShop.id)`.
-  - Add `resetShopCatalogToDefault(shopId)` utility to restore default Amul items with 0 stock.
-
-- **Navigation Components (`Header.tsx` & `RightSideNavigation.tsx`)**:
-  - Conditional rendering: only show `ADMIN` tab button when `currentUser?.role === 'ADMIN'`.
-  - Ensure `BANK` and `PROFILE` tabs are prominently positioned and styled for shop users.
-
----
-
-### 5. Duplicate Items Detection & Resolution Engine
-- **Dedicated Tab in Catalog**:
-  - `બધી પ્રોડક્ટ્સ / All Products ({count})` vs `ડુપ્લિકેટ આઇટમ્સ / Duplicate Items ({count})`.
-  - Grouping engine detects duplicates matching on exact barcodes, SKUs, or normalized names with unit variations (e.g. `500 ml` vs `500ml`).
-  - Identifies primary recommended keeper based on highest stock, valid barcode, and recency.
-  - One-click actions: "સ્ટોક મર્જ કરી ડિલીટ (Merge Stock & Delete Duplicate)", "ડિલીટ / Delete Duplicate", and "તમામ ડુપ્લિકેટ્સ મર્જ કરો / Auto-Merge All".
-  - Real-time Firestore synchronizer instantly updates and propagates deletions and stock updates across all connected devices and browser profiles.
+- **Files to Modify**:
+  1. `src/components/purchases/PurchaseManagement.tsx`: Add "BILL PRINT" action buttons and dedicated `PurchaseBillPrintModal` with "BILL PRINT" header.
+  2. `src/components/reports/DailyStockReport.tsx`: Update row filtering to exclude `closingStock <= 0` by default and in print layout.
+  3. `src/components/reports/ReportsHub.tsx`: Exclude `closingStock <= 0` in stock report view and CSV/print.
+  4. `src/components/banking/BankStatementManagement.tsx`: Wrap passbook container with `.passbook-printable-document`, add passbook print header, and attach `.no-print` classes to web controls.
+  5. `src/index.css`: Add `@media print` rules for `.passbook-printable-document` and hide general webpage elements during printing.
+  6. Unit tests: Create/update tests verifying "BILL PRINT" labeling, stock filtering (> 0), and passbook print classes.

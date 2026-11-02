@@ -158,7 +158,81 @@
     color: #000000 !important;
   }
 
-  /* 3. Strip fixed modal backdrop and flex centering during printing */
+  /* 3a. Dedicated Bank Passbook Statement Print Styles */
+  #bank-passbook-print-root,
+  .passbook-printable-area {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 8mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  .passbook-printable-area * {
+    visibility: visible !important;
+    color: #0f172a !important;
+    background: transparent !important;
+  }
+
+  .passbook-table-print {
+    width: 100% !important;
+    border-collapse: collapse !important;
+    font-size: 11px !important;
+    margin-top: 8px !important;
+  }
+
+  .passbook-table-print thead {
+    display: table-header-group !important;
+    background-color: #f1f5f9 !important;
+  }
+
+  .passbook-table-print th,
+  .passbook-table-print td {
+    border: 1px solid #94a3b8 !important;
+    padding: 6px 8px !important;
+  }
+
+  .passbook-table-print tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  /* 3b. Dedicated Purchase Bill A4 Invoice Print Styles */
+  .purchase-printable-bill {
+    display: block !important;
+    visibility: visible !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 10mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  .purchase-printable-bill * {
+    visibility: visible !important;
+  }
+
+  .purchase-printable-bill table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+
+  .purchase-printable-bill th,
+  .purchase-printable-bill td {
+    border-color: #64748b !important;
+  }
+
+  /* 3c. Strip fixed modal backdrop and flex centering during printing */
   #thermal-modal-overlay {
     position: static !important;
     display: block !important;

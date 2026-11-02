@@ -41,6 +41,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showLowStockOnly, setShowLowStockOnly] = useState(false);
+  const [includeZeroStock, setIncludeZeroStock] = useState(false);
   const [activeTab, setActiveTab] = useState<'SUMMARY' | 'LOGS'>('SUMMARY');
 
   // Stock & Price Edit Modal State
@@ -131,7 +132,8 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
       'Status'
     ];
 
-    const csvData = rows.map((r) => [
+    const rowsToExport = includeZeroStock ? rows : rows.filter(r => r.closingStock > 0);
+    const csvData = rowsToExport.map((r) => [
       `"${r.productName.replace(/"/g, '""')}"`,
       r.barcode,
       r.category,
@@ -159,7 +161,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
     document.body.removeChild(link);
   };
 
-  // Filtered rows
+  // Filtered rows: by default excludes all items with 0 stock (quantity >= 1 only)
   const filteredRows = rows.filter((r) => {
     const matchesSearch =
       searchTerm === '' ||
@@ -167,7 +169,8 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
       r.barcode.includes(searchTerm) ||
       r.category.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesLowStock = !showLowStockOnly || r.isLowStock;
-    return matchesSearch && matchesLowStock;
+    const matchesActiveStock = includeZeroStock || r.closingStock > 0;
+    return matchesSearch && matchesLowStock && matchesActiveStock;
   });
 
   const totalOpening = rows.reduce((acc, r) => acc + r.openingStock, 0);
@@ -312,6 +315,20 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
             >
               Movement Logs ({movements.length})
             </button>
+
+            {activeTab === 'SUMMARY' && (
+              <button
+                onClick={() => setIncludeZeroStock(prev => !prev)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                  !includeZeroStock
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+                title="Only items with available stock >= 1 are printed and displayed by default"
+              >
+                <span>{!includeZeroStock ? '✓ સક્રિય સ્ટોક (>0 Stock)' : 'બધા આઇટમ્સ (0 Stock સહિત)'}</span>
+              </button>
+            )}
           </div>
 
           <div className="relative min-w-[240px]">
@@ -358,7 +375,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
                   </tr>
                 ) : (
                   filteredRows.map((r) => (
-                    <tr key={r.productId} className="hover:bg-slate-50/80 transition">
+                    <tr key={r.productId} className={`hover:bg-slate-50/80 transition ${r.closingStock <= 0 ? 'print:hidden' : ''}`}>
                       <td className="py-2.5 px-3 font-sans">
                         <div className="font-bold text-slate-900">{r.productName}</div>
                         <div className="text-[10px] text-slate-400 font-mono">{r.barcode}</div>

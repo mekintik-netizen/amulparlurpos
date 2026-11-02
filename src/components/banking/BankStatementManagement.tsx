@@ -273,7 +273,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       {/* Top Banner / Account Overview */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="no-print bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="bg-emerald-100 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 text-[10px] font-black uppercase px-2 py-0.5 rounded tracking-wide">
@@ -319,7 +319,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
 
       {/* Feedback Toast */}
       {feedbackMessage && (
-        <div className={`p-4 rounded-xl text-xs flex items-center gap-2.5 shadow-xs ${
+        <div className={`no-print p-4 rounded-xl text-xs flex items-center gap-2.5 shadow-xs ${
           feedbackMessage.type === 'success'
             ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200'
             : 'bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
@@ -334,7 +334,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
       )}
 
       {/* 4 Financial KPI Summary Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="no-print grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* 1. Total Credits */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs">
           <div className="flex items-center justify-between mb-2">
@@ -411,7 +411,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
       </div>
 
       {/* Filter Bar & Controls */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
+      <div className="no-print bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           {/* Date Filter Tabs */}
           <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
@@ -496,10 +496,65 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
         </div>
       </div>
 
-      {/* Statement Ledger Table with Running Balance */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden">
+      {/* Statement Ledger Table with Running Balance - Printable Area */}
+      <div 
+        id="bank-passbook-print-root" 
+        className="passbook-printable-area bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden print:border-none print:shadow-none print:rounded-none"
+      >
+        {/* Dedicated Print-Only Header for Passbook A4 Statement */}
+        <div className="hidden print:block p-6 border-b-2 border-slate-800 mb-4 bg-white text-slate-900">
+          <div className="flex justify-between items-start pb-4 border-b border-slate-300">
+            <div>
+              <div className="text-xl font-black uppercase tracking-wider text-blue-900">
+                {currentShop.name || 'AMUL PREFERRED OUTLET'}
+              </div>
+              {currentShop.regionalName && (
+                <div className="text-sm font-semibold text-slate-700">
+                  {currentShop.regionalName}
+                </div>
+              )}
+              <div className="text-xs text-slate-600 mt-1 max-w-md">
+                {currentShop.address ? `${currentShop.address}, ${currentShop.city || ''} ${currentShop.pincode || ''}` : 'Amul Dairy Franchise Store'}
+              </div>
+              <div className="text-xs text-slate-600">
+                {currentShop.phone && `ફોન: ${currentShop.phone}`}
+                {currentShop.gstNumber && ` | GSTIN: ${currentShop.gstNumber}`}
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-lg font-black tracking-widest uppercase border-2 border-slate-900 px-3 py-1 inline-block">
+                બેંક પાસબુક સ્ટેટમેન્ટ
+              </div>
+              <div className="text-xs font-mono text-slate-600 mt-1">
+                BANK PASSBOOK STATEMENT
+              </div>
+              <div className="text-[11px] text-slate-500 mt-1">
+                તારીખ: {new Date().toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4 mt-3 pt-2 text-xs">
+            <div className="space-y-1">
+              <div><span className="font-bold text-slate-700">ખાતાધારક:</span> {currentShop.accountHolderName || currentShop.ownerName || '-'}</div>
+              <div><span className="font-bold text-slate-700">બેંક નામ:</span> {currentShop.bankName || 'SBI / Commercial Bank'}</div>
+              <div><span className="font-bold text-slate-700">ખાતા નંબર (A/C No):</span> <span className="font-mono font-bold">{currentShop.accountNumber || '-'}</span></div>
+              <div><span className="font-bold text-slate-700">IFSC કોડ:</span> <span className="font-mono">{currentShop.ifscCode || '-'}</span></div>
+            </div>
+            <div className="space-y-1 text-right">
+              <div><span className="font-bold text-slate-700">ગાળો (Period):</span> {
+                dateFilter === 'TODAY' ? 'આજે (Today)' :
+                dateFilter === 'WEEK' ? 'છેલ્લા ૭ દિવસ (Last 7 Days)' :
+                dateFilter === 'MONTH' ? 'છેલ્લા ૩૦ દિવસ (Last 30 Days)' : 'સમગ્ર રેકોર્ડ (All History)'
+              }</div>
+              <div><span className="font-bold text-slate-700">કુલ ટ્રાન્ઝેક્શન:</span> {entriesWithRunningBalance.length}</div>
+              <div><span className="font-bold text-slate-700">નેટ બેલેન્સ:</span> <span className="font-mono font-black text-sm">₹{summary.netBalance.toLocaleString('en-IN', { minimumFractionDigits: 2 })}</span></div>
+            </div>
+          </div>
+        </div>
+
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="passbook-table-print w-full text-left text-xs">
             <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-extrabold uppercase tracking-wider text-[11px]">
               <tr>
                 <th className="py-3 px-4">તારીખ (Date)</th>
@@ -588,7 +643,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
 
       {/* Add Bank Entry Modal */}
       {isAddModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-8 max-w-md w-full shadow-2xl border border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between pb-4 mb-4 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
