@@ -28,13 +28,16 @@ import {
   ShieldAlert,
   Usb,
   Wrench,
-  Printer
+  Printer,
+  X
 } from 'lucide-react';
 import { Product, SaleBill, SaleItem, Shop, PaymentMode } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
 import { HardwareDiagnosticsModal } from './HardwareDiagnosticsModal.tsx';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner.ts';
+import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
+
 
 interface BarcodePOSProps {
   currentShop: Shop;
@@ -64,6 +67,13 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [scanMessage, setScanMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  // Instant Item Search & Autocomplete State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
+  const [activeAutocompleteIndex, setActiveAutocompleteIndex] = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchDropdownRef = useRef<HTMLDivElement>(null);
+
   // Billing & Payment state
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('CASH');
   const [customerName, setCustomerName] = useState('');
@@ -89,7 +99,7 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
   const scanBuffer = useRef<string>('');
   const lastKeyTime = useRef<number>(0);
 
-  // Load products for this shop
+  // Load products for this shop from local DB
   const loadProducts = async () => {
     try {
       setLoading(true);
@@ -102,8 +112,15 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
     }
   };
 
+  // Real-time Firestore Sync for products and inventory collections scoped to currentShop.id
   useEffect(() => {
     loadProducts();
+    const syncListeners = startShopRealtimeSync(currentShop.id, () => {
+      loadProducts();
+    });
+    return () => {
+      syncListeners.unsubscribeAll();
+    };
   }, [currentShop.id]);
 
   const handleSyncCatalog = async () => {
@@ -120,10 +137,75 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
     }
   };
 
-  // Focus barcode input on mount and window focus
+  // Focus search input on mount
   useEffect(() => {
-    barcodeInputRef.current?.focus();
+    searchInputRef.current?.focus();
   }, []);
+
+  // Global Alt+S and '/' shortcut to jump directly to search box
+  useEffect(() => {
+    const handleGlobalShortcut = (e: KeyboardEvent) => {
+      if (
+        (e.altKey && (e.key === 's' || e.key === 'S')) ||
+        (e.key === '/' && document.activeElement?.tagName !== 'INPUT' && document.activeElement?.tagName !== 'TEXTAREA')
+      ) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        searchInputRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', handleGlobalShortcut);
+    return () => window.removeEventListener('keydown', handleGlobalShortcut);
+  }, []);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        searchDropdownRef.current &&
+        !searchDropdownRef.current.contains(e.target as Node) &&
+        searchInputRef.current &&
+        !searchInputRef.current.contains(e.target as Node)
+      ) {
+        setIsSearchDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Real-time scored autocomplete matches from live inventory database
+  const searchMatches = React.useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return [];
+    return products
+      .filter((p) => p.isActive)
+      .map((p) => {
+        const nameLower = p.name.toLowerCase();
+        const regLower = p.regionalName?.toLowerCase() || '';
+        const barcode = (p.barcode || '').toLowerCase();
+        const catLower = p.category.toLowerCase();
+        const skuLower = p.sku.toLowerCase();
+
+        let score = 0;
+        if (barcode === q) score += 100;
+        else if (barcode.startsWith(q)) score += 60;
+        else if (nameLower === q) score += 50;
+        else if (nameLower.startsWith(q)) score += 40;
+        else if (regLower.startsWith(q)) score += 35;
+        else if (nameLower.includes(q)) score += 20;
+        else if (regLower.includes(q)) score += 15;
+        else if (catLower.includes(q)) score += 10;
+        else if (skuLower.includes(q)) score += 8;
+        else if (barcode.includes(q)) score += 5;
+
+        return { product: p, score };
+      })
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 10)
+      .map((item) => item.product);
+  }, [products, searchQuery]);
 
   // USB HID Barcode Scanner Hardware Listener (captures rapid keystrokes ending in Enter)
   useEffect(() => {
@@ -133,6 +215,7 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
       if (
         activeEl &&
         activeEl !== barcodeInputRef.current &&
+        activeEl !== searchInputRef.current &&
         (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || (activeEl as HTMLElement).isContentEditable)
       ) {
         return;
@@ -182,6 +265,73 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
 
     setTimeout(() => setScanMessage(null), 3000);
   };
+
+  // Handle selection from autocomplete or pressing Enter in search bar
+  const handleSelectSearchedItem = (product: Product) => {
+    if (!subCheck.isActive) {
+      setScanMessage({
+        text: '1-Month Plan Expired: Counter is in Read-Only Mode. Please contact Admin to activate.',
+        type: 'error'
+      });
+      return;
+    }
+
+    playBeep(true);
+    addToCart(product);
+
+    const existing = cart.find((i) => i.productId === product.id);
+    const newQty = existing ? existing.quantity + 1 : 1;
+    setScanMessage({
+      text: `Added: ${product.name} (Qty: ${newQty}) • ₹${(newQty * product.sellingPrice).toFixed(2)}`,
+      type: 'success'
+    });
+    setTimeout(() => setScanMessage(null), 3000);
+
+    // Fast continuous billing: clear search and focus back on search box
+    setSearchQuery('');
+    setSearchTerm('');
+    setIsSearchDropdownOpen(false);
+    setActiveAutocompleteIndex(0);
+    setTimeout(() => {
+      searchInputRef.current?.focus();
+    }, 10);
+  };
+
+  // Keyboard navigation for search autocomplete
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (searchMatches.length > 0) {
+        setIsSearchDropdownOpen(true);
+        setActiveAutocompleteIndex((prev) => (prev + 1) % searchMatches.length);
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (searchMatches.length > 0) {
+        setIsSearchDropdownOpen(true);
+        setActiveAutocompleteIndex((prev) => (prev - 1 + searchMatches.length) % searchMatches.length);
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (searchMatches.length > 0) {
+        const itemToSelect = searchMatches[activeAutocompleteIndex] || searchMatches[0];
+        handleSelectSearchedItem(itemToSelect);
+      } else if (searchQuery.trim().length >= 3) {
+        const clean = searchQuery.trim();
+        const matched = products.find((p) => (p.barcode === clean || p.sku.toLowerCase() === clean.toLowerCase() || p.name.toLowerCase() === clean.toLowerCase()) && p.isActive);
+        if (matched) {
+          handleSelectSearchedItem(matched);
+        } else {
+          playBeep(false);
+          setScanMessage({ text: `Item or Barcode [${clean}] not found in inventory.`, type: 'error' });
+          setTimeout(() => setScanMessage(null), 3000);
+        }
+      }
+    } else if (e.key === 'Escape') {
+      setIsSearchDropdownOpen(false);
+    }
+  };
+
 
   // Sound feedback synthesizer using AudioContext
   const playBeep = (success: boolean) => {
@@ -388,6 +538,217 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
           </div>
         </div>
       )}
+
+      {/* PROMINENT INSTANT ITEM SEARCH & AUTOCOMPLETE BAR */}
+      <div className="lg:col-span-12 relative z-30">
+        <div className="bg-white rounded-2xl shadow-xs border-2 border-blue-500/30 hover:border-blue-500 transition-colors p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-blue-50 text-[#005A9C] flex items-center justify-center font-bold border border-blue-200 shrink-0">
+                <Search className="w-4 h-4" />
+              </div>
+              <div>
+                <label
+                  htmlFor="instant-item-search"
+                  className="font-extrabold text-sm text-slate-900 flex items-center gap-2 cursor-pointer"
+                >
+                  <span>Search Item / આઇટમ શોધો</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
+                    Live Autocomplete
+                  </span>
+                </label>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Type item name (e.g. Taaza, Butter, Paneer, Kaju), Gujarati name, or barcode. Press Enter to add to bill.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 hidden sm:inline-flex items-center gap-1">
+                <span>Shortcut:</span>
+                <kbd className="font-bold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-2xs">Alt + S</kbd>
+                <span>or</span>
+                <kbd className="font-bold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-2xs">/</kbd>
+              </span>
+              <span className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span>Live Inventory: {products.length} Products</span>
+              </span>
+            </div>
+          </div>
+
+          {/* Search Input Box */}
+          <div className="relative">
+            <Search className="w-5 h-5 text-blue-600 absolute left-4 top-3.5 pointer-events-none" />
+            <input
+              ref={searchInputRef}
+              id="instant-item-search"
+              type="text"
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setSearchTerm(e.target.value);
+                setIsSearchDropdownOpen(true);
+                setActiveAutocompleteIndex(0);
+              }}
+              onFocus={() => {
+                if (searchQuery.trim().length > 0) setIsSearchDropdownOpen(true);
+              }}
+              onKeyDown={handleSearchKeyDown}
+              autoComplete="off"
+              autoCorrect="off"
+              spellCheck={false}
+              placeholder="Search Item / આઇટમ શોધો (e.g. Milk, Butter, Taaza, 8901262...)..."
+              className="w-full pl-12 pr-28 py-3 bg-slate-50 hover:bg-slate-50/80 focus:bg-white border-2 border-slate-200 focus:border-blue-600 rounded-xl text-sm font-semibold text-slate-900 focus:outline-hidden transition shadow-inner"
+            />
+
+            <div className="absolute right-3 top-2.5 flex items-center gap-1.5">
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setSearchTerm('');
+                    setIsSearchDropdownOpen(false);
+                    searchInputRef.current?.focus();
+                  }}
+                  className="w-7 h-7 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-200 flex items-center justify-center transition cursor-pointer"
+                  title="Clear Search"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  if (searchMatches.length > 0) {
+                    handleSelectSearchedItem(searchMatches[activeAutocompleteIndex] || searchMatches[0]);
+                  }
+                }}
+                disabled={searchMatches.length === 0}
+                className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-300 text-white text-xs font-bold rounded-lg shadow-xs transition flex items-center gap-1 cursor-pointer"
+                title="Add selected item to bill"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add (↵)</span>
+              </button>
+            </div>
+
+            {/* Instant Autocomplete Dropdown Popover */}
+            {isSearchDropdownOpen && searchQuery.trim().length > 0 && (
+              <div
+                ref={searchDropdownRef}
+                className="absolute left-0 right-0 top-full mt-2 bg-white rounded-2xl shadow-2xl border border-slate-200/90 z-50 overflow-hidden divide-y divide-slate-100 max-h-[380px] overflow-y-auto animate-in fade-in zoom-in-95 duration-150"
+              >
+                {searchMatches.length === 0 ? (
+                  <div className="p-6 text-center text-slate-400">
+                    <Package className="w-8 h-8 mx-auto mb-1 text-slate-300" />
+                    <p className="text-xs font-bold text-slate-600">
+                      No matching items found for "{searchQuery}"
+                    </p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Check spelling, try Gujarati name, or scan barcode directly.
+                    </p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="px-4 py-2 bg-slate-50 text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between border-b border-slate-100">
+                      <span>Matching Items in Live Inventory ({searchMatches.length})</span>
+                      <span className="text-[10px] text-blue-600 normal-case font-medium">
+                        Use ↑ ↓ arrows to navigate, Enter to add instantly
+                      </span>
+                    </div>
+                    {searchMatches.map((product, idx) => {
+                      const isSelected = idx === activeAutocompleteIndex;
+                      const cartQty = cart.find((i) => i.productId === product.id)?.quantity || 0;
+                      const isLowStock = product.currentStock <= product.minStockAlert;
+                      return (
+                        <div
+                          key={product.id}
+                          onClick={() => handleSelectSearchedItem(product)}
+                          onMouseEnter={() => setActiveAutocompleteIndex(idx)}
+                          className={`px-4 py-3 cursor-pointer transition flex items-center justify-between gap-3 ${
+                            isSelected
+                              ? 'bg-blue-50/90 border-l-4 border-blue-600'
+                              : 'hover:bg-slate-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0 flex-1">
+                            {product.imageUrl ? (
+                              <img
+                                src={product.imageUrl}
+                                alt={product.name}
+                                className="w-10 h-10 object-contain rounded-lg bg-white p-0.5 border border-slate-200 shrink-0"
+                                onError={(e) => {
+                                  (e.target as HTMLElement).style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-lg bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shrink-0">
+                                <Package className="w-5 h-5" />
+                              </div>
+                            )}
+
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-extrabold text-sm text-slate-900">
+                                  {product.name}
+                                </span>
+                                {product.regionalName && (
+                                  <span className="text-xs text-slate-500 font-sans">
+                                    • {product.regionalName}
+                                  </span>
+                                )}
+                                {cartQty > 0 && (
+                                  <span className="text-[10px] font-bold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                                    In Bill: {cartQty}
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-0.5 font-mono">
+                                <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700">
+                                  {product.category}
+                                </span>
+                                <span>Barcode: {product.barcode}</span>
+                                <span
+                                  className={`font-semibold px-1.5 py-0.5 rounded ${
+                                    product.currentStock === 0
+                                      ? 'bg-rose-100 text-rose-800'
+                                      : isLowStock
+                                      ? 'bg-amber-100 text-amber-800'
+                                      : 'bg-emerald-100 text-emerald-800'
+                                  }`}
+                                >
+                                  Stock: {product.currentStock} {product.unit}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-right shrink-0">
+                            <div className="text-sm font-black text-slate-900 font-mono">
+                              ₹{product.sellingPrice.toFixed(2)}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-mono">
+                              MRP ₹{product.mrp}
+                            </div>
+                            {isSelected && (
+                              <span className="inline-block mt-1 text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded">
+                                Press Enter ↵
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
 
       {/* LEFT COLUMN: Barcode Scanner & Product Catalog (7 cols) */}
       <div className="lg:col-span-7 flex flex-col gap-4">
