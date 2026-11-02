@@ -26,11 +26,14 @@ import {
   FileText,
   Database,
   Landmark,
-  QrCode
+  QrCode,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { Shop } from '../../types/index.ts';
 import { AuthSession } from '../../storage/auth.ts';
 import { Theme } from '../../storage/theme.ts';
+import { useNetworkStatus } from '../../storage/offlineSyncManager.ts';
 import amulLogo from '../../assets/logo.ts';
 
 export type ActiveTab = 
@@ -77,6 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN';
+  const { isOnline } = useNetworkStatus(currentShop?.id);
 
   return (
     <header className="bg-[#005A9C] dark:bg-slate-900 text-white shadow-md border-b-2 border-[#E31837] dark:border-rose-600 no-print transition-colors duration-200">
@@ -322,6 +326,30 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
               )
             )}
+
+            {/* Network / Cloud Sync Status Pill */}
+            <div
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition ${
+                isOnline
+                  ? 'bg-emerald-950/40 border-emerald-400/40 text-emerald-200'
+                  : 'bg-amber-950/60 border-amber-400/60 text-amber-200 animate-pulse'
+              }`}
+              title={isOnline ? 'Cloud Firestore Real-Time Sync Active' : 'Offline Mode: Data saved locally in IndexedDB'}
+            >
+              {isOnline ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                  <Wifi className="w-3.5 h-3.5 text-emerald-300" />
+                  <span className="hidden xl:inline">Live</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-rose-400 shrink-0" />
+                  <WifiOff className="w-3.5 h-3.5 text-amber-300" />
+                  <span className="hidden xl:inline font-extrabold text-amber-300">Offline</span>
+                </>
+              )}
+            </div>
 
             {/* Global Theme Toggle Button */}
             {onToggleTheme && (

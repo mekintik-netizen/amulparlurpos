@@ -34,6 +34,7 @@ import {
 import { Product, PurchaseBill, PurchaseItem, PurchaseBillStatus, PaymentMode, Shop, Supplier } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
+import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
 
 interface PurchaseManagementProps {
   currentShop: Shop;
@@ -54,6 +55,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [editingPurchase, setEditingPurchase] = useState<PurchaseBill | null>(null);
   const [invoiceNumber, setInvoiceNumber] = useState('');
+  const [agencyName, setAgencyName] = useState('');
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
   const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [purchaseStatus, setPurchaseStatus] = useState<PurchaseBillStatus>('CONFIRMED');
@@ -62,14 +64,18 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   const [notes, setNotes] = useState('');
   const [purchaseItems, setPurchaseItems] = useState<PurchaseItem[]>([]);
 
-  // Item row input state & quick barcode scan
+  // Searchable Product Catalog in Purchase Entry
   const [selectedProductId, setSelectedProductId] = useState('');
+  const [productSearchQuery, setProductSearchQuery] = useState('');
+  const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
   const [itemQty, setItemQty] = useState<number>(10);
   const [itemRate, setItemRate] = useState<number>(0);
   const [itemMrp, setItemMrp] = useState<number>(0);
   const [itemSearchBarcode, setItemSearchBarcode] = useState('');
   const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
   const qtyInputRef = React.useRef<HTMLInputElement>(null);
+  const searchInputRef = React.useRef<HTMLInputElement>(null);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
 
   // Supplier Modal State
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
@@ -102,6 +108,9 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
       setProducts(prodList);
       if (supList.length > 0 && !selectedSupplierId) {
         setSelectedSupplierId(supList[0].id);
+        if (!agencyName) {
+          setAgencyName(supList[0].companyName || supList[0].name);
+        }
       }
       if (prodList.length > 0 && !selectedProductId) {
         setSelectedProductId(prodList[0].id);
@@ -115,15 +124,60 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     }
   };
 
+  // Real-time synchronization across devices and profiles
   useEffect(() => {
     loadData();
+    const sync = startShopRealtimeSync(currentShop.id, () => {
+      loadData();
+    });
+    return () => {
+      sync.unsubscribeAll();
+    };
   }, [currentShop.id]);
+
+  // Click outside to close product catalog dropdown
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsProductDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Filter products based on search query in catalog
+  const filteredCatalogProducts = React.useMemo(() => {
+    const q = productSearchQuery.trim().toLowerCase();
+    if (!q) return products;
+    return products.filter(p => 
+      p.name.toLowerCase().includes(q) ||
+      (p.regionalName && p.regionalName.toLowerCase().includes(q)) ||
+      (p.category && p.category.toLowerCase().includes(q)) ||
+      (p.barcode && p.barcode.toLowerCase().includes(q)) ||
+      (p.sku && p.sku.toLowerCase().includes(q))
+    );
+  }, [products, productSearchQuery]);
+
+  // When an item is picked from the searchable catalog
+  const handleSelectCatalogProduct = (prod: Product) => {
+    setSelectedProductId(prod.id);
+    setItemRate(prod.costPrice);
+    setItemMrp(prod.mrp);
+    setProductSearchQuery('');
+    setIsProductDropdownOpen(false);
+    setTimeout(() => {
+      qtyInputRef.current?.focus();
+      qtyInputRef.current?.select();
+    }, 50);
+  };
 
   // When selected product changes in row, pre-fill rate
   useEffect(() => {
     const prod = products.find(p => p.id === selectedProductId);
     if (prod) {
       setItemRate(prod.costPrice);
+      if (prod.mrp) setItemMrp(prod.mrp);
     }
   }, [selectedProductId, products]);
 
@@ -226,13 +280,22 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     }
     setEditingPurchase(null);
     setPurchaseItems([]);
-    setInvoiceNumber(`INV-AMUL-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`);
+    const autoInv = `INV-AMUL-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`;
+    setInvoiceNumber(autoInv);
     setPurchaseDate(new Date().toISOString().slice(0, 10));
     setPurchaseStatus('CONFIRMED');
     setPaymentMode('BANK_TRANSFER');
     setPaidAmount(0);
     setNotes('');
-    if (suppliers.length > 0) setSelectedSupplierId(suppliers[0].id);
+    setProductSearchQuery('');
+    setIsProductDropdownOpen(false);
+    if (suppliers.length > 0) {
+      setSelectedSupplierId(suppliers[0].id);
+      setAgencyName(suppliers[0].companyName || suppliers[0].name);
+    } else {
+      setSelectedSupplierId('');
+      setAgencyName('Amul Dairy Distribution Agency');
+    }
     if (products.length > 0) {
       setSelectedProductId(products[0].id);
       setItemRate(products[0].costPrice);
@@ -247,13 +310,16 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
       return;
     }
     setEditingPurchase(p);
-    setInvoiceNumber(p.purchaseInvoiceNumber);
+    setInvoiceNumber(p.billNumber || p.purchaseInvoiceNumber);
     setSelectedSupplierId(p.supplierId);
+    setAgencyName(p.agencyName || p.supplierName);
     setPurchaseDate(p.purchaseDate);
     setPurchaseStatus(p.status);
     setPaymentMode(p.paymentMode);
     setPaidAmount(p.paidAmount);
     setNotes(p.notes || '');
+    setProductSearchQuery('');
+    setIsProductDropdownOpen(false);
     setPurchaseItems(p.items.map(it => ({ ...it })));
     setIsPurchaseModalOpen(true);
   };
@@ -277,17 +343,17 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     }
 
     const supplier = suppliers.find(s => s.id === selectedSupplierId);
-    if (!supplier) {
-      alert('Please select a supplier.');
-      return;
-    }
+    const chosenAgency = agencyName.trim() || (supplier ? (supplier.companyName || supplier.name) : 'Amul Agency');
+    const chosenBillNumber = invoiceNumber.trim() || `PUR-${purchaseDate.replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     try {
       if (editingPurchase) {
         await AppRepository.purchases.updateBill(editingPurchase.id, currentShop.id, {
-          purchaseInvoiceNumber: invoiceNumber.trim() || editingPurchase.purchaseInvoiceNumber,
-          supplierId: supplier.id,
-          supplierName: supplier.companyName || supplier.name,
+          purchaseInvoiceNumber: chosenBillNumber,
+          billNumber: chosenBillNumber,
+          agencyName: chosenAgency,
+          supplierId: supplier ? supplier.id : editingPurchase.supplierId,
+          supplierName: chosenAgency,
           purchaseDate,
           items: purchaseItems,
           paidAmount: Math.min(paidAmount || 0, totalAmount),
@@ -296,15 +362,15 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
           notes: notes.trim() || undefined
         });
       } else {
-        const datePart = purchaseDate.replace(/-/g, '');
-        const invNum = invoiceNumber.trim() || `PUR-${datePart}-${Math.floor(1000 + Math.random() * 9000)}`;
-        const idempotencyKey = `pur-idemp-${currentShop.id}-${invNum}-${Date.now()}`;
+        const idempotencyKey = `pur-idemp-${currentShop.id}-${chosenBillNumber}-${Date.now()}`;
 
         await AppRepository.purchases.createBill({
-          purchaseInvoiceNumber: invNum,
+          purchaseInvoiceNumber: chosenBillNumber,
+          billNumber: chosenBillNumber,
+          agencyName: chosenAgency,
           shopId: currentShop.id,
-          supplierId: supplier.id,
-          supplierName: supplier.companyName || supplier.name,
+          supplierId: supplier ? supplier.id : `sup-${Date.now()}`,
+          supplierName: chosenAgency,
           purchaseDate,
           items: purchaseItems,
           itemCount: purchaseItems.reduce((sum, i) => sum + i.quantity, 0),
@@ -530,8 +596,8 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-y border-slate-200">
                 <tr>
-                  <th className="py-2.5 px-3">Invoice # & Date</th>
-                  <th className="py-2.5 px-3">Supplier</th>
+                  <th className="py-2.5 px-3">Bill # &amp; Date / બિલ નંબર અને તારીખ</th>
+                  <th className="py-2.5 px-3">Agency Name / એજન્સીનું નામ</th>
                   <th className="py-2.5 px-2 text-center">Items / Units</th>
                   <th className="py-2.5 px-2 text-right">Total Amount</th>
                   <th className="py-2.5 px-2 text-right">Paid / Due</th>
@@ -543,18 +609,18 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 {purchases.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="text-center py-10 text-slate-400 font-sans">
-                      No purchase bills entered yet. Click "New Purchase Entry" to log incoming milk crates or cartons.
+                      કોઈ ખરીદી બીલ નથી / No purchase bills entered yet. Click "New Purchase Entry" to log incoming milk crates or cartons.
                     </td>
                   </tr>
                 ) : (
                   purchases.map(p => (
                     <tr key={p.id} className="hover:bg-slate-50 transition">
                       <td className="py-2.5 px-3">
-                        <div className="font-bold text-slate-900">{p.purchaseInvoiceNumber}</div>
+                        <div className="font-bold text-slate-900">{p.billNumber || p.purchaseInvoiceNumber}</div>
                         <div className="text-[10px] text-slate-400 font-sans">{p.purchaseDate}</div>
                       </td>
                       <td className="py-2.5 px-3 font-sans">
-                        <div className="font-semibold text-slate-800">{p.supplierName}</div>
+                        <div className="font-bold text-slate-800">{p.agencyName || p.supplierName}</div>
                         <div className="text-[10px] text-slate-400 font-mono">{p.paymentMode}</div>
                       </td>
                       <td className="py-2.5 px-2 text-center text-slate-700">
@@ -703,35 +769,55 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
             <form onSubmit={handleSavePurchase} className="space-y-4 overflow-y-auto flex-1 pr-1">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Supplier / Depot</label>
-                  <select
-                    value={selectedSupplierId}
-                    onChange={e => setSelectedSupplierId(e.target.value)}
-                    required
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500"
-                  >
-                    {suppliers.map(s => (
-                      <option key={s.id} value={s.id}>
-                        {s.companyName || s.name}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Agency Name / એજન્સીનું નામ
+                  </label>
+                  <div className="space-y-1">
+                    <select
+                      value={selectedSupplierId}
+                      onChange={e => {
+                        setSelectedSupplierId(e.target.value);
+                        const sup = suppliers.find(s => s.id === e.target.value);
+                        if (sup) {
+                          setAgencyName(sup.companyName || sup.name);
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500"
+                    >
+                      {suppliers.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.companyName || s.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      value={agencyName}
+                      onChange={e => setAgencyName(e.target.value)}
+                      placeholder="Or enter Agency Name (એજન્સીનું નામ)"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-semibold focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Invoice Number</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Bill Number / બિલ નંબર
+                  </label>
                   <input
                     type="text"
                     required
                     value={invoiceNumber}
                     onChange={e => setInvoiceNumber(e.target.value)}
-                    placeholder="e.g. INV-AMUL-9821"
+                    placeholder="e.g. INV-AMUL-9821 or 12345"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Purchase Date</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Purchase Date / ખરીદી તારીખ
+                  </label>
                   <input
                     type="date"
                     required
@@ -776,16 +862,121 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 </div>
               </div>
 
-              {/* Add Product Items Row (Quantity-Focused with Barcode Scanner) */}
-              <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-2.5">
+              {/* Add Product Items Row (Searchable Product Catalog & Fast Stock Entry) */}
+              <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3.5 space-y-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="text-xs font-bold text-blue-900 flex items-center gap-1.5">
-                    <Barcode className="w-4 h-4 text-blue-600" />
-                    <span>Add Delivered Items (Scan Barcode or Pick Item)</span>
+                    <Search className="w-4 h-4 text-blue-600" />
+                    <span>પ્રોડક્ટ પસંદગી અને ઉમેરો / Searchable Product Catalog</span>
                   </div>
                   <span className="text-[10px] text-blue-600 font-medium">
-                    Barcode gun scan selects item automatically — only enter quantity!
+                    સર્ચ કરો અથવા બારકોડ સ્કેન કરો — જથ્થો (Qty) દાખલ કરી ઉમેરો
                   </span>
+                </div>
+
+                {/* Integrated Real-Time Item Search Bar */}
+                <div className="relative" ref={dropdownRef}>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 text-blue-900 font-extrabold">
+                      <Search className="w-3.5 h-3.5 text-blue-600" />
+                      સર્ચ પ્રોડક્ટ / Search Product
+                    </span>
+                    {selectedProductId && (
+                      <span className="text-[10px] text-slate-500 font-normal font-sans">
+                        પસંદ કરેલ સ્ટોક: <strong className="text-blue-700 font-mono">
+                          {products.find(p => p.id === selectedProductId)?.currentStock ?? 0} {products.find(p => p.id === selectedProductId)?.unit || 'units'}
+                        </strong>
+                      </span>
+                    )}
+                  </label>
+                  <div className="relative">
+                    <input
+                      ref={searchInputRef}
+                      type="text"
+                      autoComplete="off"
+                      value={productSearchQuery}
+                      onChange={e => {
+                        setProductSearchQuery(e.target.value);
+                        setIsProductDropdownOpen(true);
+                      }}
+                      onFocus={() => setIsProductDropdownOpen(true)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (filteredCatalogProducts.length > 0) {
+                            handleSelectCatalogProduct(filteredCatalogProducts[0]);
+                          }
+                        } else if (e.key === 'Escape') {
+                          setIsProductDropdownOpen(false);
+                        }
+                      }}
+                      placeholder="🔍 સર્ચ પ્રોડક્ટ / Search Product (નામ, ગુજરાતી નામ, કેટેગરી અથવા બારકોડ)..."
+                      className="w-full pl-9 pr-8 py-2 bg-white border border-blue-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-hidden shadow-xs"
+                    />
+                    <Search className="w-4 h-4 text-blue-500 absolute left-3 top-2.5 pointer-events-none" />
+                    {productSearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProductSearchQuery('');
+                          searchInputRef.current?.focus();
+                        }}
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 text-xs p-1"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Autocomplete Dropdown List */}
+                  {isProductDropdownOpen && (
+                    <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-2xl max-h-60 overflow-y-auto divide-y divide-slate-100">
+                      {filteredCatalogProducts.length === 0 ? (
+                        <div className="p-4 text-center text-xs text-slate-500">
+                          કોઈ પ્રોડક્ટ મળી નથી / No products found for "{productSearchQuery}".
+                        </div>
+                      ) : (
+                        filteredCatalogProducts.map(p => {
+                          const isSelected = p.id === selectedProductId;
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => handleSelectCatalogProduct(p)}
+                              className={`w-full text-left px-3 py-2 flex items-center justify-between transition hover:bg-blue-50 cursor-pointer ${
+                                isSelected ? 'bg-blue-50 font-bold text-blue-900' : 'text-slate-800'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 truncate">
+                                {p.imageUrl ? (
+                                  <img src={p.imageUrl} alt="" className="w-7 h-7 object-contain rounded bg-slate-50 shrink-0 border border-slate-100" />
+                                ) : (
+                                  <div className="w-7 h-7 bg-blue-100 text-blue-700 rounded flex items-center justify-center font-bold text-xs shrink-0">
+                                    {p.name.charAt(0)}
+                                  </div>
+                                )}
+                                <div className="truncate">
+                                  <div className="font-bold text-xs text-slate-900 truncate">
+                                    {p.name}
+                                    {p.regionalName && <span className="text-slate-500 ml-1.5 font-normal">({p.regionalName})</span>}
+                                  </div>
+                                  <div className="text-[10px] text-slate-400 font-mono flex items-center gap-2">
+                                    <span className="text-blue-600 font-semibold">{p.category}</span>
+                                    {p.barcode && <span>• {p.barcode}</span>}
+                                    <span>• સ્ટોક: {p.currentStock ?? 0} {p.unit}</span>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="text-right shrink-0 ml-3 font-mono">
+                                <div className="text-xs font-bold text-emerald-700">₹{p.costPrice.toFixed(2)}</div>
+                                <div className="text-[10px] text-slate-400">MRP ₹{p.mrp.toFixed(2)}</div>
+                              </div>
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Quick Barcode Scanner / Search Input */}
@@ -803,37 +994,36 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                         handleBarcodeSearchInPurchase(itemSearchBarcode);
                       }
                     }}
-                    placeholder="⚡ Point barcode gun & scan product barcode (or type product name)..."
-                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-blue-300 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    placeholder="⚡ અથવા બારકોડ ગનથી સ્કેન કરો (Barcode gun scan)..."
+                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-blue-200 rounded-lg text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                   <Barcode className="w-4 h-4 text-blue-500 absolute left-2.5 top-2" />
                 </div>
 
+                {/* Item Details Row (Selected Product, Quantity, Cost Rate, MRP & Add Button) */}
                 <div className="grid grid-cols-12 gap-2 items-end">
                   <div className="col-span-12 sm:col-span-4">
-                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Select Item from Catalog</label>
+                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                      Selected Item / પસંદ કરેલ આઇટમ
+                    </label>
                     <select
                       value={selectedProductId}
                       onChange={e => {
-                        setSelectedProductId(e.target.value);
-                        const prod = products.find(p => p.id === e.target.value);
-                        if (prod) {
-                          setItemRate(prod.costPrice);
-                          setItemMrp(prod.mrp);
-                        }
+                        const found = products.find(p => p.id === e.target.value);
+                        if (found) handleSelectCatalogProduct(found);
                       }}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-medium"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800"
                     >
                       {products.map(p => (
                         <option key={p.id} value={p.id}>
-                          {p.name} · ₹{p.costPrice.toFixed(2)} [MRP ₹{p.mrp.toFixed(2)}]
+                          {p.name} {p.regionalName ? `(${p.regionalName})` : ''} · ₹{p.costPrice.toFixed(2)} [MRP ₹{p.mrp.toFixed(2)}]
                         </option>
                       ))}
                     </select>
                   </div>
 
-                  <div className="col-span-6 sm:col-span-2">
-                    <label className="block text-[10px] font-bold text-blue-800 mb-0.5">Quantity *</label>
+                  <div className="col-span-4 sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-blue-800 mb-0.5">Quantity / જથ્થો *</label>
                     <input
                       ref={qtyInputRef}
                       type="number"
@@ -851,20 +1041,20 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                     />
                   </div>
 
-                  <div className="col-span-6 sm:col-span-2">
-                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Cost Rate (₹)</label>
+                  <div className="col-span-4 sm:col-span-2">
+                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Cost Rate / ખરીદ ભાવ (₹)</label>
                     <input
                       type="number"
                       step="0.1"
                       min="0.1"
                       value={itemRate}
                       onChange={e => setItemRate(Number(e.target.value))}
-                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs font-bold"
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs font-bold text-slate-900"
                       title="Wholesale purchase price from distributor"
                     />
                   </div>
 
-                  <div className="col-span-6 sm:col-span-2">
+                  <div className="col-span-4 sm:col-span-2">
                     <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Retail MRP (₹)</label>
                     <input
                       type="number"
@@ -877,13 +1067,14 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                     />
                   </div>
 
-                  <div className="col-span-6 sm:col-span-2">
+                  <div className="col-span-12 sm:col-span-2">
                     <button
                       type="button"
                       onClick={handleAddItem}
-                      className="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white py-1.5 rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
+                      className="w-full bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white py-1.5 rounded-lg text-xs font-bold transition shadow-xs cursor-pointer flex items-center justify-center gap-1"
                     >
-                      + Add Item
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>ઉમેરો / Add Item</span>
                     </button>
                   </div>
                 </div>
@@ -1194,11 +1385,16 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
               <div>
-                <h4 className="font-bold text-slate-900 text-sm">
-                  Invoice {viewingPurchase.purchaseInvoiceNumber}
+                <div className="text-[10px] text-blue-600 font-bold uppercase tracking-wider">
+                  બિલ નંબર / Bill Number
+                </div>
+                <h4 className="font-extrabold text-slate-900 text-sm">
+                  {viewingPurchase.billNumber || viewingPurchase.purchaseInvoiceNumber}
                 </h4>
-                <div className="text-xs text-slate-400 font-mono">
-                  {viewingPurchase.supplierName} • {viewingPurchase.purchaseDate}
+                <div className="text-xs text-slate-600 font-sans mt-0.5">
+                  <span className="font-bold text-slate-800">
+                    {viewingPurchase.agencyName || viewingPurchase.supplierName}
+                  </span> • <span className="font-mono text-slate-400">{viewingPurchase.purchaseDate}</span>
                 </div>
               </div>
               <button onClick={() => setViewingPurchase(null)} className="text-slate-400 hover:text-slate-700">

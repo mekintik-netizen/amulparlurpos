@@ -21,6 +21,7 @@ import React, { useState, useEffect } from 'react';
 import { Header, ActiveTab } from './components/layout/Header.tsx';
 import { LocalModeNotice } from './components/common/LocalModeNotice.tsx';
 import { MissedBackupBanner } from './components/common/MissedBackupBanner.tsx';
+import { OfflineAlertBanner } from './components/common/OfflineAlertBanner.tsx';
 import { AmulLaunchAnimation } from './components/common/AmulLaunchAnimation.tsx';
 import { LoginPage } from './components/auth/LoginPage.tsx';
 import { BarcodePOS } from './components/pos/BarcodePOS.tsx';
@@ -292,6 +293,9 @@ export default function App() {
     <div className="min-h-screen bg-slate-100/90 dark:bg-slate-950 flex flex-col font-sans text-slate-900 dark:text-slate-100 selection:bg-blue-600 selection:text-white transition-colors duration-200">
       {/* Professional Morning Greeting Modal (5:00 AM - 11:59 AM) */}
       <MorningGreetingModal />
+
+      {/* Offline Detection & Automatic Cloud Sync Alert Banner */}
+      <OfflineAlertBanner currentShop={currentShop} />
 
       {/* 1. Amul Brand Header & Navigation with User Session & Logout */}
       <Header

@@ -223,9 +223,11 @@ export interface PurchaseItem {
 export interface PurchaseBill {
   id: string;
   purchaseInvoiceNumber: string; // e.g. "INV-AMUL-9982"
+  billNumber?: string; // Gujarati alias (બિલ નંબર)
   shopId: string;
   supplierId: string;
   supplierName: string;
+  agencyName?: string; // Gujarati alias (એજન્સીનું નામ)
   purchaseDate: string; // ISO date YYYY-MM-DD
   items: PurchaseItem[];
   itemCount: number;

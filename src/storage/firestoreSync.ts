@@ -15,10 +15,11 @@ import {
   query, 
   where, 
   onSnapshot, 
+  getDocs,
   Unsubscribe 
 } from 'firebase/firestore';
 import { db } from './firebase.ts';
-import { Product, SaleBill, Shop, Expense, BankEntry } from '../types/index.ts';
+import { Product, SaleBill, Shop, Expense, BankEntry, PurchaseBill, Supplier } from '../types/index.ts';
 import * as localDb from './db.ts';
 
 // Clean object helper to ensure Firestore doesn't reject undefined values
@@ -134,6 +135,81 @@ export async function syncBankEntryToCloud(entry: BankEntry): Promise<void> {
     }), { merge: true });
   } catch (err) {
     console.warn('[Firestore] Failed to sync bank entry to cloud:', err);
+  }
+}
+
+export async function syncPurchaseBillToCloud(purchase: PurchaseBill): Promise<void> {
+  try {
+    if (!purchase.shopId) return;
+    const purRef = doc(db, 'purchases', purchase.id);
+    await setDoc(purRef, sanitizeForFirestore({
+      ...purchase,
+      shopId: purchase.shopId,
+      agencyName: purchase.agencyName || purchase.supplierName,
+      billNumber: purchase.billNumber || purchase.purchaseInvoiceNumber,
+      syncedAt: new Date().toISOString()
+    }), { merge: true });
+  } catch (err) {
+    console.warn('[Firestore] Failed to sync purchase bill to cloud:', err);
+  }
+}
+
+export async function deletePurchaseBillFromCloud(purchaseId: string): Promise<void> {
+  try {
+    const purRef = doc(db, 'purchases', purchaseId);
+    await deleteDoc(purRef);
+  } catch (err) {
+    console.warn('[Firestore] Failed to delete purchase bill from cloud:', err);
+  }
+}
+
+export async function syncSupplierToCloud(supplier: Supplier): Promise<void> {
+  try {
+    if (!supplier.shopId) return;
+    const supRef = doc(db, 'suppliers', supplier.id);
+    await setDoc(supRef, sanitizeForFirestore({
+      ...supplier,
+      shopId: supplier.shopId,
+      agencyName: supplier.companyName || supplier.name,
+      syncedAt: new Date().toISOString()
+    }), { merge: true });
+  } catch (err) {
+    console.warn('[Firestore] Failed to sync supplier to cloud:', err);
+  }
+}
+
+export async function fetchPurchasesFromCloud(shopId: string): Promise<PurchaseBill[]> {
+  try {
+    const q = query(collection(db, 'purchases'), where('shopId', '==', shopId));
+    const snapshot = await getDocs(q);
+    const list: PurchaseBill[] = [];
+    snapshot.forEach(docSnap => {
+      const data = docSnap.data() as PurchaseBill;
+      list.push({
+        ...data,
+        agencyName: data.agencyName || data.supplierName,
+        billNumber: data.billNumber || data.purchaseInvoiceNumber
+      });
+    });
+    return list;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch purchases from cloud:', err);
+    return [];
+  }
+}
+
+export async function fetchSuppliersFromCloud(shopId: string): Promise<Supplier[]> {
+  try {
+    const q = query(collection(db, 'suppliers'), where('shopId', '==', shopId));
+    const snapshot = await getDocs(q);
+    const list: Supplier[] = [];
+    snapshot.forEach(docSnap => {
+      list.push(docSnap.data() as Supplier);
+    });
+    return list;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch suppliers from cloud:', err);
+    return [];
   }
 }
 
@@ -278,6 +354,52 @@ export function startShopRealtimeSync(
       }
     }, (err) => console.warn('[Firestore] Bank entries listener error:', err.message));
     unsubscribers.push(unsubBank);
+
+    // 6. Listen for Purchases & Agency Bills (Strictly where shopId == currentShopId)
+    const purchasesQuery = query(collection(db, 'purchases'), where('shopId', '==', shopId));
+    const unsubPurchases = onSnapshot(purchasesQuery, async (snapshot) => {
+      let changed = false;
+      for (const change of snapshot.docChanges()) {
+        if (change.type === 'added' || change.type === 'modified') {
+          const pur = change.doc.data() as PurchaseBill;
+          try {
+            await localDb.savePurchaseBill({
+              ...pur,
+              agencyName: pur.agencyName || pur.supplierName,
+              billNumber: pur.billNumber || pur.purchaseInvoiceNumber
+            });
+            changed = true;
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+      if (changed && onRemoteChange) {
+        onRemoteChange();
+      }
+    }, (err) => console.warn('[Firestore] Purchases listener error:', err.message));
+    unsubscribers.push(unsubPurchases);
+
+    // 7. Listen for Suppliers & Agencies (Strictly where shopId == currentShopId)
+    const suppliersQuery = query(collection(db, 'suppliers'), where('shopId', '==', shopId));
+    const unsubSuppliers = onSnapshot(suppliersQuery, async (snapshot) => {
+      let changed = false;
+      for (const change of snapshot.docChanges()) {
+        if (change.type === 'added' || change.type === 'modified') {
+          const sup = change.doc.data() as Supplier;
+          try {
+            await localDb.saveSupplier(sup);
+            changed = true;
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+      if (changed && onRemoteChange) {
+        onRemoteChange();
+      }
+    }, (err) => console.warn('[Firestore] Suppliers listener error:', err.message));
+    unsubscribers.push(unsubSuppliers);
 
   } catch (err) {
     console.warn('[Firestore] Could not start real-time sync (running offline-first):', err);

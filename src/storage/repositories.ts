@@ -33,7 +33,12 @@ import {
   deleteProductFromCloud, 
   syncSaleBillToCloud, 
   syncExpenseToCloud, 
-  syncBankEntryToCloud 
+  syncBankEntryToCloud,
+  syncPurchaseBillToCloud,
+  deletePurchaseBillFromCloud,
+  syncSupplierToCloud,
+  fetchPurchasesFromCloud,
+  fetchSuppliersFromCloud
 } from './firestoreSync.ts';
 
 export const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -241,13 +246,17 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to record purchase bill');
         return res.json();
       }
-      return localDb.createPurchaseBill(billData);
+      const created = await localDb.createPurchaseBill(billData);
+      syncPurchaseBillToCloud(created).catch(() => {});
+      return created;
     },
     updateBill: async (
       billId: string,
       shopId: string,
       updatedData: {
         purchaseInvoiceNumber?: string;
+        billNumber?: string;
+        agencyName?: string;
         supplierId?: string;
         supplierName?: string;
         purchaseDate?: string;
@@ -267,13 +276,25 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to update purchase bill');
         return res.json();
       }
-      return localDb.updatePurchaseBill(billId, shopId, updatedData);
+      const updated = await localDb.updatePurchaseBill(billId, shopId, updatedData);
+      syncPurchaseBillToCloud(updated).catch(() => {});
+      return updated;
     },
     getByShop: async (shopId: string, dateStr?: string): Promise<PurchaseBill[]> => {
       if (isBackendConnected()) {
         const res = await fetch(`${API_BASE_URL}/api/purchases?shopId=${shopId}${dateStr ? `&date=${dateStr}` : ''}`);
         if (!res.ok) throw new Error('Failed to fetch purchases');
         return res.json();
+      }
+      try {
+        const cloudBills = await fetchPurchasesFromCloud(shopId);
+        if (cloudBills && cloudBills.length > 0) {
+          for (const b of cloudBills) {
+            await localDb.savePurchaseBill(b);
+          }
+        }
+      } catch (e) {
+        // Fallback to local
       }
       return localDb.getPurchasesByShop(shopId, dateStr);
     },
@@ -287,7 +308,9 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to cancel purchase');
         return res.json();
       }
-      return localDb.cancelPurchaseBill(billId, shopId, reason);
+      const cancelled = await localDb.cancelPurchaseBill(billId, shopId, reason);
+      syncPurchaseBillToCloud(cancelled).catch(() => {});
+      return cancelled;
     }
   },
 
@@ -297,6 +320,16 @@ export const AppRepository = {
         const res = await fetch(`${API_BASE_URL}/api/suppliers?shopId=${shopId}`);
         if (!res.ok) throw new Error('Failed to fetch suppliers');
         return res.json();
+      }
+      try {
+        const cloudSups = await fetchSuppliersFromCloud(shopId);
+        if (cloudSups && cloudSups.length > 0) {
+          for (const s of cloudSups) {
+            await localDb.saveSupplier(s);
+          }
+        }
+      } catch (e) {
+        // Fallback to local
       }
       return localDb.getSuppliersByShop(shopId);
     },
@@ -310,7 +343,9 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to save supplier');
         return res.json();
       }
-      return localDb.saveSupplier(supplier);
+      const saved = await localDb.saveSupplier(supplier);
+      syncSupplierToCloud(saved).catch(() => {});
+      return saved;
     },
     recordPayment: async (paymentData: Omit<SupplierPayment, 'id' | 'createdAt'>): Promise<SupplierPayment> => {
       if (isBackendConnected()) {

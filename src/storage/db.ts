@@ -895,6 +895,8 @@ export async function createPurchaseBill(
 
       const newPurchase: PurchaseBill = {
         ...billData,
+        agencyName: billData.agencyName || billData.supplierName,
+        billNumber: billData.billNumber || billData.purchaseInvoiceNumber,
         id: `pur-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
         stockPosted: shouldPostStock,
         createdAt: nowIso,
@@ -1114,6 +1116,8 @@ export async function updatePurchaseBill(
   shopId: string,
   updatedData: {
     purchaseInvoiceNumber?: string;
+    billNumber?: string;
+    agencyName?: string;
     supplierId?: string;
     supplierName?: string;
     purchaseDate?: string;
@@ -1285,6 +1289,8 @@ export async function updatePurchaseBill(
       const updatedBill: PurchaseBill = {
         ...existingBill,
         purchaseInvoiceNumber: updatedData.purchaseInvoiceNumber || existingBill.purchaseInvoiceNumber,
+        billNumber: updatedData.billNumber || updatedData.purchaseInvoiceNumber || existingBill.billNumber || existingBill.purchaseInvoiceNumber,
+        agencyName: updatedData.agencyName || updatedData.supplierName || existingBill.agencyName || existingBill.supplierName,
         supplierId: targetSupplierId,
         supplierName: updatedData.supplierName || existingBill.supplierName,
         purchaseDate: updatedData.purchaseDate || existingBill.purchaseDate,
@@ -1308,6 +1314,20 @@ export async function updatePurchaseBill(
     };
 
     getReq.onerror = () => reject(getReq.error);
+  });
+}
+
+/**
+ * Saves a purchase bill directly into local IndexedDB (used by Firestore real-time sync)
+ */
+export async function savePurchaseBill(purchase: PurchaseBill): Promise<PurchaseBill> {
+  const db = await openAppDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('purchases', 'readwrite');
+    const store = tx.objectStore('purchases');
+    const req = store.put(purchase);
+    req.onsuccess = () => resolve(purchase);
+    req.onerror = () => reject(req.error);
   });
 }
 
