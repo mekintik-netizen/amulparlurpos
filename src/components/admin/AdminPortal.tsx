@@ -49,6 +49,7 @@ import { getAdminAuthConfig, updateAdminAuthConfig, subscribeToAdminAuthConfig, 
 import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
 import { MonthlyRevenueChart } from './MonthlyRevenueChart.tsx';
 import { PrintSettingsTab } from './PrintSettingsTab.tsx';
+import { SubscriptionDemoTab } from './SubscriptionDemoTab.tsx';
 import amulLogo from '../../assets/logo.ts';
 
 interface AdminPortalProps {
@@ -78,7 +79,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [adminError, setAdminError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | ShopApprovalStatus>('ALL');
-  const [adminSubTab, setAdminSubTab] = useState<'SHOPS' | 'PRINT_SETTINGS' | 'REVENUE' | 'QR'>('SHOPS');
+  const [adminSubTab, setAdminSubTab] = useState<'SHOPS' | 'PRINT_SETTINGS' | 'SUBSCRIPTION_DEMO' | 'REVENUE' | 'QR'>('SHOPS');
 
   // Modal State for New/Edit Shop
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -685,6 +686,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
             <button
               type="button"
+              onClick={() => setAdminSubTab('SUBSCRIPTION_DEMO')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                adminSubTab === 'SUBSCRIPTION_DEMO'
+                  ? 'bg-[#005A9C] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <span>સબ્સ્ક્રિપ્શન ડેમો & સેટિંગ્સ / Subscription Demo & Settings</span>
+              <span className="text-[10px] font-bold uppercase font-mono px-1.5 py-0.5 bg-yellow-100 text-yellow-900 rounded">
+                ₹500 Preview
+              </span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setAdminSubTab('REVENUE')}
               className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
                 adminSubTab === 'REVENUE'
@@ -714,6 +731,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           {adminSubTab === 'PRINT_SETTINGS' && (
             <PrintSettingsTab
               currentShop={shops.find((s) => s.id === activeShopId) || shops[0]}
+              adminUsername={currentUser?.username || 'Master Admin'}
+            />
+          )}
+
+          {/* Sub-Tab 2: Dedicated Subscription Demo & Settings Tab */}
+          {adminSubTab === 'SUBSCRIPTION_DEMO' && (
+            <SubscriptionDemoTab
+              shops={shops}
               adminUsername={currentUser?.username || 'Master Admin'}
             />
           )}

@@ -524,3 +524,42 @@ export const DEFAULT_PRINT_SETTINGS_CONFIG: PrintSettingsConfig = {
   paperWidth: '58mm'
 };
 
+// ==========================================
+// SUBSCRIPTION SETTINGS & EXPIRY POPUP CONFIG
+// ==========================================
+
+export interface SubscriptionSettingsConfig {
+  monthlyFee: number; // in INR, e.g. 500
+  currencySymbol: string; // e.g. "₹"
+  headerTitle: string; // e.g. "⚠️ સબ્સ્ક્રિપ્શન સમાપ્ત થઈ ગયું છે (Subscription Expired)"
+  messageGujarati: string; // Exact requested Gujarati message
+  warningHeaderTitle: string; // e.g. "⚠️ સબ્સ્ક્રિપ્શન રિન્યુઅલ ચેતવણી (Subscription Renewal Due)"
+  warningMessageGujarati: string; // Advance warning text for 10-day notice
+  warningDaysThreshold: number; // e.g. 10 days before expiry
+  upiId: string; // e.g. "amulparlour.admin@okhdfcbank"
+  payeeName: string; // e.g. "Amul HQ Admin"
+  upiQrImageUrl?: string; // Optional custom uploaded QR image URL
+  adminPhone: string; // e.g. "+919173598234"
+  whatsappNumber: string; // e.g. "+919173598234"
+  whatsappMessageTemplate: string; // e.g. "નમસ્તે એડમિન, મેં અમુલ પાર્લર ({shopName} - {shopCode}) માટે ₹{amount} નું સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને સબ્સ્ક્રિપ્શન રિન્યુ કરી આપશો."
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export const DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG: SubscriptionSettingsConfig = {
+  monthlyFee: 500,
+  currencySymbol: '₹',
+  headerTitle: '⚠️ સબ્સ્ક્રિપ્શન સમાપ્ત થઈ ગયું છે (Subscription Expired)',
+  messageGujarati: 'તમારો ૧ મહિનાનો સબ્સ્ક્રિપ્શન સમય પૂરો થઈ ગયો છે. સોફ્ટવેર સતત ચાલુ રાખવા માટે કૃપા કરીને નીચે આપેલા QR Code પર ₹૫૦૦ (₹500) નું પેમેન્ટ કરીને સબ્સ્ક્રિપ્શન રિન્યુ કરાવો.',
+  warningHeaderTitle: '⚠️ સબ્સ્ક્રિપ્શન રિન્યુઅલ ચેતવણી (Subscription Renewal Due)',
+  warningMessageGujarati: 'તમારો ૧ મહિનાનો સબ્સ્ક્રિપ્શન સમય ટૂંક સમયમાં પૂરો થઈ રહ્યો છે. સોફ્ટવેર અવિરત ચાલુ રાખવા માટે કૃપા કરીને ₹૫૦૦ (₹500) નું પેમેન્ટ કરીને સબ્સ્ક્રિપ્શન રિન્યુ કરાવો.',
+  warningDaysThreshold: 10,
+  upiId: 'amulparlour.admin@okhdfcbank',
+  payeeName: 'Amul HQ Admin',
+  upiQrImageUrl: '',
+  adminPhone: '+919173598234',
+  whatsappNumber: '+919173598234',
+  whatsappMessageTemplate: 'નમસ્તે એડમિન, મેં અમુલ પાર્લર ({shopName} - {shopCode}) માટે ₹{amount} નું સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને સબ્સ્ક્રિપ્શન રિન્યુ કરી આપશો.'
+};
+
+

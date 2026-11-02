@@ -139,3 +139,15 @@ export {
   resetPrintSettingsConfig,
   subscribeToPrintSettings
 } from './printSettings.ts';
+
+// Re-export Subscription Settings handlers
+export {
+  getCachedSubscriptionSettings,
+  getSubscriptionSettingsConfig,
+  saveSubscriptionSettingsConfig,
+  resetSubscriptionSettingsConfig,
+  subscribeToSubscriptionSettings,
+  getUpiQrCodeUrl,
+  getWhatsAppPaymentLink
+} from './subscriptionSettings.ts';
+

@@ -42,6 +42,7 @@ import { BankStatementManagement } from './components/banking/BankStatementManag
 import { RightSideNavigation } from './components/layout/RightSideNavigation.tsx';
 import { MorningGreetingModal } from './components/common/MorningGreetingModal.tsx';
 import { SubscriptionExpiredLockOverlay } from './components/common/SubscriptionExpiredLockOverlay.tsx';
+import { SubscriptionRenewalReminderBanner } from './components/common/SubscriptionRenewalReminderBanner.tsx';
 import { Shop, SaleBill } from './types/index.ts';
 import { AppRepository } from './storage/repositories.ts';
 import { AuthSession, UserRole, getActiveSession, clearActiveSession, ensureDefaultAccountsSeeded } from './storage/auth.ts';
@@ -284,10 +285,10 @@ export default function App() {
     );
   }
 
-  // Check subscription expiry for cashiers
-  const isCashier = currentUser?.role === 'SHOP_USER';
+  // Check subscription expiry for shop counter (blocking when expired for non-admin sessions)
+  const isShopUser = currentUser?.role !== 'ADMIN';
   const subCheck = currentShop ? isShopSubscriptionActive(currentShop) : null;
-  const isShopPlanExpired = isCashier && subCheck !== null && !subCheck.isActive;
+  const isShopPlanExpired = isShopUser && subCheck !== null && !subCheck.isActive;
 
   return (
     <div className="min-h-screen bg-slate-100/90 dark:bg-slate-950 flex flex-col font-sans text-slate-900 dark:text-slate-100 selection:bg-blue-600 selection:text-white transition-colors duration-200">
@@ -296,6 +297,12 @@ export default function App() {
 
       {/* Offline Detection & Automatic Cloud Sync Alert Banner */}
       <OfflineAlertBanner currentShop={currentShop} />
+
+      {/* 10-Day Advance Subscription Renewal Reminder Banner */}
+      <SubscriptionRenewalReminderBanner
+        currentShop={currentShop}
+        onRefreshShops={loadShops}
+      />
 
       {/* 1. Amul Brand Header & Navigation with User Session & Logout */}
       <Header
