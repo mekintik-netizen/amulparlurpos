@@ -34,7 +34,7 @@ import { Product, ProductCategory, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
 import { getAmulProductPresetImage, AMUL_PRODUCT_IMAGE_PRESETS } from '../../storage/productImages.ts';
-import { detectDuplicateGroups, DuplicateGroup } from '../../storage/duplicateDetector.ts';
+import { detectDuplicateGroups, DuplicateGroup, normalizeBarcode, normalizeSku } from '../../storage/duplicateDetector.ts';
 import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
 
 interface CatalogManagementProps {
@@ -50,6 +50,8 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
   const [catalogSubTab, setCatalogSubTab] = useState<'ALL' | 'DUPLICATES'>('ALL');
   const [duplicateActionNotice, setDuplicateActionNotice] = useState<string | null>(null);
+  const [duplicateFilter, setDuplicateFilter] = useState<'ALL' | 'BARCODE' | 'SKU' | 'NAME'>('ALL');
+  const [duplicateSearchTerm, setDuplicateSearchTerm] = useState('');
   const [isMergingAll, setIsMergingAll] = useState(false);
 
   // Inline Price Editing State
@@ -105,6 +107,45 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
   const duplicateGroups: DuplicateGroup[] = React.useMemo(() => {
     return detectDuplicateGroups(products);
   }, [products]);
+
+  const barcodeMatchesCount = React.useMemo(() => {
+    return duplicateGroups.filter(g => g.matchType === 'BARCODE' || g.sharedBarcode).length;
+  }, [duplicateGroups]);
+
+  const skuMatchesCount = React.useMemo(() => {
+    return duplicateGroups.filter(g => g.matchType === 'SKU' || g.sharedSku).length;
+  }, [duplicateGroups]);
+
+  const nameMatchesCount = React.useMemo(() => {
+    return duplicateGroups.filter(g => g.matchType === 'NAME').length;
+  }, [duplicateGroups]);
+
+  const filteredDuplicateGroups = React.useMemo(() => {
+    let list = duplicateGroups;
+    if (duplicateFilter === 'BARCODE') {
+      list = list.filter(g => g.matchType === 'BARCODE' || g.sharedBarcode);
+    } else if (duplicateFilter === 'SKU') {
+      list = list.filter(g => g.matchType === 'SKU' || g.sharedSku);
+    } else if (duplicateFilter === 'NAME') {
+      list = list.filter(g => g.matchType === 'NAME');
+    }
+
+    if (duplicateSearchTerm.trim()) {
+      const q = duplicateSearchTerm.trim().toLowerCase();
+      list = list.filter(g =>
+        (g.sharedBarcode && g.sharedBarcode.toLowerCase().includes(q)) ||
+        (g.sharedSku && g.sharedSku.toLowerCase().includes(q)) ||
+        g.title.toLowerCase().includes(q) ||
+        g.items.some(it =>
+          it.name.toLowerCase().includes(q) ||
+          (it.barcode && it.barcode.toLowerCase().includes(q)) ||
+          (it.sku && it.sku.toLowerCase().includes(q))
+        )
+      );
+    }
+
+    return list;
+  }, [duplicateGroups, duplicateFilter, duplicateSearchTerm]);
 
   const startInlinePriceEdit = (p: Product) => {
     if (!subCheck.isActive) {
@@ -312,9 +353,11 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     if (!window.confirm(confirmMsg)) return;
 
     try {
-      // 1. Add duplicate's stock to keeper item
+      // 1. Add duplicate's stock to keeper item and preserve barcode/SKU if keeper was missing it
       const updatedKeeper: Product = {
         ...keeper,
+        barcode: keeper.barcode && keeper.barcode !== '-' ? keeper.barcode : (duplicate.barcode || keeper.barcode),
+        sku: keeper.sku && keeper.sku !== '-' ? keeper.sku : (duplicate.sku || keeper.sku),
         currentStock: (keeper.currentStock || 0) + dupStock,
         updatedAt: new Date().toISOString()
       };
@@ -346,15 +389,25 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     try {
       for (const group of duplicateGroups) {
         let accumulatedStock = group.primaryItem.currentStock || 0;
+        let bestBarcode = group.primaryItem.barcode;
+        let bestSku = group.primaryItem.sku;
         const redundantItems = group.items.filter(it => it.id !== group.primaryItem.id);
 
         for (const redundant of redundantItems) {
           accumulatedStock += (redundant.currentStock || 0);
+          if ((!bestBarcode || bestBarcode === '-') && redundant.barcode && redundant.barcode !== '-') {
+            bestBarcode = redundant.barcode;
+          }
+          if ((!bestSku || bestSku === '-') && redundant.sku && redundant.sku !== '-') {
+            bestSku = redundant.sku;
+          }
           await AppRepository.products.delete(redundant.id);
         }
 
         const updatedPrimary: Product = {
           ...group.primaryItem,
+          barcode: bestBarcode || group.primaryItem.barcode,
+          sku: bestSku || group.primaryItem.sku,
           currentStock: accumulatedStock,
           updatedAt: new Date().toISOString()
         };
@@ -538,11 +591,14 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                     <CopyX className="w-4 h-4" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-extrabold text-slate-900">
-                      ડુપ્લિકેટ આઇટમ્સ સ્કેનર / Duplicate Items Detector
+                    <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                      <span>ડુપ્લિકેટ આઇટમ્સ સ્કેનર / Duplicate Items Detector</span>
+                      <span className="px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-bold">
+                        Barcode &amp; SKU Scanner
+                      </span>
                     </h3>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      લાઈવ ઇન્વેન્ટરીમાંથી સરખા નામ, બારકોડ અથવા SKU ધરાવતી પ્રોડક્ટ્સ. વધારાની ડુપ્લિકેટ્સ દૂર કરી સ્ટોક સચોટ રાખો.
+                      સરખા બારકોડ (Barcode), SKU અથવા નામ ધરાવતી આઇટમ્સ. ડુપ્લિકેટ એન્ટ્રી ડિલીટ અથવા મર્જ કરી સ્ટોક સચોટ રાખો.
                     </p>
                   </div>
                 </div>
@@ -563,7 +619,83 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
               )}
             </div>
 
-            {/* Empty State: No Duplicates Found */}
+            {/* Filter Pills & Barcode/Name Search Bar */}
+            {duplicateGroups.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2.5 bg-slate-50 border border-slate-200 p-3 rounded-xl">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 mr-1 flex items-center gap-1">
+                    <Filter className="w-3.5 h-3.5" />
+                    <span>ફિલ્ટર:</span>
+                  </span>
+                  <button
+                    onClick={() => setDuplicateFilter('ALL')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                      duplicateFilter === 'ALL'
+                        ? 'bg-slate-800 text-white shadow-xs'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span>બધા ડુપ્લિકેટ્સ ({duplicateGroups.length})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setDuplicateFilter('BARCODE')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                      duplicateFilter === 'BARCODE'
+                        ? 'bg-rose-600 text-white shadow-xs ring-1 ring-rose-400'
+                        : 'bg-white text-rose-700 hover:bg-rose-50 border border-rose-200'
+                    }`}
+                  >
+                    <Barcode className="w-3.5 h-3.5" />
+                    <span>બારકોડ મેચ / Barcode ({barcodeMatchesCount})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setDuplicateFilter('SKU')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                      duplicateFilter === 'SKU'
+                        ? 'bg-amber-600 text-white shadow-xs ring-1 ring-amber-400'
+                        : 'bg-white text-amber-700 hover:bg-amber-50 border border-amber-200'
+                    }`}
+                  >
+                    <Tag className="w-3.5 h-3.5" />
+                    <span>SKU મેચ / SKU ({skuMatchesCount})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setDuplicateFilter('NAME')}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                      duplicateFilter === 'NAME'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span>નામ મેચ / Name ({nameMatchesCount})</span>
+                  </button>
+                </div>
+
+                <div className="relative min-w-[220px]">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    placeholder="બારકોડ અથવા પ્રોડક્ટ શોધો / Search Barcode..."
+                    value={duplicateSearchTerm}
+                    onChange={e => setDuplicateSearchTerm(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium focus:ring-2 focus:ring-rose-500 placeholder:text-slate-400"
+                  />
+                  {duplicateSearchTerm && (
+                    <button
+                      onClick={() => setDuplicateSearchTerm('')}
+                      className="absolute right-2 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Empty State: No Duplicates in Catalog */}
             {duplicateGroups.length === 0 ? (
               <div className="bg-slate-50 border border-slate-200 rounded-xl p-10 text-center space-y-3">
                 <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs border border-emerald-200">
@@ -574,7 +706,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                     કોઈ ડુપ્લિકેટ આઇટમ મળી નથી! (No Duplicate Items Found)
                   </h4>
                   <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
-                    તમારો કેટલોગ સંપૂર્ણપણે ક્લીન અને સચોટ છે. કોઈ સરખા નામ, SKU અથવા બારકોડ ધરાવતી વધારાની આઇટમ્સ નથી.
+                    તમારો કેટલોગ સંપૂર્ણપણે ક્લીન અને સચોટ છે. કોઈ સરખા બારકોડ, SKU અથવા નામ ધરાવતી વધારાની આઇટમ્સ નથી.
                   </p>
                 </div>
                 <button
@@ -584,22 +716,55 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                   સામાન્ય કેટલોગ પર પાછા જાઓ / View All Products
                 </button>
               </div>
+            ) : filteredDuplicateGroups.length === 0 ? (
+              /* Filter / Search yielded no results */
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-8 text-center space-y-2">
+                <div className="w-10 h-10 bg-slate-200 text-slate-500 rounded-xl flex items-center justify-center mx-auto">
+                  <Filter className="w-5 h-5" />
+                </div>
+                <h4 className="text-xs font-bold text-slate-800">
+                  પસંદ કરેલ ફિલ્ટરમાં કોઈ ડુપ્લિકેટ આઇટમ નથી (No Matching Duplicate Groups)
+                </h4>
+                <p className="text-[11px] text-slate-500">
+                  કૃપા કરીને અન્ય ફિલ્ટર પસંદ કરો અથવા સર્ચ ટર્મ સાફ કરો.
+                </p>
+                <button
+                  onClick={() => { setDuplicateFilter('ALL'); setDuplicateSearchTerm(''); }}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700 cursor-pointer pt-1 inline-block"
+                >
+                  બધા ડુપ્લિકેટ્સ બતાવો / Reset Filters
+                </button>
+              </div>
             ) : (
               <div className="space-y-4">
-                {duplicateGroups.map((group, groupIdx) => (
+                {filteredDuplicateGroups.map((group, groupIdx) => (
                   <div
                     key={group.id}
                     className="border-2 border-rose-200 bg-white rounded-xl p-4 shadow-xs space-y-3"
                   >
                     {/* Group Header */}
                     <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-rose-100">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-full bg-rose-100 text-rose-800 font-black text-xs flex items-center justify-center shrink-0">
+                      <div className="flex items-center gap-2.5">
+                        <span className="w-7 h-7 rounded-full bg-rose-100 text-rose-800 font-black text-xs flex items-center justify-center shrink-0">
                           {groupIdx + 1}
                         </span>
                         <div>
-                          <div className="font-extrabold text-sm text-slate-900">
-                            {group.title}
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-extrabold text-sm text-slate-900">
+                              {group.title}
+                            </span>
+                            {group.sharedBarcode && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 border border-rose-300 text-xs font-mono font-black shadow-2xs">
+                                <Barcode className="w-3.5 h-3.5 text-rose-600" />
+                                <span>Barcode: {group.sharedBarcode}</span>
+                              </span>
+                            )}
+                            {group.sharedSku && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300 text-[11px] font-mono font-bold">
+                                <Tag className="w-3 h-3 text-amber-600" />
+                                <span>SKU: {group.sharedSku}</span>
+                              </span>
+                            )}
                           </div>
                           <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
                             <span className="font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
@@ -621,6 +786,15 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                       {group.items.map((item) => {
                         const isPrimary = item.id === group.primaryItem.id;
+                        const isBarcodeMatch = Boolean(
+                          group.sharedBarcode &&
+                          normalizeBarcode(item.barcode) === normalizeBarcode(group.sharedBarcode)
+                        );
+                        const isSkuMatch = Boolean(
+                          group.sharedSku &&
+                          normalizeSku(item.sku) === normalizeSku(group.sharedSku)
+                        );
+
                         return (
                           <div
                             key={item.id}
@@ -664,13 +838,23 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                               </div>
 
                               <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-white p-2 rounded-lg border border-slate-100 mb-3">
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-sans">Barcode:</span>
-                                  <span className="font-bold text-slate-800">{item.barcode || '—'}</span>
+                                <div className={isBarcodeMatch ? 'p-1 rounded bg-rose-50/80 border border-rose-200' : ''}>
+                                  <span className="text-slate-400 block text-[9px] uppercase font-sans flex items-center gap-1">
+                                    <Barcode className="w-3 h-3 text-rose-600" />
+                                    <span>Barcode:</span>
+                                  </span>
+                                  <span className={`font-bold font-mono ${isBarcodeMatch ? 'text-rose-800' : 'text-slate-800'}`}>
+                                    {item.barcode || '—'}
+                                  </span>
                                 </div>
-                                <div>
-                                  <span className="text-slate-400 block text-[9px] uppercase font-sans">SKU:</span>
-                                  <span className="font-bold text-slate-800">{item.sku || '—'}</span>
+                                <div className={isSkuMatch ? 'p-1 rounded bg-amber-50/80 border border-amber-200' : ''}>
+                                  <span className="text-slate-400 block text-[9px] uppercase font-sans flex items-center gap-1">
+                                    <Tag className="w-3 h-3 text-amber-600" />
+                                    <span>SKU:</span>
+                                  </span>
+                                  <span className={`font-bold font-mono ${isSkuMatch ? 'text-amber-800' : 'text-slate-800'}`}>
+                                    {item.sku || '—'}
+                                  </span>
                                 </div>
                                 <div>
                                   <span className="text-slate-400 block text-[9px] uppercase font-sans">સ્ટોક (Stock):</span>

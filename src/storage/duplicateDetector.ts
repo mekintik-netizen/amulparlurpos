@@ -4,9 +4,9 @@
  * 
  * Duplicate Product Detection & Resolution Engine
  * Scans products from the live shop inventory and identifies duplicates sharing:
- * - Identical or near-identical names (English & Gujarati)
- * - Identical barcodes
- * - Identical SKUs
+ * 1. Identical Barcodes (EAN-13, UPC, Code 128) - strict barcode matching even with different/spelling-varied names
+ * 2. Identical SKUs - strict SKU matching
+ * 3. Identical or near-identical normalized product names (English & Gujarati)
  */
 
 import { Product } from '../types/index.ts';
@@ -16,9 +16,55 @@ export interface DuplicateGroup {
   title: string;
   matchType: 'BARCODE' | 'SKU' | 'NAME' | 'MULTIPLE';
   reasonLabel: string;
+  sharedBarcode?: string;
+  sharedSku?: string;
   items: Product[];
   totalStock: number;
   primaryItem: Product;
+}
+
+/** Common placeholder values that indicate an empty/absent barcode or SKU */
+export const DUMMY_IDENTIFIERS = new Set([
+  '',
+  '-',
+  '--',
+  '---',
+  '0',
+  '00',
+  '000',
+  'na',
+  'n/a',
+  'none',
+  'null',
+  'undefined',
+  'nil',
+  'unknown'
+]);
+
+/**
+ * Normalizes a barcode by trimming whitespace, removing hyphens/internal spaces,
+ * and filtering out non-barcodes like '0', '-', 'N/A'.
+ */
+export function normalizeBarcode(rawBarcode?: string): string {
+  if (!rawBarcode) return '';
+  const trimmed = rawBarcode.trim();
+  if (DUMMY_IDENTIFIERS.has(trimmed.toLowerCase())) {
+    return '';
+  }
+  // Standardize barcode string: remove hyphens and spaces
+  return trimmed.replace(/[-\s]/g, '');
+}
+
+/**
+ * Normalizes a product SKU for exact matching.
+ */
+export function normalizeSku(rawSku?: string): string {
+  if (!rawSku) return '';
+  const trimmed = rawSku.trim();
+  if (DUMMY_IDENTIFIERS.has(trimmed.toLowerCase())) {
+    return '';
+  }
+  return trimmed.replace(/[-\s]/g, '').toLowerCase();
 }
 
 /**
@@ -38,7 +84,10 @@ export function normalizeProductName(rawName: string): string {
 
 /**
  * Scans a list of shop products and returns grouped duplicates.
- * Each group contains 2 or more products that share the same barcode, SKU, or normalized name.
+ * Identifies duplicate items strictly by matching their Barcode / SKU numbers,
+ * as well as normalized product names.
+ * Multiple inventory rows sharing the same Barcode or SKU are grouped even if
+ * their product names have spelling variations.
  */
 export function detectDuplicateGroups(products: Product[]): DuplicateGroup[] {
   if (!products || products.length < 2) return [];
@@ -54,14 +103,14 @@ export function detectDuplicateGroups(products: Product[]): DuplicateGroup[] {
     }
   }
 
-  // 1. Group by Barcode
+  // 1. Group strictly by Barcode (EAN-13, UPC, Code 128)
   const barcodeMap = new Map<string, string[]>();
   for (const p of products) {
-    const bc = p.barcode ? p.barcode.trim() : '';
-    if (bc && bc !== '-' && bc !== '0') {
-      const list = barcodeMap.get(bc) || [];
+    const cleanBarcode = normalizeBarcode(p.barcode);
+    if (cleanBarcode) {
+      const list = barcodeMap.get(cleanBarcode) || [];
       list.push(p.id);
-      barcodeMap.set(bc, list);
+      barcodeMap.set(cleanBarcode, list);
     }
   }
   for (const ids of barcodeMap.values()) {
@@ -75,14 +124,14 @@ export function detectDuplicateGroups(products: Product[]): DuplicateGroup[] {
     }
   }
 
-  // 2. Group by SKU
+  // 2. Group strictly by SKU
   const skuMap = new Map<string, string[]>();
   for (const p of products) {
-    const sk = p.sku ? p.sku.trim().toLowerCase() : '';
-    if (sk && sk !== '-' && sk !== 'na') {
-      const list = skuMap.get(sk) || [];
+    const cleanSku = normalizeSku(p.sku);
+    if (cleanSku) {
+      const list = skuMap.get(cleanSku) || [];
       list.push(p.id);
-      skuMap.set(sk, list);
+      skuMap.set(cleanSku, list);
     }
   }
   for (const ids of skuMap.values()) {
@@ -99,11 +148,11 @@ export function detectDuplicateGroups(products: Product[]): DuplicateGroup[] {
   // 3. Group by Normalized Name
   const nameMap = new Map<string, string[]>();
   for (const p of products) {
-    const norm = normalizeProductName(p.name);
-    if (norm) {
-      const list = nameMap.get(norm) || [];
+    const normName = normalizeProductName(p.name);
+    if (normName) {
+      const list = nameMap.get(normName) || [];
       list.push(p.id);
-      nameMap.set(norm, list);
+      nameMap.set(normName, list);
     }
   }
   for (const ids of nameMap.values()) {
@@ -148,60 +197,104 @@ export function detectDuplicateGroups(products: Product[]): DuplicateGroup[] {
     }
   }
 
-  // 5. Structure each DuplicateGroup with diagnostics and primary item recommendation
+  // 5. Structure each DuplicateGroup with diagnostics, shared identifiers, and primary item recommendation
   return rawGroups.map((groupItems, index) => {
+    // Determine shared barcode if any
+    let sharedBarcode: string | undefined;
+    for (let i = 0; i < groupItems.length; i++) {
+      const b1 = normalizeBarcode(groupItems[i].barcode);
+      if (!b1) continue;
+      for (let j = i + 1; j < groupItems.length; j++) {
+        const b2 = normalizeBarcode(groupItems[j].barcode);
+        if (b1 === b2) {
+          sharedBarcode = groupItems[i].barcode?.trim();
+          break;
+        }
+      }
+      if (sharedBarcode) break;
+    }
+
+    // Determine shared SKU if any
+    let sharedSku: string | undefined;
+    for (let i = 0; i < groupItems.length; i++) {
+      const s1 = normalizeSku(groupItems[i].sku);
+      if (!s1) continue;
+      for (let j = i + 1; j < groupItems.length; j++) {
+        const s2 = normalizeSku(groupItems[j].sku);
+        if (s1 === s2) {
+          sharedSku = groupItems[i].sku?.trim();
+          break;
+        }
+      }
+      if (sharedSku) break;
+    }
+
+    // Determine if names match
+    const sameName = groupItems.some((a, i) =>
+      groupItems.some((b, j) => i !== j && normalizeProductName(a.name) === normalizeProductName(b.name))
+    );
+
     // Pick the primary keeper item:
     // 1. Highest active stock
-    // 2. Has valid barcode
-    // 3. Most recently updated
+    // 2. Has valid barcode (>= 8 chars or GS1 standard)
+    // 3. Most complete record (price, regional name)
+    // 4. Most recently updated
     const sorted = [...groupItems].sort((a, b) => {
       // 1. Active stock preferred
       if ((b.currentStock || 0) !== (a.currentStock || 0)) {
         return (b.currentStock || 0) - (a.currentStock || 0);
       }
       // 2. Valid barcode preferred
-      const aHasBarcode = a.barcode && a.barcode.length >= 8 ? 1 : 0;
-      const bHasBarcode = b.barcode && b.barcode.length >= 8 ? 1 : 0;
+      const aCleanBc = normalizeBarcode(a.barcode);
+      const bCleanBc = normalizeBarcode(b.barcode);
+      const aHasBarcode = aCleanBc.length >= 8 ? 2 : aCleanBc ? 1 : 0;
+      const bHasBarcode = bCleanBc.length >= 8 ? 2 : bCleanBc ? 1 : 0;
       if (bHasBarcode !== aHasBarcode) {
         return bHasBarcode - aHasBarcode;
       }
-      // 3. Recency
+      // 3. Completeness of SKU
+      const aHasSku = normalizeSku(a.sku) ? 1 : 0;
+      const bHasSku = normalizeSku(b.sku) ? 1 : 0;
+      if (bHasSku !== aHasSku) {
+        return bHasSku - aHasSku;
+      }
+      // 4. Recency
       return new Date(b.updatedAt || 0).getTime() - new Date(a.updatedAt || 0).getTime();
     });
 
     const primaryItem = sorted[0];
 
-    // Determine match type
-    const sameBarcode = groupItems.some((a, i) => groupItems.some((b, j) => i !== j && a.barcode && a.barcode === b.barcode));
-    const sameSku = groupItems.some((a, i) => groupItems.some((b, j) => i !== j && a.sku && a.sku.toLowerCase() === b.sku.toLowerCase()));
-    const sameName = groupItems.some((a, i) => groupItems.some((b, j) => i !== j && normalizeProductName(a.name) === normalizeProductName(b.name)));
-
-    let matchType: DuplicateGroup['matchType'] = 'NAME';
-    let reasonLabel = 'સરખું નામ / Identical Name';
-
+    // Determine matchType and descriptive Gujarati/English reason label
     const reasons: string[] = [];
-    if (sameBarcode) reasons.push('સરખા બારકોડ (Barcode)');
-    if (sameSku) reasons.push('સરખો SKU');
+    if (sharedBarcode) reasons.push(`સરખા બારકોડ / Barcode (${sharedBarcode})`);
+    if (sharedSku) reasons.push(`સરખો SKU (${sharedSku})`);
     if (sameName) reasons.push('સરખું નામ (Name)');
 
+    let matchType: DuplicateGroup['matchType'] = 'NAME';
     if (reasons.length > 1) {
       matchType = 'MULTIPLE';
-      reasonLabel = reasons.join(' + ');
-    } else if (sameBarcode) {
+    } else if (sharedBarcode) {
       matchType = 'BARCODE';
-      reasonLabel = 'સરખા બારકોડ / Identical Barcode';
-    } else if (sameSku) {
+    } else if (sharedSku) {
       matchType = 'SKU';
-      reasonLabel = 'સરખો SKU / Identical SKU';
     }
 
+    const reasonLabel = reasons.length > 0 ? reasons.join(' • ') : 'સમાન પ્રોડક્ટ';
     const totalStock = groupItems.reduce((acc, it) => acc + (it.currentStock || 0), 0);
+
+    const title = sharedBarcode
+      ? `${primaryItem.name} [Barcode: ${sharedBarcode}]`
+      : sharedSku
+      ? `${primaryItem.name} [SKU: ${sharedSku}]`
+      : primaryItem.name;
 
     return {
       id: `dup-group-${index + 1}-${primaryItem.id}`,
-      title: primaryItem.name,
+      title,
       matchType,
       reasonLabel,
+      sharedBarcode,
+      sharedSku,
       items: sorted,
       totalStock,
       primaryItem
