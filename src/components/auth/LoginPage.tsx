@@ -149,6 +149,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       let session: AuthSession;
       if (activeTab === 'SHOP_USER') {
         session = await authenticateShopCounterFromFirestore({
+          mobileNumberOrShopId: enteredUsername,
           usernameOrShopId: enteredUsername,
           password: enteredPassword
         });
@@ -485,18 +486,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         {activeTab !== 'ADMIN_REGISTER' && (
           <form onSubmit={handleLogin} className="space-y-3.5" autoComplete="off">
             
-            {/* Username / ID Input */}
+            {/* Mobile Number / Admin Username Input */}
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-neutral-400 mb-1">
-                {activeTab === 'ADMIN' ? 'Admin Username' : 'Shop ID / Cashier Username'}
+                {activeTab === 'ADMIN' ? 'Admin Username' : 'Shop Mobile Number'}
               </label>
               <div className="relative">
                 <input
-                  type="text"
+                  type={activeTab === 'ADMIN' ? 'text' : 'tel'}
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder={activeTab === 'ADMIN' ? 'Admin Username (e.g. admin)' : 'Shop ID (e.g. AP-2026-1001) or Cashier'}
-                  autoComplete="username"
+                  placeholder={activeTab === 'ADMIN' ? 'Admin Username (e.g. admin)' : 'Shop Mobile Number'}
+                  autoComplete={activeTab === 'ADMIN' ? 'username' : 'tel'}
                   className={`w-full text-xs rounded-xl px-3.5 py-2.5 transition focus:outline-hidden focus:ring-2 focus:ring-black dark:focus:ring-white ${
                     activeTab === 'ADMIN'
                       ? 'bg-black text-white border border-neutral-800 placeholder:text-neutral-500 font-mono'

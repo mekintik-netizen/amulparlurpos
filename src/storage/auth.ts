@@ -328,17 +328,18 @@ export async function registerShopCashierAccount(params: {
 }
 
 /**
- * Global Firestore Authentication for Shop Counter (Cross-Device & Cross-Profile)
- * Validates entered Shop ID, Shop Code, or Cashier Username and Password directly
- * against live Cloud Firestore 'shops' collection.
+ * Global Firestore Authentication for Shop Counter (Mobile Number & Cross-Device Access)
+ * Validates entered Shop Mobile Number, Shop ID, or Cashier Username and Password
+ * directly against the live Cloud Firestore 'shops' collection.
  */
 export async function authenticateShopCounterFromFirestore(params: {
-  usernameOrShopId: string;
+  usernameOrShopId?: string;
+  mobileNumberOrShopId?: string;
   password: string;
 }): Promise<AuthSession> {
-  const rawInput = params.usernameOrShopId.trim();
+  const rawInput = (params.mobileNumberOrShopId || params.usernameOrShopId || '').trim();
   if (!rawInput) {
-    throw new Error('Please enter your Shop ID or Cashier Username.');
+    throw new Error('Please enter your Shop Mobile Number.');
   }
   if (!params.password) {
     throw new Error('Please enter your password.');
@@ -346,19 +347,41 @@ export async function authenticateShopCounterFromFirestore(params: {
 
   const cleanLower = rawInput.toLowerCase();
   const cleanNoHyphen = cleanLower.replace(/[^a-z0-9]/g, '');
+  const digitsOnly = rawInput.replace(/\D/g, '');
+  const last10Digits = digitsOnly.length >= 10 ? digitsOnly.slice(-10) : digitsOnly;
+  const isLikelyPhone = digitsOnly.length >= 7;
 
   let matchedShop: Shop | null = null;
 
   // 1. Attempt lookup against live Cloud Firestore
   try {
-    // A. Check by document ID directly
-    const shopDocRef = doc(db, 'shops', rawInput);
-    const shopDocSnap = await getDoc(shopDocRef);
-    if (shopDocSnap.exists()) {
-      matchedShop = shopDocSnap.data() as Shop;
+    // A. Query directly by registered phone number if input is phone-like
+    if (isLikelyPhone) {
+      const qPhoneExact = query(collection(db, 'shops'), where('phone', '==', rawInput));
+      const snapPhoneExact = await getDocs(qPhoneExact);
+      if (!snapPhoneExact.empty) {
+        matchedShop = snapPhoneExact.docs[0].data() as Shop;
+      }
+
+      if (!matchedShop && last10Digits.length === 10) {
+        const qPhoneWithPrefix = query(collection(db, 'shops'), where('phone', '==', `+91 ${last10Digits}`));
+        const snapPhoneWithPrefix = await getDocs(qPhoneWithPrefix);
+        if (!snapPhoneWithPrefix.empty) {
+          matchedShop = snapPhoneWithPrefix.docs[0].data() as Shop;
+        }
+      }
     }
 
-    // B. Query by shopCode
+    // B. Check by document ID directly
+    if (!matchedShop) {
+      const shopDocRef = doc(db, 'shops', rawInput);
+      const shopDocSnap = await getDoc(shopDocRef);
+      if (shopDocSnap.exists()) {
+        matchedShop = shopDocSnap.data() as Shop;
+      }
+    }
+
+    // C. Query by shopCode
     if (!matchedShop) {
       const qCodeUpper = query(collection(db, 'shops'), where('shopCode', '==', rawInput.toUpperCase()));
       const snapCodeUpper = await getDocs(qCodeUpper);
@@ -367,7 +390,7 @@ export async function authenticateShopCounterFromFirestore(params: {
       }
     }
 
-    // C. Query by cashierUsername
+    // D. Query by cashierUsername
     if (!matchedShop) {
       const qCashier = query(collection(db, 'shops'), where('cashierUsername', '==', cleanLower));
       const snapCashier = await getDocs(qCashier);
@@ -376,7 +399,7 @@ export async function authenticateShopCounterFromFirestore(params: {
       }
     }
 
-    // D. Scan collection in Firestore if casing or formatting differs
+    // E. Scan collection in Firestore if formatting differs (e.g. spaces/hyphens in phone number or shopCode)
     if (!matchedShop) {
       const allShopsSnap = await getDocs(collection(db, 'shops'));
       for (const d of allShopsSnap.docs) {
@@ -386,14 +409,22 @@ export async function authenticateShopCounterFromFirestore(params: {
         const sCodeClean = sCode.replace(/[^a-z0-9]/g, '');
         const sCashier = (s.cashierUsername || '').toLowerCase();
         const sPhone = (s.phone || '').trim();
+        const sPhoneDigits = sPhone.replace(/\D/g, '');
+        const sPhoneLast10 = sPhoneDigits.length >= 10 ? sPhoneDigits.slice(-10) : sPhoneDigits;
         const sName = (s.name || '').toLowerCase();
 
+        const phoneMatches = isLikelyPhone && (
+          sPhone === rawInput ||
+          sPhoneDigits === digitsOnly ||
+          (last10Digits.length >= 10 && sPhoneLast10 === last10Digits)
+        );
+
         if (
+          phoneMatches ||
           sId === cleanLower ||
           sCode === cleanLower ||
           sCodeClean === cleanNoHyphen ||
           sCashier === cleanLower ||
-          sPhone === rawInput ||
           sName === cleanLower
         ) {
           matchedShop = s;
@@ -415,13 +446,22 @@ export async function authenticateShopCounterFromFirestore(params: {
         const sCodeClean = sCode.replace(/[^a-z0-9]/g, '');
         const sCashier = (s.cashierUsername || '').toLowerCase();
         const sPhone = (s.phone || '').trim();
+        const sPhoneDigits = sPhone.replace(/\D/g, '');
+        const sPhoneLast10 = sPhoneDigits.length >= 10 ? sPhoneDigits.slice(-10) : sPhoneDigits;
         const sName = (s.name || '').toLowerCase();
+
+        const phoneMatches = isLikelyPhone && (
+          sPhone === rawInput ||
+          sPhoneDigits === digitsOnly ||
+          (last10Digits.length >= 10 && sPhoneLast10 === last10Digits)
+        );
+
         return (
+          phoneMatches ||
           sId === cleanLower ||
           sCode === cleanLower ||
           sCodeClean === cleanNoHyphen ||
           sCashier === cleanLower ||
-          sPhone === rawInput ||
           sName === cleanLower
         );
       }) || null;
@@ -431,7 +471,11 @@ export async function authenticateShopCounterFromFirestore(params: {
   }
 
   if (!matchedShop) {
-    throw new Error(`Shop "${rawInput}" was not found. Please verify your Shop ID (e.g. AP-2026-1001) or Cashier Username.`);
+    if (isLikelyPhone) {
+      throw new Error(`Shop with mobile number "${rawInput}" was not found. Please verify your registered mobile number or contact Amul Admin.`);
+    } else {
+      throw new Error(`Shop "${rawInput}" was not found. Please verify your Shop Mobile Number or Shop ID.`);
+    }
   }
 
   // 3. Password Verification

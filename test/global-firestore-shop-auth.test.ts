@@ -134,12 +134,44 @@ describe('Global Firestore Shop Authentication & Cross-Device Access', () => {
     expect(session.shopName).toBe('Amul Heritage Parlour Surat');
   });
 
+  it('authenticates shop counter using registered Mobile Number', async () => {
+    const { authenticateShopCounterFromFirestore } = await import('../src/storage/auth.ts');
+    
+    // Test with raw 10-digit mobile number
+    const session1 = await authenticateShopCounterFromFirestore({
+      mobileNumberOrShopId: '9825011223',
+      password: 'password123'
+    });
+
+    expect(session1.shopId).toBe(testShopId);
+    expect(session1.shopCode).toBe(testShopCode);
+    expect(session1.shopName).toBe('Amul Heritage Parlour Surat');
+
+    // Test with +91 international prefix and spaces
+    const session2 = await authenticateShopCounterFromFirestore({
+      mobileNumberOrShopId: '+91 98250 11223',
+      password: 'password123'
+    });
+
+    expect(session2.shopId).toBe(testShopId);
+  });
+
+  it('verifies Shop Counter login interface uses Shop Mobile Number label and autoComplete=tel', () => {
+    const loginPagePath = path.resolve(process.cwd(), 'src/components/auth/LoginPage.tsx');
+    const content = fs.readFileSync(loginPagePath, 'utf8');
+
+    // Explicitly verify label, placeholder and autoComplete for mobile number login
+    expect(content).toContain("activeTab === 'ADMIN' ? 'Admin Username' : 'Shop Mobile Number'");
+    expect(content).toContain("activeTab === 'ADMIN' ? 'username' : 'tel'");
+    expect(content).toContain("activeTab === 'ADMIN' ? 'text' : 'tel'");
+  });
+
   it('rejects invalid password for registered shop with descriptive error', async () => {
     const { authenticateShopCounterFromFirestore } = await import('../src/storage/auth.ts');
     
     await expect(
       authenticateShopCounterFromFirestore({
-        usernameOrShopId: testShopCode,
+        mobileNumberOrShopId: '9825011223',
         password: 'incorrectPassword123'
       })
     ).rejects.toThrow(/invalid password/i);
