@@ -51,7 +51,7 @@ export function isShopSubscriptionActive(shop: Shop | null | undefined): Subscri
     };
   }
 
-  if (shop.approvalStatus === 'SUSPENDED') {
+  if (shop.approvalStatus === 'SUSPENDED' || shop.status === 'suspended') {
     return {
       isActive: false,
       isExpired: false,
@@ -61,10 +61,13 @@ export function isShopSubscriptionActive(shop: Shop | null | undefined): Subscri
     };
   }
 
+  const expiryDate = shop.planEndDate || shop.subscriptionExpiryDate;
+  const statusUpper = (shop.status || shop.subscriptionStatus || '').toUpperCase();
+
   // If status is explicitly EXPIRED
-  if (shop.subscriptionStatus === 'EXPIRED') {
-    const formattedDate = shop.subscriptionExpiryDate
-      ? new Date(shop.subscriptionExpiryDate).toLocaleDateString('en-IN', {
+  if (statusUpper === 'EXPIRED') {
+    const formattedDate = expiryDate
+      ? new Date(expiryDate).toLocaleDateString('en-IN', {
           day: 'numeric',
           month: 'short',
           year: 'numeric'
@@ -77,13 +80,13 @@ export function isShopSubscriptionActive(shop: Shop | null | undefined): Subscri
       daysRemaining: 0,
       formattedExpiryDate: formattedDate,
       expiryFormatted: formattedDate,
-      expiryDateISO: shop.subscriptionExpiryDate,
+      expiryDateISO: expiryDate,
       message: `1-Month Plan expired. Counter is in Read-Only Mode. Please contact Admin to activate.`
     };
   }
 
   // If no expiry date exists or status is INACTIVE (brand new, unactivated)
-  if (!shop.subscriptionExpiryDate || shop.subscriptionStatus === 'INACTIVE') {
+  if (!expiryDate || statusUpper === 'INACTIVE') {
     return {
       isActive: false,
       isExpired: false,
@@ -94,11 +97,11 @@ export function isShopSubscriptionActive(shop: Shop | null | undefined): Subscri
   }
 
   const now = Date.now();
-  const expiryTime = new Date(shop.subscriptionExpiryDate).getTime();
+  const expiryTime = new Date(expiryDate).getTime();
   const diffMs = expiryTime - now;
   const daysRemaining = Math.max(0, Math.ceil(diffMs / (24 * 60 * 60 * 1000)));
 
-  const formattedDate = new Date(shop.subscriptionExpiryDate).toLocaleDateString('en-IN', {
+  const formattedDate = new Date(expiryDate).toLocaleDateString('en-IN', {
     day: 'numeric',
     month: 'short',
     year: 'numeric'
@@ -113,7 +116,7 @@ export function isShopSubscriptionActive(shop: Shop | null | undefined): Subscri
       daysRemaining: 0,
       formattedExpiryDate: formattedDate,
       expiryFormatted: formattedDate,
-      expiryDateISO: shop.subscriptionExpiryDate,
+      expiryDateISO: expiryDate,
       message: `1-Month Plan expired on ${formattedDate}. Counter is in Read-Only Mode. Please contact Admin to activate.`
     };
   }
@@ -126,7 +129,7 @@ export function isShopSubscriptionActive(shop: Shop | null | undefined): Subscri
     daysRemaining,
     formattedExpiryDate: formattedDate,
     expiryFormatted: formattedDate,
-    expiryDateISO: shop.subscriptionExpiryDate,
+    expiryDateISO: expiryDate,
     message: `1-Month Plan active (${daysRemaining} day${daysRemaining === 1 ? '' : 's'} remaining until ${formattedDate}).`
   };
 }
@@ -147,7 +150,8 @@ export function activateOneMonthSubscription(shop: Shop, adminUsername = 'admin'
  */
 export function renewShopSubscription(shop: Shop, extensionDays = 30, adminUsername = 'admin'): Shop {
   const now = new Date();
-  const currentExpiryTime = shop.subscriptionExpiryDate ? new Date(shop.subscriptionExpiryDate).getTime() : 0;
+  const currentExpiry = shop.planEndDate || shop.subscriptionExpiryDate;
+  const currentExpiryTime = currentExpiry ? new Date(currentExpiry).getTime() : 0;
   
   // If current expiry is in the future, extend from current expiry; otherwise extend from now
   const baseTime = currentExpiryTime > now.getTime() ? currentExpiryTime : now.getTime();
@@ -158,9 +162,12 @@ export function renewShopSubscription(shop: Shop, extensionDays = 30, adminUsern
     ...shop,
     approvalStatus: 'APPROVED',
     subscriptionStatus: 'ACTIVE',
+    status: 'active',
     subscriptionPlanId: shop.subscriptionPlanId || 'BASIC',
-    subscriptionStartDate: shop.subscriptionStartDate || now.toISOString(),
+    subscriptionStartDate: shop.subscriptionStartDate || shop.planStartDate || now.toISOString(),
     subscriptionExpiryDate: newExpiryDateISO,
+    planStartDate: shop.planStartDate || shop.subscriptionStartDate || now.toISOString(),
+    planEndDate: newExpiryDateISO,
     ownerIdVerified: true,
     ownerVerifiedAt: shop.ownerVerifiedAt || now.toISOString(),
     verifiedByAdmin: adminUsername,

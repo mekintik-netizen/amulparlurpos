@@ -18,6 +18,7 @@ import {
   UserRole, 
   AuthSession, 
   authenticateLocalUser, 
+  authenticateShopCounterFromFirestore,
   ensureDefaultAccountsSeeded,
   isMasterAdminInitialized,
   performOneTimeAdminSetup 
@@ -145,11 +146,19 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setPassword('');
 
     try {
-      const session = await authenticateLocalUser({
-        username: enteredUsername,
-        password: enteredPassword,
-        role: activeTab === 'ADMIN' ? 'ADMIN' : 'SHOP_USER'
-      });
+      let session: AuthSession;
+      if (activeTab === 'SHOP_USER') {
+        session = await authenticateShopCounterFromFirestore({
+          usernameOrShopId: enteredUsername,
+          password: enteredPassword
+        });
+      } else {
+        session = await authenticateLocalUser({
+          username: enteredUsername,
+          password: enteredPassword,
+          role: 'ADMIN'
+        });
+      }
 
       if (activeTab === 'ADMIN') {
         // Trigger Real-time SMS Phone OTP 2FA for Master Admin
@@ -479,14 +488,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             {/* Username / ID Input */}
             <div>
               <label className="block text-[11px] font-semibold text-slate-600 dark:text-neutral-400 mb-1">
-                {activeTab === 'ADMIN' ? 'Admin Username' : 'Cashier / Login ID'}
+                {activeTab === 'ADMIN' ? 'Admin Username' : 'Shop ID / Cashier Username'}
               </label>
               <div className="relative">
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder={activeTab === 'ADMIN' ? 'Admin Username (e.g. admin)' : 'Cashier ID / username'}
+                  placeholder={activeTab === 'ADMIN' ? 'Admin Username (e.g. admin)' : 'Shop ID (e.g. AP-2026-1001) or Cashier'}
                   autoComplete="username"
                   className={`w-full text-xs rounded-xl px-3.5 py-2.5 transition focus:outline-hidden focus:ring-2 focus:ring-black dark:focus:ring-white ${
                     activeTab === 'ADMIN'

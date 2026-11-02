@@ -79,6 +79,13 @@ export interface Shop {
   subscriptionStatus: SubscriptionStatus;
   subscriptionStartDate?: string; // ISO string
   subscriptionExpiryDate?: string; // ISO string
+  planStartDate?: string; // ISO string
+  planEndDate?: string; // ISO string
+  status?: 'active' | 'expired' | 'suspended';
+  cashierUsername?: string;
+  cashierPassword?: string;
+  passwordHash?: string;
+  salt?: string;
   ownerIdVerified?: boolean; // Whether the shop owner's ID has been verified by admin
   ownerVerifiedAt?: string; // ISO string when verification occurred
   verifiedByAdmin?: string; // Admin username who performed verification

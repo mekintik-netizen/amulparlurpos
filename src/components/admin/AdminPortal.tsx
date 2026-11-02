@@ -42,7 +42,7 @@ import {
 } from 'lucide-react';
 import { Shop, ShopApprovalStatus, SubscriptionPlanId, SubscriptionStatus, SUBSCRIPTION_PLANS } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
-import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShopCashierAccount, adminResetShopPassword, clearActiveSession } from '../../storage/auth.ts';
+import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShopCashierAccount, adminResetShopPassword, clearActiveSession, generateSalt, hashPasswordWithSalt } from '../../storage/auth.ts';
 import { isShopSubscriptionActive, activateOneMonthSubscription, renewShopSubscription } from '../../storage/subscription.ts';
 import { getAdminAuthConfig, updateAdminAuthConfig, subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/firebase.ts';
 import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
@@ -338,6 +338,20 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         expiryDate = expiryDate || new Date(Date.now() + plan.durationDays * 24 * 60 * 60 * 1000).toISOString();
       }
 
+      let shopSalt = editingShop?.salt;
+      let shopPasswordHash = editingShop?.passwordHash;
+      let shopCashierPwd = editingShop?.cashierPassword;
+      let shopCashierUser = editingShop?.cashierUsername;
+
+      if (!editingShop) {
+        const cleanUser = cashierUsername.trim().toLowerCase() || (generatedShopCode || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const pwd = cashierPassword.trim() || 'amul123';
+        shopSalt = generateSalt();
+        shopPasswordHash = await hashPasswordWithSalt(pwd, shopSalt);
+        shopCashierPwd = pwd;
+        shopCashierUser = cleanUser;
+      }
+
       const shopData: Shop = {
         id: editingShop ? editingShop.id : `shop-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
         shopCode: generatedShopCode || generateShopId(),
@@ -357,6 +371,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         subscriptionStatus: finalSubStatus,
         subscriptionStartDate: startDate,
         subscriptionExpiryDate: expiryDate,
+        planStartDate: startDate,
+        planEndDate: expiryDate,
+        status: finalApproval === 'APPROVED' ? 'active' : 'suspended',
+        cashierUsername: shopCashierUser,
+        cashierPassword: shopCashierPwd,
+        salt: shopSalt,
+        passwordHash: shopPasswordHash,
         ownerIdVerified: isVerified,
         ownerVerifiedAt: verifiedAt,
         verifiedByAdmin: verifiedBy,

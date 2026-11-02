@@ -83,8 +83,16 @@ export default function App() {
       if (list.length > 0) {
         // If current user is already logged in as a shop user, bind to their assigned shop
         const activeSess = getActiveSession();
-        if (activeSess?.role === 'SHOP_USER' && activeSess.shopCode) {
-          const match = list.find((s) => s.shopCode === activeSess.shopCode || s.id === activeSess.shopId);
+        if (activeSess?.role === 'SHOP_USER' && (activeSess.shopCode || activeSess.shopId)) {
+          let match: Shop | null | undefined = list.find((s) => (activeSess.shopId && s.id === activeSess.shopId) || (activeSess.shopCode && s.shopCode === activeSess.shopCode));
+          if (!match && activeSess.shopId) {
+            const fetched = await AppRepository.shops.getById(activeSess.shopId);
+            if (fetched) {
+              match = fetched;
+              list.push(fetched);
+              setShops([...list]);
+            }
+          }
           if (match) {
             setCurrentShop(match);
             return;
@@ -123,16 +131,26 @@ export default function App() {
   };
 
   // Sync user shop when user session changes
-  const handleLoginSuccess = (session: AuthSession) => {
+  const handleLoginSuccess = async (session: AuthSession) => {
     setCurrentUser(session);
     if (session.role === 'ADMIN') {
       setActiveTab('ADMIN');
     } else {
       setActiveTab('POS');
-      if (session.shopCode) {
-        const boundShop = shops.find(s => s.shopCode === session.shopCode || s.id === session.shopId);
+      if (session.shopId || session.shopCode) {
+        let boundShop: Shop | null | undefined = shops.find(s => (session.shopId && s.id === session.shopId) || (session.shopCode && s.shopCode === session.shopCode));
+        if (!boundShop && session.shopId) {
+          const fetched = await AppRepository.shops.getById(session.shopId);
+          if (fetched) {
+            boundShop = fetched;
+          }
+        }
         if (boundShop) {
           setCurrentShop(boundShop);
+          setShops(prev => {
+            if (prev.some(s => s.id === boundShop!.id)) return prev;
+            return [...prev, boundShop!];
+          });
         }
       }
     }

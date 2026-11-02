@@ -226,6 +226,27 @@ export function startShopRealtimeSync(
     }, (err) => console.warn('[Firestore] Expenses listener error:', err.message));
     unsubscribers.push(unsubExpenses);
 
+    // 5. Listen for Bank Statement Entries (Strictly where shopId == currentShopId)
+    const bankQuery = query(collection(db, 'bankEntries'), where('shopId', '==', shopId));
+    const unsubBank = onSnapshot(bankQuery, async (snapshot) => {
+      let changed = false;
+      for (const change of snapshot.docChanges()) {
+        if (change.type === 'added' || change.type === 'modified') {
+          const entry = change.doc.data() as BankEntry;
+          try {
+            await localDb.saveBankEntry(entry);
+            changed = true;
+          } catch (e) {
+            // ignore
+          }
+        }
+      }
+      if (changed && onRemoteChange) {
+        onRemoteChange();
+      }
+    }, (err) => console.warn('[Firestore] Bank entries listener error:', err.message));
+    unsubscribers.push(unsubBank);
+
   } catch (err) {
     console.warn('[Firestore] Could not start real-time sync (running offline-first):', err);
   }

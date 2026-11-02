@@ -11,8 +11,12 @@
  * - Multi-tenant shop-level authorization for SHOP_USER and system-level for ADMIN.
  */
 
-import { openAppDatabase } from './db.ts';
-import { getAdminAuthConfig, updateAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from './firebase.ts';
+import { openAppDatabase, getAllShops, saveShop, prefillMasterAmulCatalogWithZeroStock } from './db.ts';
+import { db, getAdminAuthConfig, updateAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from './firebase.ts';
+import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
+import { syncShopToCloud } from './firestoreSync.ts';
+import { Shop } from '../types/index.ts';
+import { isShopSubscriptionActive } from './subscription.ts';
 
 export type UserRole = 'ADMIN' | 'SHOP_USER';
 
@@ -41,6 +45,7 @@ export interface AuthSession {
   role: UserRole;
   shopId?: string;
   shopCode?: string;
+  shopName?: string;
   tokenExpiresAt: number; // Unix timestamp
   loggedInAt: string;
 }
@@ -202,18 +207,23 @@ export async function getAllLocalUsers(): Promise<LocalUser[]> {
 }
 
 async function saveAllLocalUsers(users: LocalUser[]): Promise<void> {
-  const db = await openAppDatabase();
-  return new Promise((resolve, reject) => {
-    try {
-      const tx = db.transaction('appSettings', 'readwrite');
-      const store = tx.objectStore('appSettings');
-      store.put({ key: USERS_STORAGE_KEY, value: users });
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    } catch (e) {
-      reject(e);
-    }
-  });
+  try {
+    const db = await openAppDatabase();
+    if (!db || typeof db.transaction !== 'function') return;
+    return new Promise((resolve, reject) => {
+      try {
+        const tx = db.transaction('appSettings', 'readwrite');
+        const store = tx.objectStore('appSettings');
+        store.put({ key: USERS_STORAGE_KEY, value: users });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      } catch (e) {
+        reject(e);
+      }
+    });
+  } catch (err) {
+    // Graceful fallback for non-browser or test runner environments
+  }
 }
 
 /**
@@ -318,6 +328,243 @@ export async function registerShopCashierAccount(params: {
 }
 
 /**
+ * Global Firestore Authentication for Shop Counter (Cross-Device & Cross-Profile)
+ * Validates entered Shop ID, Shop Code, or Cashier Username and Password directly
+ * against live Cloud Firestore 'shops' collection.
+ */
+export async function authenticateShopCounterFromFirestore(params: {
+  usernameOrShopId: string;
+  password: string;
+}): Promise<AuthSession> {
+  const rawInput = params.usernameOrShopId.trim();
+  if (!rawInput) {
+    throw new Error('Please enter your Shop ID or Cashier Username.');
+  }
+  if (!params.password) {
+    throw new Error('Please enter your password.');
+  }
+
+  const cleanLower = rawInput.toLowerCase();
+  const cleanNoHyphen = cleanLower.replace(/[^a-z0-9]/g, '');
+
+  let matchedShop: Shop | null = null;
+
+  // 1. Attempt lookup against live Cloud Firestore
+  try {
+    // A. Check by document ID directly
+    const shopDocRef = doc(db, 'shops', rawInput);
+    const shopDocSnap = await getDoc(shopDocRef);
+    if (shopDocSnap.exists()) {
+      matchedShop = shopDocSnap.data() as Shop;
+    }
+
+    // B. Query by shopCode
+    if (!matchedShop) {
+      const qCodeUpper = query(collection(db, 'shops'), where('shopCode', '==', rawInput.toUpperCase()));
+      const snapCodeUpper = await getDocs(qCodeUpper);
+      if (!snapCodeUpper.empty) {
+        matchedShop = snapCodeUpper.docs[0].data() as Shop;
+      }
+    }
+
+    // C. Query by cashierUsername
+    if (!matchedShop) {
+      const qCashier = query(collection(db, 'shops'), where('cashierUsername', '==', cleanLower));
+      const snapCashier = await getDocs(qCashier);
+      if (!snapCashier.empty) {
+        matchedShop = snapCashier.docs[0].data() as Shop;
+      }
+    }
+
+    // D. Scan collection in Firestore if casing or formatting differs
+    if (!matchedShop) {
+      const allShopsSnap = await getDocs(collection(db, 'shops'));
+      for (const d of allShopsSnap.docs) {
+        const s = d.data() as Shop;
+        const sId = (s.id || d.id || '').toLowerCase();
+        const sCode = (s.shopCode || '').toLowerCase();
+        const sCodeClean = sCode.replace(/[^a-z0-9]/g, '');
+        const sCashier = (s.cashierUsername || '').toLowerCase();
+        const sPhone = (s.phone || '').trim();
+        const sName = (s.name || '').toLowerCase();
+
+        if (
+          sId === cleanLower ||
+          sCode === cleanLower ||
+          sCodeClean === cleanNoHyphen ||
+          sCashier === cleanLower ||
+          sPhone === rawInput ||
+          sName === cleanLower
+        ) {
+          matchedShop = s;
+          break;
+        }
+      }
+    }
+  } catch (firestoreErr) {
+    console.warn('[Auth] Firestore query error, falling back to local database:', firestoreErr);
+  }
+
+  // 2. Fallback to local IndexedDB if Firestore was unavailable or returned no match
+  if (!matchedShop) {
+    try {
+      const localShops = await getAllShops();
+      matchedShop = localShops.find(s => {
+        const sId = (s.id || '').toLowerCase();
+        const sCode = (s.shopCode || '').toLowerCase();
+        const sCodeClean = sCode.replace(/[^a-z0-9]/g, '');
+        const sCashier = (s.cashierUsername || '').toLowerCase();
+        const sPhone = (s.phone || '').trim();
+        const sName = (s.name || '').toLowerCase();
+        return (
+          sId === cleanLower ||
+          sCode === cleanLower ||
+          sCodeClean === cleanNoHyphen ||
+          sCashier === cleanLower ||
+          sPhone === rawInput ||
+          sName === cleanLower
+        );
+      }) || null;
+    } catch (localErr) {
+      console.warn('[Auth] Local shops lookup error:', localErr);
+    }
+  }
+
+  if (!matchedShop) {
+    throw new Error(`Shop "${rawInput}" was not found. Please verify your Shop ID (e.g. AP-2026-1001) or Cashier Username.`);
+  }
+
+  // 3. Password Verification
+  let passwordMatches = false;
+
+  // A. Salted SHA-256 Hash check
+  if (matchedShop.passwordHash && matchedShop.salt) {
+    const computedHash = await hashPasswordWithSalt(params.password, matchedShop.salt);
+    if (computedHash === matchedShop.passwordHash) {
+      passwordMatches = true;
+    }
+  }
+
+  // B. Plaintext cashierPassword check (if created before hashing)
+  if (!passwordMatches && matchedShop.cashierPassword) {
+    if (params.password === matchedShop.cashierPassword) {
+      passwordMatches = true;
+    }
+  }
+
+  // C. Default initial password fallback for newly provisioned shops
+  if (!passwordMatches && !matchedShop.passwordHash && !matchedShop.cashierPassword) {
+    if (params.password === 'amul123' || params.password === 'admin123') {
+      passwordMatches = true;
+    }
+  }
+
+  // D. Local User record check
+  if (!passwordMatches) {
+    try {
+      const users = await getAllLocalUsers();
+      const userMatch = users.find(u => 
+        (u.shopId === matchedShop!.id || u.shopCode === matchedShop!.shopCode || u.username === cleanLower) &&
+        u.role === 'SHOP_USER'
+      );
+      if (userMatch) {
+        const computedLocalHash = await hashPasswordWithSalt(params.password, userMatch.salt);
+        if (computedLocalHash === userMatch.passwordHash) {
+          passwordMatches = true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  if (!passwordMatches) {
+    throw new Error('Invalid password. Please check your credentials or contact Amul Administrator.');
+  }
+
+  // Auto-upgrade security hash on shop document if missing
+  if (!matchedShop.passwordHash || !matchedShop.salt) {
+    try {
+      const newSalt = generateSalt();
+      const newHash = await hashPasswordWithSalt(params.password, newSalt);
+      matchedShop.salt = newSalt;
+      matchedShop.passwordHash = newHash;
+      await syncShopToCloud(matchedShop);
+    } catch (upgradeErr) {
+      console.warn('[Auth] Failed to auto-upgrade shop password hash:', upgradeErr);
+    }
+  }
+
+  // 4. Check Subscription & Account Status
+  const subCheck = isShopSubscriptionActive(matchedShop);
+  if (subCheck.isPendingApproval) {
+    throw new Error('Shop account approval is pending from Amul Headquarters Admin.');
+  }
+  if (matchedShop.approvalStatus === 'SUSPENDED' || matchedShop.status === 'suspended') {
+    throw new Error('Shop account has been suspended by Amul Headquarters Admin.');
+  }
+
+  // 5. Cache shop document and catalog into local IndexedDB for immediate offline/online performance
+  try {
+    await saveShop(matchedShop);
+    await prefillMasterAmulCatalogWithZeroStock(matchedShop.id);
+  } catch (dbErr) {
+    console.warn('[Auth] Failed to cache shop to local IndexedDB:', dbErr);
+  }
+
+  // 6. Ensure cashier local user record exists in IndexedDB
+  try {
+    const users = await getAllLocalUsers();
+    const cashierUsername = matchedShop.cashierUsername || cleanLower;
+    let existingUser = users.find(u => u.shopId === matchedShop!.id || u.username === cashierUsername);
+
+    const cashierSalt = matchedShop.salt || generateSalt();
+    const cashierHash = matchedShop.passwordHash || (await hashPasswordWithSalt(params.password, cashierSalt));
+
+    if (!existingUser) {
+      existingUser = {
+        id: `usr-cashier-${matchedShop.id}`,
+        username: cashierUsername,
+        fullName: matchedShop.ownerName || `Cashier (${matchedShop.shopCode})`,
+        role: 'SHOP_USER',
+        shopId: matchedShop.id,
+        shopCode: matchedShop.shopCode,
+        salt: cashierSalt,
+        passwordHash: cashierHash,
+        createdAt: matchedShop.createdAt || new Date().toISOString(),
+        lastLoginAt: new Date().toISOString()
+      };
+      users.push(existingUser);
+    } else {
+      existingUser.salt = cashierSalt;
+      existingUser.passwordHash = cashierHash;
+      existingUser.lastLoginAt = new Date().toISOString();
+      existingUser.shopId = matchedShop.id;
+      existingUser.shopCode = matchedShop.shopCode;
+    }
+    await saveAllLocalUsers(users);
+  } catch (userErr) {
+    console.warn('[Auth] Failed to sync local cashier user:', userErr);
+  }
+
+  // 7. Construct and return AuthSession
+  const session: AuthSession = {
+    userId: `usr-cashier-${matchedShop.id}`,
+    username: matchedShop.cashierUsername || cleanLower,
+    fullName: matchedShop.name || matchedShop.ownerName,
+    role: 'SHOP_USER',
+    shopId: matchedShop.id,
+    shopCode: matchedShop.shopCode,
+    shopName: matchedShop.name,
+    tokenExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    loggedInAt: new Date().toISOString()
+  };
+
+  saveSession(session, false);
+  return session;
+}
+
+/**
  * Authenticate user credentials
  * Compares computed salted hash with stored hash. Zero plaintext saved.
  */
@@ -328,6 +575,23 @@ export async function authenticateLocalUser(params: {
   shopCode?: string;
 }): Promise<AuthSession> {
   await ensureDefaultAccountsSeeded();
+
+  // If authenticating as Shop User, validate via global Firestore authentication
+  if (params.role === 'SHOP_USER') {
+    try {
+      return await authenticateShopCounterFromFirestore({
+        usernameOrShopId: params.username,
+        password: params.password
+      });
+    } catch (shopAuthErr: any) {
+      // If error is about password or subscription, throw directly
+      if (shopAuthErr.message && !shopAuthErr.message.includes('was not found')) {
+        throw shopAuthErr;
+      }
+      // Otherwise allow falling through to local user lookup below
+    }
+  }
+
   const cleanUsername = params.username.trim().toLowerCase();
   const users = await getAllLocalUsers();
 
@@ -695,17 +959,47 @@ export async function adminResetShopPassword(params: {
 
   const users = await getAllLocalUsers();
   const shopUser = users.find(u => u.shopCode === params.shopCode && u.role === 'SHOP_USER');
-  if (!shopUser) {
-    throw new Error(`No cashier account found registered for shop ${params.shopCode}.`);
-  }
 
   const newSalt = generateSalt();
   const newHash = await hashPasswordWithSalt(params.newPassword, newSalt);
-  shopUser.salt = newSalt;
-  shopUser.passwordHash = newHash;
 
-  await saveAllLocalUsers(users);
-  return { success: true, username: shopUser.username };
+  let username = params.shopCode.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  if (shopUser) {
+    shopUser.salt = newSalt;
+    shopUser.passwordHash = newHash;
+    username = shopUser.username;
+    await saveAllLocalUsers(users);
+  }
+
+  // Update shop document in local IndexedDB and Cloud Firestore so cross-device logins use new password
+  try {
+    const shops = await getAllShops();
+    const shop = shops.find(s => s.shopCode === params.shopCode);
+    if (shop) {
+      shop.salt = newSalt;
+      shop.passwordHash = newHash;
+      shop.cashierPassword = params.newPassword;
+      await saveShop(shop);
+      await syncShopToCloud(shop);
+    } else {
+      const q = query(collection(db, 'shops'), where('shopCode', '==', params.shopCode));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docSnap = snap.docs[0];
+        const s = docSnap.data() as Shop;
+        s.salt = newSalt;
+        s.passwordHash = newHash;
+        s.cashierPassword = params.newPassword;
+        await saveShop(s);
+        await syncShopToCloud(s);
+      }
+    }
+  } catch (syncErr) {
+    console.warn('[Auth] Could not update remote shop credentials:', syncErr);
+  }
+
+  return { success: true, username: shopUser ? shopUser.username : username };
 }
 
 /**
