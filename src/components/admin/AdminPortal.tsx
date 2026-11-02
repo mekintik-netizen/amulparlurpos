@@ -38,7 +38,8 @@ import {
   Trash2,
   Upload,
   QrCode,
-  LogOut
+  LogOut,
+  Printer
 } from 'lucide-react';
 import { Shop, ShopApprovalStatus, SubscriptionPlanId, SubscriptionStatus, SUBSCRIPTION_PLANS } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
@@ -47,6 +48,7 @@ import { isShopSubscriptionActive, activateOneMonthSubscription, renewShopSubscr
 import { getAdminAuthConfig, updateAdminAuthConfig, subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/firebase.ts';
 import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
 import { MonthlyRevenueChart } from './MonthlyRevenueChart.tsx';
+import { PrintSettingsTab } from './PrintSettingsTab.tsx';
 import amulLogo from '../../assets/logo.ts';
 
 interface AdminPortalProps {
@@ -76,6 +78,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [adminError, setAdminError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | ShopApprovalStatus>('ALL');
+  const [adminSubTab, setAdminSubTab] = useState<'SHOPS' | 'PRINT_SETTINGS' | 'REVENUE' | 'QR'>('SHOPS');
 
   // Modal State for New/Edit Shop
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -644,77 +647,155 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
           </div>
 
-          {/* Master Admin Dynamic Payment QR Upload Section (Synced with Firestore) */}
-          <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80">
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-              <div className="flex items-start gap-3">
-                <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#005A9C] flex items-center justify-center border border-blue-200 shrink-0">
-                  <QrCode className="w-5 h-5" />
+          {/* Admin HQ Navigation Sub-Tabs */}
+          <div className="bg-white rounded-2xl p-2 shadow-xs border border-slate-200/80 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setAdminSubTab('SHOPS')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                adminSubTab === 'SHOPS'
+                  ? 'bg-[#005A9C] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Store className="w-4 h-4" />
+              <span>Shops & Franchises (દુકાન વ્યવસ્થાપન)</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${
+                adminSubTab === 'SHOPS' ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-700'
+              }`}>
+                {shops.length}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminSubTab('PRINT_SETTINGS')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                adminSubTab === 'PRINT_SETTINGS'
+                  ? 'bg-[#005A9C] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print Settings (પ્રિન્ટ સેટિંગ્સ)</span>
+              <span className="text-[10px] font-bold uppercase font-mono px-1.5 py-0.5 bg-emerald-100 text-emerald-800 rounded">
+                Live Sync
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminSubTab('REVENUE')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                adminSubTab === 'REVENUE'
+                  ? 'bg-[#005A9C] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span>Revenue Analytics (આવક)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminSubTab('QR')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                adminSubTab === 'QR'
+                  ? 'bg-[#005A9C] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <QrCode className="w-4 h-4" />
+              <span>Payment QR (યુપીઆઈ ક્યુઆર)</span>
+            </button>
+          </div>
+
+          {/* Sub-Tab 1: Dedicated Print Settings Tab & Customizer */}
+          {adminSubTab === 'PRINT_SETTINGS' && (
+            <PrintSettingsTab
+              currentShop={shops.find((s) => s.id === activeShopId) || shops[0]}
+              adminUsername={currentUser?.username || 'Master Admin'}
+            />
+          )}
+
+          {/* Sub-Tab 2: Master Admin Dynamic Payment QR Upload Section (Synced with Firestore) */}
+          {adminSubTab === 'QR' && (
+            <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 animate-in fade-in">
+              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#005A9C] flex items-center justify-center border border-blue-200 shrink-0">
+                    <QrCode className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                      <span>Admin Master Subscription UPI QR Code</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
+                        Live Cloud Sync
+                      </span>
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Upload your UPI / GPay / PhonePe QR code. When any parlour subscription expires, this QR is dynamically shown to the counter cashier with renewal contact info (<strong className="text-slate-800">+919173598234</strong>).
+                    </p>
+                    {qrToast && (
+                      <div className="mt-2 text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 p-2 rounded-lg border border-emerald-200 animate-in fade-in duration-200">
+                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        <span>{qrToast}</span>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-                    <span>Admin Master Subscription UPI QR Code</span>
-                    <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
-                      Live Cloud Sync
-                    </span>
-                  </h3>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Upload your UPI / GPay / PhonePe QR code. When any parlour subscription expires, this QR is dynamically shown to the counter cashier with renewal contact info (<strong className="text-slate-800">+919173598234</strong>).
-                  </p>
-                  {qrToast && (
-                    <div className="mt-2 text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 p-2 rounded-lg border border-emerald-200 animate-in fade-in duration-200">
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>{qrToast}</span>
+
+                <div className="flex items-center gap-4 shrink-0">
+                  {paymentQrUrl ? (
+                    <div className="relative group w-16 h-16 rounded-xl border-2 border-dashed border-blue-300 p-1 bg-white overflow-hidden shadow-2xs">
+                      <img 
+                        src={paymentQrUrl} 
+                        alt="Current Master Payment QR" 
+                        className="w-full h-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 bg-slate-50 text-[10px] text-center p-1">
+                      No QR Set
                     </div>
                   )}
-                </div>
-              </div>
 
-              <div className="flex items-center gap-4 shrink-0">
-                {paymentQrUrl ? (
-                  <div className="relative group w-16 h-16 rounded-xl border-2 border-dashed border-blue-300 p-1 bg-white overflow-hidden shadow-2xs">
-                    <img 
-                      src={paymentQrUrl} 
-                      alt="Current Master Payment QR" 
-                      className="w-full h-full object-contain"
+                  <div>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={handleQrFileUpload}
+                      className="hidden"
                     />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isSavingQr}
+                      className="bg-[#005A9C] hover:bg-blue-800 disabled:bg-slate-400 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{isSavingQr ? 'Saving QR...' : (paymentQrUrl ? 'Change QR Image' : 'Upload QR Image')}</span>
+                    </button>
+                    <div className="text-[10px] text-slate-400 mt-1 font-mono text-center">PNG, JPG &lt; 2MB</div>
                   </div>
-                ) : (
-                  <div className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 bg-slate-50 text-[10px] text-center p-1">
-                    No QR Set
-                  </div>
-                )}
-
-                <div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleQrFileUpload}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isSavingQr}
-                    className="bg-[#005A9C] hover:bg-blue-800 disabled:bg-slate-400 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>{isSavingQr ? 'Saving QR...' : (paymentQrUrl ? 'Change QR Image' : 'Upload QR Image')}</span>
-                  </button>
-                  <div className="text-[10px] text-slate-400 mt-1 font-mono text-center">PNG, JPG &lt; 2MB</div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
 
-          {/* Executive Revenue Analytics (Recharts 12-Month Trends) */}
-          <MonthlyRevenueChart
-            shops={shops}
-            activeShopId={activeShopId}
-          />
+          {/* Sub-Tab 3: Executive Revenue Analytics (Recharts 12-Month Trends) */}
+          {adminSubTab === 'REVENUE' && (
+            <MonthlyRevenueChart
+              shops={shops}
+              activeShopId={activeShopId}
+            />
+          )}
 
-          {/* Subscription Plans Overview Cards */}
+          {/* Sub-Tab 4: Shops & Franchises Table */}
+          {adminSubTab === 'SHOPS' && (
+            <>
+              {/* Subscription Plans Overview Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {(Object.keys(SUBSCRIPTION_PLANS) as SubscriptionPlanId[]).map((key) => {
               const plan = SUBSCRIPTION_PLANS[key];
@@ -939,6 +1020,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </table>
             </div>
           </div>
+          </>
+          )}
         </div>
       )}
 

@@ -130,3 +130,12 @@ export function subscribeToAdminAuthConfig(callback: (config: AdminAuthConfig) =
     console.warn('[Firebase] Realtime admin config listener notice:', err.message);
   });
 }
+
+// Re-export Print Settings handlers
+export {
+  getCachedPrintSettings,
+  getPrintSettingsConfig,
+  savePrintSettingsConfig,
+  resetPrintSettingsConfig,
+  subscribeToPrintSettings
+} from './printSettings.ts';

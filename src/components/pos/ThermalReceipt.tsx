@@ -14,7 +14,7 @@
  * - Integrated Windows 11 Printer Setup Guide & Calibration Test Receipt.
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   Printer, 
   X, 
@@ -27,7 +27,8 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
-import { SaleBill, Shop } from '../../types/index.ts';
+import { SaleBill, Shop, PrintSettingsConfig } from '../../types/index.ts';
+import { getCachedPrintSettings, subscribeToPrintSettings } from '../../storage/printSettings.ts';
 
 interface ThermalReceiptProps {
   bill: SaleBill | null;
@@ -35,6 +36,7 @@ interface ThermalReceiptProps {
   paperWidth: '58mm' | '80mm';
   onClose: () => void;
   onPaperWidthChange: (width: '58mm' | '80mm') => void;
+  customPrintConfig?: PrintSettingsConfig;
 }
 
 export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
@@ -42,12 +44,28 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
   shop,
   paperWidth,
   onClose,
-  onPaperWidthChange
+  onPaperWidthChange,
+  customPrintConfig
 }) => {
   const [isPrinting, setIsPrinting] = useState(false);
   const [showSetupGuide, setShowSetupGuide] = useState(false);
   const [isTestReceiptMode, setIsTestReceiptMode] = useState(false);
+  const [printConfig, setPrintConfig] = useState<PrintSettingsConfig>(() => {
+    return customPrintConfig || getCachedPrintSettings();
+  });
   const receiptRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (customPrintConfig) {
+      setPrintConfig(customPrintConfig);
+      return;
+    }
+    const unsub = subscribeToPrintSettings((cfg) => {
+      setPrintConfig(cfg);
+    });
+    return () => unsub();
+  }, [customPrintConfig]);
+
 
   if (!bill || !shop) return null;
 
@@ -251,25 +269,61 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
             id="thermal-receipt-container"
             ref={receiptRef}
             style={{ fontFamily: "'Courier New', Courier, monospace" }}
-            className={`bg-white text-black p-4 shadow-md font-mono border border-slate-300 ${
+            className={`bg-white text-black shadow-md font-mono border border-slate-300 ${
+              printConfig.marginSize === 'compact' ? 'p-2.5' : 'p-4'
+            } ${printConfig.compactMode ? 'leading-tight text-[9.5px]' : 'leading-normal text-[10px]'} ${
               paperWidth === '58mm' ? 'receipt-58mm' : 'receipt-80mm'
             }`}
           >
-            {/* Header */}
-            <div className="text-center pb-2 border-b border-dashed border-black">
-              <div className="font-extrabold text-sm uppercase tracking-tight text-black">
-                AMUL PARLOUR
-              </div>
-              <div className="font-bold text-xs mt-0.5 text-black">{shop.name}</div>
-              <div className="text-[10px] text-black mt-0.5 leading-tight">
-                {shop.address}, {shop.city}
-              </div>
-              <div className="text-[10px] text-black">Phone: {shop.phone}</div>
-              <div className="text-[10px] font-semibold text-black mt-0.5">
-                Shop ID: {shop.shopCode}
-              </div>
-              {shop.gstNumber && <div className="text-[10px] text-black">GSTIN: {shop.gstNumber}</div>}
-              {shop.fssaiNumber && <div className="text-[10px] text-black">FSSAI: {shop.fssaiNumber}</div>}
+            {/* Header (Dynamically customized by Master Admin) */}
+            <div
+              className={`text-center border-b border-dashed border-black ${
+                printConfig.headerSpacing === 'tight'
+                  ? 'pb-1 space-y-0.5'
+                  : printConfig.headerSpacing === 'relaxed'
+                  ? 'pb-3 space-y-1.5'
+                  : 'pb-2 space-y-1'
+              }`}
+            >
+              {printConfig.showHeaderLogo && (
+                <div className="font-extrabold text-sm uppercase tracking-tight text-black">
+                  {printConfig.headerTitle || 'AMUL PARLOUR'}
+                </div>
+              )}
+              {printConfig.showShopName && (
+                <div className="font-bold text-xs mt-0.5 text-black">
+                  {printConfig.customShopName || shop.name}
+                </div>
+              )}
+              {printConfig.showAddress && (
+                <div className="text-[10px] text-black mt-0.5 leading-tight">
+                  {printConfig.customAddress || `${shop.address}, ${shop.city}`}
+                </div>
+              )}
+              {printConfig.showPhone && (
+                <div className="text-[10px] text-black">
+                  Phone: {printConfig.customPhone || shop.phone}
+                </div>
+              )}
+              {printConfig.showShopId && (
+                <div className="text-[10px] font-semibold text-black mt-0.5">
+                  Shop ID: {shop.shopCode}
+                </div>
+              )}
+              {printConfig.showGstFssai && (
+                <>
+                  {(printConfig.customGst || shop.gstNumber) && (
+                    <div className="text-[10px] text-black">
+                      GSTIN: {printConfig.customGst || shop.gstNumber}
+                    </div>
+                  )}
+                  {(printConfig.customFssai || shop.fssaiNumber) && (
+                    <div className="text-[10px] text-black">
+                      FSSAI: {printConfig.customFssai || shop.fssaiNumber}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
             {/* Bill Meta */}
@@ -381,24 +435,32 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
               </div>
             </div>
 
-            {/* Status & Barcode simulation */}
+            {/* Status & Barcode simulation (Customized by Master Admin) */}
             <div className="text-center py-2 text-[9px] text-black space-y-1">
-              <div className="font-semibold text-black uppercase">
-                Payment: {activeBill.paymentMode} {activeBill.status === 'COMPLETED' ? '• PAID' : `• ${activeBill.status}`}
-              </div>
+              {printConfig.showPaymentMode && (
+                <div className="font-semibold text-black uppercase">
+                  Payment: {activeBill.paymentMode} {activeBill.status === 'COMPLETED' ? '• PAID' : `• ${activeBill.status}`}
+                </div>
+              )}
               {activeBill.status === 'CANCELLED' && (
                 <div className="text-black font-bold border border-black p-1">
                   *** CANCELLED SALE ***
                 </div>
               )}
-              <div className="pt-1 font-mono text-[10px] tracking-widest uppercase">
-                * {activeBill.billNumber} *
-              </div>
-              <div className="text-[9px] text-black pt-1 leading-tight">
-                Thank you for choosing Amul!
-                <br />
-                The Taste of India • Pure Milk Products
-              </div>
+              {printConfig.showBarcodeSimulation && (
+                <div className="pt-1 font-mono text-[10px] tracking-widest uppercase">
+                  * {activeBill.billNumber} *
+                </div>
+              )}
+              {(printConfig.footerNote1 || printConfig.footerNote2 || printConfig.footerNote3) && (
+                <div className="text-[9px] text-black pt-1 leading-tight space-y-0.5">
+                  {printConfig.footerNote1 && <div>{printConfig.footerNote1}</div>}
+                  {printConfig.footerNote2 && <div>{printConfig.footerNote2}</div>}
+                  {printConfig.footerNote3 && (
+                    <div className="text-[8px] text-slate-700 italic">{printConfig.footerNote3}</div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         </div>

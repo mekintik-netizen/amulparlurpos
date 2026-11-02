@@ -457,3 +457,68 @@ export interface SyncOutboxEntry {
   retryCount: number;
   lastError?: string;
 }
+
+// ==========================================
+// THERMAL RECEIPT & PRINT CUSTOMIZER SETTINGS
+// ==========================================
+
+export interface PrintSettingsConfig {
+  // Header Customization
+  showHeaderLogo: boolean;
+  headerTitle: string; // e.g. "AMUL PARLOUR"
+  showShopName: boolean;
+  customShopName?: string; // If empty, falls back to shop.name
+  showAddress: boolean;
+  customAddress?: string; // If empty, falls back to shop.address, city
+  showPhone: boolean;
+  customPhone?: string; // If empty, falls back to shop.phone
+  showShopId: boolean;
+  showGstFssai: boolean;
+  customGst?: string; // If empty, falls back to shop.gstNumber
+  customFssai?: string; // If empty, falls back to shop.fssaiNumber
+
+  // Footer Customization
+  footerNote1: string; // e.g. "Thank you! Please visit again"
+  footerNote2: string; // e.g. "The Taste of India • Pure Milk Products"
+  footerNote3?: string; // e.g. "Goods once sold will not be taken back"
+  showPaymentMode: boolean;
+  showBarcodeSimulation: boolean;
+
+  // Layout Spacing & Compactness
+  compactMode: boolean; // Ultra-compact roll format to save thermal paper
+  headerSpacing: 'tight' | 'normal' | 'relaxed';
+  marginSize: 'compact' | 'normal';
+  fontSize: 'xs' | 'sm' | 'normal';
+  paperWidth: '58mm' | '80mm';
+
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export const DEFAULT_PRINT_SETTINGS_CONFIG: PrintSettingsConfig = {
+  showHeaderLogo: true,
+  headerTitle: 'AMUL PARLOUR',
+  showShopName: true,
+  customShopName: '',
+  showAddress: true,
+  customAddress: '',
+  showPhone: true,
+  customPhone: '',
+  showShopId: true,
+  showGstFssai: true,
+  customGst: '',
+  customFssai: '',
+
+  footerNote1: 'Thank you! Please visit again',
+  footerNote2: 'The Taste of India • Pure Milk Products',
+  footerNote3: 'Goods once sold will not be taken back',
+  showPaymentMode: true,
+  showBarcodeSimulation: true,
+
+  compactMode: true,
+  headerSpacing: 'tight',
+  marginSize: 'compact',
+  fontSize: 'xs',
+  paperWidth: '58mm'
+};
+
