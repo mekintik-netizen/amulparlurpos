@@ -242,7 +242,7 @@ export interface PurchaseBill {
   paymentReference?: string;
   stockPosted: boolean; // True if added to product inventory
   notes?: string;
-  idempotencyKey: string;
+  idempotencyKey?: string;
   createdAt: string;
   updatedAt: string;
 }

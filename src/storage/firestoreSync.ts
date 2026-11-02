@@ -260,6 +260,13 @@ export function startShopRealtimeSync(
           } catch (e) {
             // ignore local conflict
           }
+        } else if (change.type === 'removed') {
+          try {
+            await localDb.deleteProduct(change.doc.id);
+            changed = true;
+          } catch (e) {
+            // ignore
+          }
         }
       }
       if (changed && onRemoteChange) {
@@ -277,6 +284,13 @@ export function startShopRealtimeSync(
           const item = change.doc.data() as Product;
           try {
             await localDb.saveProduct(item);
+            changed = true;
+          } catch (e) {
+            // ignore
+          }
+        } else if (change.type === 'removed') {
+          try {
+            await localDb.deleteProduct(change.doc.id);
             changed = true;
           } catch (e) {
             // ignore

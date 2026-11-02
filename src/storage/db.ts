@@ -882,8 +882,9 @@ export async function createPurchaseBill(
     const supStore = tx.objectStore('suppliers');
 
     // 1. Idempotency Check
+    const idempKey = billData.idempotencyKey || `pur-idemp-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
     const idempIndex = purStore.index('idempotencyKey');
-    const checkReq = idempIndex.get(billData.idempotencyKey);
+    const checkReq = idempIndex.get(idempKey);
 
     checkReq.onsuccess = () => {
       if (checkReq.result) {
@@ -898,6 +899,7 @@ export async function createPurchaseBill(
         agencyName: billData.agencyName || billData.supplierName,
         billNumber: billData.billNumber || billData.purchaseInvoiceNumber,
         id: `pur-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+        idempotencyKey: idempKey,
         stockPosted: shouldPostStock,
         createdAt: nowIso,
         updatedAt: nowIso

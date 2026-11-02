@@ -92,3 +92,13 @@ Pre-fill the authentic 65+ Amul catalog with 0 initial stock quantity across all
 - **Navigation Components (`Header.tsx` & `RightSideNavigation.tsx`)**:
   - Conditional rendering: only show `ADMIN` tab button when `currentUser?.role === 'ADMIN'`.
   - Ensure `BANK` and `PROFILE` tabs are prominently positioned and styled for shop users.
+
+---
+
+### 5. Duplicate Items Detection & Resolution Engine
+- **Dedicated Tab in Catalog**:
+  - `બધી પ્રોડક્ટ્સ / All Products ({count})` vs `ડુપ્લિકેટ આઇટમ્સ / Duplicate Items ({count})`.
+  - Grouping engine detects duplicates matching on exact barcodes, SKUs, or normalized names with unit variations (e.g. `500 ml` vs `500ml`).
+  - Identifies primary recommended keeper based on highest stock, valid barcode, and recency.
+  - One-click actions: "સ્ટોક મર્જ કરી ડિલીટ (Merge Stock & Delete Duplicate)", "ડિલીટ / Delete Duplicate", and "તમામ ડુપ્લિકેટ્સ મર્જ કરો / Auto-Merge All".
+  - Real-time Firestore synchronizer instantly updates and propagates deletions and stock updates across all connected devices and browser profiles.

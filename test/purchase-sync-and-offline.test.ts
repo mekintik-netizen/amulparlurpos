@@ -151,6 +151,7 @@ describe('2. Cross-Device Synchronization for Purchase Records & Agency Names', 
       supplierId: 'sup-001',
       supplierName: 'Shreeji Amul Dairy Agency Anand',
       purchaseDate: '2026-11-02',
+      idempotencyKey: 'idemp-pur-test-01',
       items: [
         {
           productId: 'prod-taaza-500',

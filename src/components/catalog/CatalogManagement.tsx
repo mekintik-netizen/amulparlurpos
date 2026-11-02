@@ -24,12 +24,18 @@ import {
   Upload,
   Sparkles,
   Check,
-  X
+  X,
+  CopyX,
+  Layers,
+  GitMerge,
+  RefreshCw
 } from 'lucide-react';
 import { Product, ProductCategory, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
 import { getAmulProductPresetImage, AMUL_PRODUCT_IMAGE_PRESETS } from '../../storage/productImages.ts';
+import { detectDuplicateGroups, DuplicateGroup } from '../../storage/duplicateDetector.ts';
+import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
 
 interface CatalogManagementProps {
   currentShop: Shop;
@@ -42,6 +48,9 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('ALL');
+  const [catalogSubTab, setCatalogSubTab] = useState<'ALL' | 'DUPLICATES'>('ALL');
+  const [duplicateActionNotice, setDuplicateActionNotice] = useState<string | null>(null);
+  const [isMergingAll, setIsMergingAll] = useState(false);
 
   // Inline Price Editing State
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
@@ -80,9 +89,22 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     }
   };
 
+  // Real-time synchronization for catalog & inventory updates across devices
   useEffect(() => {
     loadProducts();
+    const sync = startShopRealtimeSync(currentShop.id, () => {
+      loadProducts();
+      onProductChanged?.();
+    });
+    return () => {
+      sync.unsubscribeAll();
+    };
   }, [currentShop.id]);
+
+  // Scan live inventory for duplicates sharing identical or similar names, barcodes, or SKUs
+  const duplicateGroups: DuplicateGroup[] = React.useMemo(() => {
+    return detectDuplicateGroups(products);
+  }, [products]);
 
   const startInlinePriceEdit = (p: Product) => {
     if (!subCheck.isActive) {
@@ -257,6 +279,99 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     }
   };
 
+  const handleDeleteDuplicate = async (productId: string, productName: string) => {
+    if (!subCheck.isActive) {
+      alert(`Shop plan is expired (${subCheck.expiryFormatted || 'Expired'}). Deleting items is locked in Read-Only mode.`);
+      return;
+    }
+    if (!window.confirm(`Are you sure you want to delete duplicate item "${productName}"? This change will synchronize across all devices immediately.`)) {
+      return;
+    }
+
+    try {
+      await AppRepository.products.delete(productId);
+      await loadProducts();
+      onProductChanged?.();
+      setDuplicateActionNotice(`ડુપ્લિકેટ આઇટમ "${productName}" સફળતાપૂર્વક ડિલીટ થઈ ગઈ છે. સ્ટોક રિપોર્ટ અપડેટ થઈ ગયો.`);
+      setTimeout(() => setDuplicateActionNotice(null), 4500);
+    } catch (err: any) {
+      alert(`Failed to delete duplicate product: ${err.message}`);
+    }
+  };
+
+  const handleMergeDuplicateStock = async (keeper: Product, duplicate: Product) => {
+    if (!subCheck.isActive) {
+      alert(`Shop plan is expired. Merging items is locked in Read-Only mode.`);
+      return;
+    }
+    const dupStock = duplicate.currentStock || 0;
+    const confirmMsg = dupStock > 0
+      ? `ડુપ્લિકેટ આઇટમ "${duplicate.name}" નો ${dupStock} ${duplicate.unit || 'units'} સ્ટોક મુખ્ય આઇટમ "${keeper.name}" માં મર્જ કરીને ડુપ્લિકેટ આઇટમ ડિલીટ કરવી છે?`
+      : `ડુપ્લિકેટ આઇટમ "${duplicate.name}" ડિલીટ કરી મુખ્ય આઇટમ "${keeper.name}" રાખવી છે?`;
+
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      // 1. Add duplicate's stock to keeper item
+      const updatedKeeper: Product = {
+        ...keeper,
+        currentStock: (keeper.currentStock || 0) + dupStock,
+        updatedAt: new Date().toISOString()
+      };
+      await AppRepository.products.save(updatedKeeper);
+
+      // 2. Delete duplicate product
+      await AppRepository.products.delete(duplicate.id);
+
+      await loadProducts();
+      onProductChanged?.();
+      setDuplicateActionNotice(`સ્ટોક સફળતાપૂર્વક મર્જ થયો! ${dupStock} ${duplicate.unit || 'units'} મુખ્ય આઇટમમાં ઉમેરાયા અને ડુપ્લિકેટ દૂર થઈ.`);
+      setTimeout(() => setDuplicateActionNotice(null), 4500);
+    } catch (err: any) {
+      alert(`Failed to merge duplicate items: ${err.message}`);
+    }
+  };
+
+  const handleAutoMergeAllDuplicates = async () => {
+    if (!subCheck.isActive) {
+      alert('Shop plan is expired.');
+      return;
+    }
+    if (duplicateGroups.length === 0) return;
+    if (!window.confirm(`તમામ ${duplicateGroups.length} ડુપ્લિકેટ ગ્રૂપમાંથી સ્ટોક આપોઆપ મુખ્ય આઇટમમાં મર્જ કરીને વધારાની ડુપ્લિકેટ્સ ડિલીટ કરવી છે? આ પ્રક્રિયા પછી તમારો કેટલોગ સંપૂર્ણપણે સચોટ અને યુનિક થઈ જશે.`)) {
+      return;
+    }
+
+    setIsMergingAll(true);
+    try {
+      for (const group of duplicateGroups) {
+        let accumulatedStock = group.primaryItem.currentStock || 0;
+        const redundantItems = group.items.filter(it => it.id !== group.primaryItem.id);
+
+        for (const redundant of redundantItems) {
+          accumulatedStock += (redundant.currentStock || 0);
+          await AppRepository.products.delete(redundant.id);
+        }
+
+        const updatedPrimary: Product = {
+          ...group.primaryItem,
+          currentStock: accumulatedStock,
+          updatedAt: new Date().toISOString()
+        };
+        await AppRepository.products.save(updatedPrimary);
+      }
+
+      await loadProducts();
+      onProductChanged?.();
+      setDuplicateActionNotice(`તમામ ${duplicateGroups.length} ડુપ્લિકેટ ગ્રૂપ્સ સફળતાપૂર્વક મર્જ થઈ ગયા અને સ્ટોક સચોટ થઈ ગયો.`);
+      setTimeout(() => setDuplicateActionNotice(null), 5000);
+    } catch (err: any) {
+      alert(`Failed to auto-merge duplicates: ${err.message}`);
+    } finally {
+      setIsMergingAll(false);
+    }
+  };
+
   const categories: ProductCategory[] = [
     'Milk',
     'Butter & Spreads',
@@ -366,43 +481,299 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
 
       {/* Catalog Table Card */}
       <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-          <div className="flex gap-1.5 overflow-x-auto pb-1 max-w-xl">
-            {['ALL', ...categories].map(cat => (
-              <button
-                key={cat}
-                onClick={() => setCategoryFilter(cat)}
-                className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition ${
-                  categoryFilter === cat
-                    ? 'bg-blue-600 text-white shadow-xs'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
+        {/* Main Sub-Tabs: All Products vs Duplicate Items */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 mb-4 border-b border-slate-200">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCatalogSubTab('ALL')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                catalogSubTab === 'ALL'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <Package className="w-4 h-4" />
+              <span>બધી પ્રોડક્ટ્સ / All Products ({products.length})</span>
+            </button>
+
+            <button
+              onClick={() => setCatalogSubTab('DUPLICATES')}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                catalogSubTab === 'DUPLICATES'
+                  ? 'bg-rose-600 text-white shadow-xs ring-2 ring-rose-300'
+                  : duplicateGroups.length > 0
+                  ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              <CopyX className="w-4 h-4" />
+              <span>ડુપ્લિકેટ આઇટમ્સ / Duplicate Items</span>
+              {duplicateGroups.length > 0 ? (
+                <span className="px-2 py-0.5 rounded-full bg-rose-500 text-white text-[10px] font-black animate-pulse">
+                  {duplicateGroups.length} Groups
+                </span>
+              ) : (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                  0 Clean
+                </span>
+              )}
+            </button>
           </div>
 
-          <div className="relative min-w-[240px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              placeholder="Search product name, barcode..."
-              value={searchTerm}
-              onChange={e => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          {duplicateActionNotice && (
+            <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-1.5 shadow-2xs">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>{duplicateActionNotice}</span>
+            </div>
+          )}
         </div>
 
-        {priceSaveNotice && (
-          <div className="mb-4 p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2 shadow-2xs">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-            <span>{priceSaveNotice}</span>
-          </div>
-        )}
+        {catalogSubTab === 'DUPLICATES' ? (
+          <div className="space-y-4">
+            {/* Duplicate Scanner Header Banner */}
+            <div className="bg-gradient-to-r from-rose-50 via-amber-50 to-orange-50 border border-rose-200 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-rose-100 border border-rose-200 flex items-center justify-center text-rose-600 shrink-0">
+                    <CopyX className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900">
+                      ડુપ્લિકેટ આઇટમ્સ સ્કેનર / Duplicate Items Detector
+                    </h3>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      લાઈવ ઇન્વેન્ટરીમાંથી સરખા નામ, બારકોડ અથવા SKU ધરાવતી પ્રોડક્ટ્સ. વધારાની ડુપ્લિકેટ્સ દૂર કરી સ્ટોક સચોટ રાખો.
+                    </p>
+                  </div>
+                </div>
+              </div>
 
-        <div className="overflow-x-auto">
+              {duplicateGroups.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleAutoMergeAllDuplicates}
+                    disabled={isMergingAll || !subCheck.isActive}
+                    className="bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer disabled:opacity-50"
+                    title="Combine all duplicate stocks into primary items and delete redundant copies"
+                  >
+                    <GitMerge className="w-4 h-4" />
+                    <span>{isMergingAll ? 'મર્જ થઈ રહ્યું છે...' : 'તમામ ડુપ્લિકેટ્સ મર્જ કરો / Auto-Merge All'}</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Empty State: No Duplicates Found */}
+            {duplicateGroups.length === 0 ? (
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-10 text-center space-y-3">
+                <div className="w-14 h-14 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto shadow-xs border border-emerald-200">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-extrabold text-slate-900">
+                    કોઈ ડુપ્લિકેટ આઇટમ મળી નથી! (No Duplicate Items Found)
+                  </h4>
+                  <p className="text-xs text-slate-500 max-w-md mx-auto mt-1">
+                    તમારો કેટલોગ સંપૂર્ણપણે ક્લીન અને સચોટ છે. કોઈ સરખા નામ, SKU અથવા બારકોડ ધરાવતી વધારાની આઇટમ્સ નથી.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setCatalogSubTab('ALL')}
+                  className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition cursor-pointer shadow-xs"
+                >
+                  સામાન્ય કેટલોગ પર પાછા જાઓ / View All Products
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {duplicateGroups.map((group, groupIdx) => (
+                  <div
+                    key={group.id}
+                    className="border-2 border-rose-200 bg-white rounded-xl p-4 shadow-xs space-y-3"
+                  >
+                    {/* Group Header */}
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-rose-100">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 rounded-full bg-rose-100 text-rose-800 font-black text-xs flex items-center justify-center shrink-0">
+                          {groupIdx + 1}
+                        </span>
+                        <div>
+                          <div className="font-extrabold text-sm text-slate-900">
+                            {group.title}
+                          </div>
+                          <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
+                            <span className="font-bold text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                              કારણ: {group.reasonLabel}
+                            </span>
+                            <span>• {group.items.length} Duplicate Copies</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">
+                          કુલ સ્ટોક: <strong className="text-blue-700">{group.totalStock}</strong>
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Duplicate Items Grid Comparison */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {group.items.map((item) => {
+                        const isPrimary = item.id === group.primaryItem.id;
+                        return (
+                          <div
+                            key={item.id}
+                            className={`p-3 rounded-xl border transition flex flex-col justify-between ${
+                              isPrimary
+                                ? 'bg-emerald-50/60 border-emerald-300 ring-1 ring-emerald-300'
+                                : 'bg-slate-50 border-slate-200'
+                            }`}
+                          >
+                            <div>
+                              <div className="flex items-start justify-between gap-2 mb-2">
+                                <div className="flex items-center gap-2.5">
+                                  <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 p-0.5 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+                                    <img
+                                      src={item.imageUrl || getAmulProductPresetImage(item.name, item.category)}
+                                      alt=""
+                                      className="w-full h-full object-contain"
+                                    />
+                                  </div>
+                                  <div className="truncate">
+                                    <div className="font-bold text-xs text-slate-900 truncate">
+                                      {item.name}
+                                    </div>
+                                    {item.regionalName && (
+                                      <div className="text-[10px] text-slate-500 truncate">
+                                        {item.regionalName}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {isPrimary ? (
+                                  <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-bold uppercase shrink-0">
+                                    ✓ રાખવા માટે ભલામણ (Primary)
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 border border-rose-300 text-[10px] font-bold uppercase shrink-0">
+                                    ડુપ્લિકેટ (Redundant)
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2 text-[11px] font-mono bg-white p-2 rounded-lg border border-slate-100 mb-3">
+                                <div>
+                                  <span className="text-slate-400 block text-[9px] uppercase font-sans">Barcode:</span>
+                                  <span className="font-bold text-slate-800">{item.barcode || '—'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400 block text-[9px] uppercase font-sans">SKU:</span>
+                                  <span className="font-bold text-slate-800">{item.sku || '—'}</span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400 block text-[9px] uppercase font-sans">સ્ટોક (Stock):</span>
+                                  <span className="font-black text-blue-700 text-xs">
+                                    {item.currentStock ?? 0} {item.unit || 'units'}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-slate-400 block text-[9px] uppercase font-sans">કિંમત (Cost/MRP):</span>
+                                  <span className="font-bold text-slate-700">₹{item.costPrice} / ₹{item.mrp}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Item Actions */}
+                            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-200/80">
+                              <button
+                                onClick={() => openEditProductModal(item)}
+                                className="p-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold transition cursor-pointer"
+                                title="Edit Product Details"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+
+                              {!isPrimary && (
+                                <>
+                                  <button
+                                    onClick={() => handleMergeDuplicateStock(group.primaryItem, item)}
+                                    className="px-2.5 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                                    title="Add this duplicate's stock to the primary item and delete this duplicate"
+                                  >
+                                    <GitMerge className="w-3.5 h-3.5" />
+                                    <span>સ્ટોક મર્જ કરી ડિલીટ</span>
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteDuplicate(item.id, item.name)}
+                                    className="px-2.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                                    title="Delete this duplicate immediately"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                    <span>ડિલીટ / Delete</span>
+                                  </button>
+                                </>
+                              )}
+
+                              {isPrimary && (
+                                <button
+                                  onClick={() => handleDeleteDuplicate(item.id, item.name)}
+                                  className="px-2 py-1 text-slate-400 hover:text-rose-600 text-[11px] font-semibold transition cursor-pointer"
+                                  title="Delete Item"
+                                >
+                                  દૂર કરો
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <div className="flex gap-1.5 overflow-x-auto pb-1 max-w-xl">
+                {['ALL', ...categories].map(cat => (
+                  <button
+                    key={cat}
+                    onClick={() => setCategoryFilter(cat)}
+                    className={`px-3 py-1 rounded-lg text-xs font-bold whitespace-nowrap transition ${
+                      categoryFilter === cat
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative min-w-[240px]">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search product name, barcode..."
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                  className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </div>
+
+            {priceSaveNotice && (
+              <div className="mb-4 p-2.5 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-800 font-semibold flex items-center gap-2 shadow-2xs">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                <span>{priceSaveNotice}</span>
+              </div>
+            )}
+
+            <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
             <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-y border-slate-200">
               <tr>
@@ -634,6 +1005,8 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
             </div>
           )}
         </div>
+          </>
+        )}
       </div>
 
       {/* Add / Edit Product Modal */}
