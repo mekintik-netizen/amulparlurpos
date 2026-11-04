@@ -98,10 +98,11 @@ A comprehensive upgrade to the print and reporting system in the Amul Parlour PO
 └───────────────────────┘ └───────────────────────┘ └───────────────────────┘
 ```
 
-- **Files to Modify**:
-  1. `src/components/purchases/PurchaseManagement.tsx`: Add "BILL PRINT" action buttons and dedicated `PurchaseBillPrintModal` with "BILL PRINT" header.
+- **Files to Modify / Enhanced**:
+  1. `src/components/purchases/PurchaseManagement.tsx`: Added "BILL PRINT" action buttons and dedicated `PurchaseBillPrintModal` with "BILL PRINT" header; made actions column sticky (`sticky right-0`) and modal action controls sticky (`sticky top-0` and `sticky bottom-0`) with responsive scrolling containers.
   2. `src/components/reports/DailyStockReport.tsx`: Update row filtering to exclude `closingStock <= 0` by default and in print layout.
   3. `src/components/reports/ReportsHub.tsx`: Exclude `closingStock <= 0` in stock report view and CSV/print.
   4. `src/components/banking/BankStatementManagement.tsx`: Wrap passbook container with `.passbook-printable-document`, add passbook print header, and attach `.no-print` classes to web controls.
-  5. `src/index.css`: Add `@media print` rules for `.passbook-printable-document` and hide general webpage elements during printing.
-  6. Unit tests: Create/update tests verifying "BILL PRINT" labeling, stock filtering (> 0), and passbook print classes.
+  5. `src/index.css`: Add `@media print` rules for `#purchase-bill-modal-overlay`, `#purchase-bill-modal-card`, `.purchase-printable-bill`, `.passbook-printable-document` and hide general webpage elements during printing.
+  6. Unit tests: Create/update tests verifying "BILL PRINT" labeling, stock filtering (> 0), passbook print classes, sticky print controls, and responsive viewports.
+

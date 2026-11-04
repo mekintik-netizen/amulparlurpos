@@ -203,33 +203,76 @@
   }
 
   /* 3b. Dedicated Purchase Bill A4 Invoice Print Styles */
+  #purchase-bill-modal-overlay {
+    position: static !important;
+    display: block !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+  }
+
+  #purchase-bill-modal-card {
+    position: static !important;
+    display: block !important;
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+
   .purchase-printable-bill {
     display: block !important;
     visibility: visible !important;
     width: 100% !important;
     max-width: 100% !important;
-    margin: 0 !important;
-    padding: 10mm !important;
+    margin: 0 auto !important;
+    padding: 8mm !important;
     background: #ffffff !important;
     color: #000000 !important;
     box-shadow: none !important;
     border: none !important;
-    page-break-inside: avoid !important;
-    break-inside: avoid !important;
+    box-sizing: border-box !important;
   }
 
   .purchase-printable-bill * {
     visibility: visible !important;
+    color: #000000 !important;
   }
 
   .purchase-printable-bill table {
     width: 100% !important;
     border-collapse: collapse !important;
+    font-size: 11px !important;
+  }
+
+  .purchase-printable-bill thead {
+    display: table-header-group !important;
+    background-color: #f1f5f9 !important;
   }
 
   .purchase-printable-bill th,
   .purchase-printable-bill td {
-    border-color: #64748b !important;
+    border: 1px solid #64748b !important;
+    padding: 5px 8px !important;
+    color: #000000 !important;
+  }
+
+  .purchase-printable-bill tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
   /* 3c. Strip fixed modal backdrop and flex centering during printing */

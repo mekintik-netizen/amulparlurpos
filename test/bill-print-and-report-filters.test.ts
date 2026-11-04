@@ -187,3 +187,39 @@ describe('3. Bank Passbook Print Layout & Elements Isolation', () => {
     expect(passbookPrintHeader.accountNumber).toBe('382910485920');
   });
 });
+
+describe('4. Purchase Bill Sticky Action Controls & Responsive Viewport Layout', () => {
+  it('guarantees sticky positioning for BILL PRINT action controls on table and modal preview', () => {
+    const tableStickyActionsClass = 'sticky right-0 bg-white group-hover:bg-slate-50/90 z-10';
+    const modalTopStickyHeaderClass = 'no-print sticky top-0 z-30 bg-white/95';
+    const modalBottomStickyFooterClass = 'no-print sticky bottom-0 z-30 bg-white/95';
+
+    expect(tableStickyActionsClass).toContain('sticky');
+    expect(tableStickyActionsClass).toContain('right-0');
+    expect(modalTopStickyHeaderClass).toContain('sticky top-0');
+    expect(modalBottomStickyFooterClass).toContain('sticky bottom-0');
+  });
+
+  it('provides responsive overflow handling for small screen viewports (mobile/laptop)', () => {
+    const previewContainerClass = 'flex-1 overflow-y-auto overflow-x-auto';
+    const itemsTableWrapperClass = 'overflow-x-auto my-3 border border-slate-300 rounded-lg print:border-none print:overflow-visible';
+
+    expect(previewContainerClass).toContain('overflow-y-auto');
+    expect(previewContainerClass).toContain('overflow-x-auto');
+    expect(itemsTableWrapperClass).toContain('overflow-x-auto');
+    expect(itemsTableWrapperClass).toContain('print:overflow-visible');
+  });
+
+  it('configures dedicated print overlay and card selectors for clean A4 printing without clipping', () => {
+    const printIds = [
+      '#purchase-bill-modal-overlay',
+      '#purchase-bill-modal-card',
+      '.purchase-printable-bill'
+    ];
+
+    expect(printIds).toContain('#purchase-bill-modal-overlay');
+    expect(printIds).toContain('#purchase-bill-modal-card');
+    expect(printIds).toContain('.purchase-printable-bill');
+  });
+});
+
