@@ -512,6 +512,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
                 <div className="relative">
                   <input
                     type="number"
+                    step="any"
                     min="0"
                     required
                     value={newStockQty}
@@ -534,8 +535,8 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
                   </label>
                   <input
                     type="number"
-                    step="0.1"
-                    min="0.1"
+                    step="any"
+                    min="0"
                     required
                     value={newCostPrice}
                     onChange={(e) => setNewCostPrice(Number(e.target.value))}
@@ -550,8 +551,8 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
                   </label>
                   <input
                     type="number"
-                    step="0.1"
-                    min="0.1"
+                    step="any"
+                    min="0"
                     required
                     value={newSellingPrice}
                     onChange={(e) => {

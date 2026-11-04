@@ -860,6 +860,21 @@ export async function saveSupplier(supplier: Supplier): Promise<Supplier> {
 }
 
 /**
+ * Permanently deletes a supplier/agency account from the system.
+ * NOTE: Historical purchase records, invoices, and stock deliveries are safely preserved.
+ */
+export async function deleteSupplier(supplierId: string): Promise<void> {
+  const db = await openAppDatabase();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('suppliers', 'readwrite');
+    const store = tx.objectStore('suppliers');
+    const req = store.delete(supplierId);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
  * Creates a purchase bill.
  * CRITICAL BUSINESS RULE:
  * - Confirmed purchases automatically increase stock exactly once.
@@ -893,9 +908,13 @@ export async function createPurchaseBill(
 
       const shouldPostStock = billData.status === 'CONFIRMED';
       const nowIso = new Date().toISOString();
+      const computedDue = (billData.paidAmount >= billData.totalAmount - 0.0001)
+        ? 0
+        : Math.max(0, Math.round((billData.totalAmount - billData.paidAmount) * 1000) / 1000);
 
       const newPurchase: PurchaseBill = {
         ...billData,
+        dueAmount: computedDue,
         agencyName: billData.agencyName || billData.supplierName,
         billNumber: billData.billNumber || billData.purchaseInvoiceNumber,
         id: `pur-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -945,12 +964,12 @@ export async function createPurchaseBill(
         }
 
         // Update supplier balance (unpaid due amount)
-        if (newPurchase.supplierId && newPurchase.dueAmount > 0) {
+        if (newPurchase.supplierId && newPurchase.dueAmount > 0.0001) {
           const supReq = supStore.get(newPurchase.supplierId);
           supReq.onsuccess = () => {
             const sup = supReq.result as Supplier | undefined;
             if (sup) {
-              sup.currentBalance = (sup.currentBalance || 0) + newPurchase.dueAmount;
+              sup.currentBalance = Math.round(((sup.currentBalance || 0) + newPurchase.dueAmount) * 1000) / 1000;
               sup.updatedAt = nowIso;
               supStore.put(sup);
             }
@@ -1160,7 +1179,9 @@ export async function updatePurchaseBill(
       );
       const totalAmount = subtotal;
       const paidAmount = updatedData.paidAmount !== undefined ? updatedData.paidAmount : existingBill.paidAmount;
-      const dueAmount = Math.max(0, totalAmount - paidAmount);
+      const dueAmount = paidAmount >= totalAmount - 0.0001
+        ? 0
+        : Math.max(0, Math.round((totalAmount - paidAmount) * 1000) / 1000);
       const newStatus = updatedData.status || existingBill.status;
       const shouldPostStock = newStatus === 'CONFIRMED';
 
@@ -1276,12 +1297,15 @@ export async function updatePurchaseBill(
       // 2. Reconcile supplier balance difference
       const dueDelta = dueAmount - existingBill.dueAmount;
       const targetSupplierId = updatedData.supplierId || existingBill.supplierId;
-      if (targetSupplierId && dueDelta !== 0) {
+      if (targetSupplierId && Math.abs(dueDelta) > 0.0001) {
         const supReq = supStore.get(targetSupplierId);
         supReq.onsuccess = () => {
           const sup = supReq.result as Supplier | undefined;
           if (sup) {
-            sup.currentBalance = Math.max(0, (sup.currentBalance || 0) + dueDelta);
+            sup.currentBalance = Math.max(0, Math.round(((sup.currentBalance || 0) + dueDelta) * 1000) / 1000);
+            if (sup.currentBalance <= 0.0001) {
+              sup.currentBalance = 0;
+            }
             sup.updatedAt = nowIso;
             supStore.put(sup);
           }
@@ -1403,13 +1427,14 @@ export async function recordSupplierPayment(
   const db = await openAppDatabase();
 
   return new Promise((resolve, reject) => {
-    const storeNames = ['supplierPayments', 'suppliers'];
+    const storeNames = ['supplierPayments', 'suppliers', 'purchases'];
     if (db.objectStoreNames.contains('bankEntries')) {
       storeNames.push('bankEntries');
     }
     const tx = db.transaction(storeNames, 'readwrite');
     const payStore = tx.objectStore('supplierPayments');
     const supStore = tx.objectStore('suppliers');
+    const purStore = tx.objectStore('purchases');
 
     const payment: SupplierPayment = {
       ...paymentData,
@@ -1419,12 +1444,48 @@ export async function recordSupplierPayment(
 
     payStore.add(payment);
 
-    // Reduce supplier balance
+    // 1. Allocate payment to uncleared purchase bills for this supplier (FIFO)
+    try {
+      const purIndex = purStore.index('shopId');
+      const purReq = purIndex.getAll(payment.shopId);
+      purReq.onsuccess = () => {
+        const allPurchases = (purReq.result || []) as PurchaseBill[];
+        const targetBills = allPurchases.filter(p =>
+          (p.supplierId === payment.supplierId ||
+            p.supplierName === payment.supplierName ||
+            p.agencyName === payment.supplierName) &&
+          p.status !== 'CANCELLED' &&
+          p.dueAmount > 0.0001
+        );
+        targetBills.sort((a, b) => (a.purchaseDate || '').localeCompare(b.purchaseDate || ''));
+
+        let unallocated = payment.amount;
+        for (const bill of targetBills) {
+          if (unallocated <= 0.0001) break;
+          const payTowardsBill = Math.min(bill.dueAmount, unallocated);
+          bill.paidAmount = Math.round(((bill.paidAmount || 0) + payTowardsBill) * 1000) / 1000;
+          bill.dueAmount = Math.max(0, Math.round((bill.totalAmount - bill.paidAmount) * 1000) / 1000);
+          if (bill.dueAmount <= 0.0001) {
+            bill.dueAmount = 0;
+          }
+          bill.updatedAt = new Date().toISOString();
+          purStore.put(bill);
+          unallocated = Math.round((unallocated - payTowardsBill) * 1000) / 1000;
+        }
+      };
+    } catch (e) {
+      // ignore
+    }
+
+    // 2. Reduce supplier balance and zero out if settled
     const supReq = supStore.get(payment.supplierId);
     supReq.onsuccess = () => {
       const sup = supReq.result as Supplier | undefined;
       if (sup) {
-        sup.currentBalance = Math.max(0, (sup.currentBalance || 0) - payment.amount);
+        sup.currentBalance = Math.max(0, Math.round(((sup.currentBalance || 0) - payment.amount) * 1000) / 1000);
+        if (sup.currentBalance <= 0.0001) {
+          sup.currentBalance = 0;
+        }
         sup.updatedAt = new Date().toISOString();
         supStore.put(sup);
       }

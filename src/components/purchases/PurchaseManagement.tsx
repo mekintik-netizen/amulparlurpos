@@ -63,7 +63,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   const [purchaseDate, setPurchaseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [purchaseStatus, setPurchaseStatus] = useState<PurchaseBillStatus>('CONFIRMED');
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('BANK_TRANSFER');
-  const [paidAmount, setPaidAmount] = useState<number>(0);
+  const [paidAmount, setPaidAmount] = useState<string | number>(0);
   const [notes, setNotes] = useState('');
   const [purchaseItems, setPurchaseItems] = useState<PurchaseItem[]>([]);
 
@@ -71,28 +71,31 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   const [selectedProductId, setSelectedProductId] = useState('');
   const [productSearchQuery, setProductSearchQuery] = useState('');
   const [isProductDropdownOpen, setIsProductDropdownOpen] = useState(false);
-  const [itemQty, setItemQty] = useState<number>(10);
-  const [itemRate, setItemRate] = useState<number>(0);
-  const [itemMrp, setItemMrp] = useState<number>(0);
+  const [itemQty, setItemQty] = useState<string | number>(10);
+  const [itemRate, setItemRate] = useState<string | number>(0);
+  const [itemMrp, setItemMrp] = useState<string | number>(0);
   const [itemSearchBarcode, setItemSearchBarcode] = useState('');
   const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
   const qtyInputRef = React.useRef<HTMLInputElement>(null);
   const searchInputRef = React.useRef<HTMLInputElement>(null);
   const dropdownRef = React.useRef<HTMLDivElement>(null);
 
-  // Supplier Modal State
+  // Supplier Modal & Management State
   const [isSupplierModalOpen, setIsSupplierModalOpen] = useState(false);
+  const [editingSupplier, setEditingSupplier] = useState<Supplier | null>(null);
+  const [deletingSupplier, setDeletingSupplier] = useState<Supplier | null>(null);
   const [supplierName, setSupplierName] = useState('');
   const [companyName, setCompanyName] = useState('');
   const [supplierPhone, setSupplierPhone] = useState('');
   const [supplierEmail, setSupplierEmail] = useState('');
   const [supplierGstin, setSupplierGstin] = useState('');
-  const [openingBalance, setOpeningBalance] = useState<number>(0);
+  const [supplierAddress, setSupplierAddress] = useState('');
+  const [openingBalance, setOpeningBalance] = useState<string | number>(0);
 
   // Supplier Payment Modal State
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [payingSupplier, setPayingSupplier] = useState<Supplier | null>(null);
-  const [paymentAmount, setPaymentAmount] = useState<number>(0);
+  const [paymentAmount, setPaymentAmount] = useState<string | number>(0);
   const [paymentReference, setPaymentReference] = useState('');
 
   // View purchase details modal
@@ -221,26 +224,29 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   // Add Item to Purchase Items Table
   const handleAddItem = () => {
     const prod = products.find(p => p.id === selectedProductId);
-    if (!prod || itemQty <= 0 || itemRate <= 0) return;
+    const numQty = parseFloat(String(itemQty)) || 0;
+    const numRate = parseFloat(String(itemRate)) || 0;
+    const numMrp = parseFloat(String(itemMrp)) || 0;
+    if (!prod || numQty <= 0 || numRate <= 0) return;
 
     const existingIndex = purchaseItems.findIndex(i => i.productId === prod.id);
     if (existingIndex >= 0) {
       const updated = [...purchaseItems];
-      updated[existingIndex].quantity += itemQty;
-      updated[existingIndex].purchaseRate = itemRate;
-      if (itemMrp > 0) updated[existingIndex].mrp = itemMrp;
-      updated[existingIndex].total = updated[existingIndex].quantity * itemRate;
+      updated[existingIndex].quantity = Math.round((updated[existingIndex].quantity + numQty) * 1000) / 1000;
+      updated[existingIndex].purchaseRate = numRate;
+      if (numMrp > 0) updated[existingIndex].mrp = numMrp;
+      updated[existingIndex].total = Math.round(updated[existingIndex].quantity * numRate * 1000) / 1000;
       setPurchaseItems(updated);
     } else {
       const newItem: PurchaseItem = {
         productId: prod.id,
         productName: prod.name,
         barcode: prod.barcode,
-        quantity: itemQty,
+        quantity: numQty,
         unit: prod.unit,
-        purchaseRate: itemRate,
-        mrp: itemMrp > 0 ? itemMrp : prod.mrp,
-        total: itemQty * itemRate
+        purchaseRate: numRate,
+        mrp: numMrp > 0 ? numMrp : prod.mrp,
+        total: Math.round(numQty * numRate * 1000) / 1000
       };
       setPurchaseItems([...purchaseItems, newItem]);
     }
@@ -252,29 +258,32 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     setPurchaseItems(purchaseItems.filter((_, idx) => idx !== index));
   };
 
-  // Direct editing of item quantity in purchase bill
-  const updateItemQuantity = (index: number, newQty: number) => {
-    if (newQty < 1 || isNaN(newQty)) return;
+  // Direct editing of item quantity in purchase bill (supports fractional .000)
+  const updateItemQuantity = (index: number, newQty: string | number) => {
+    const parsed = typeof newQty === 'number' ? newQty : parseFloat(newQty);
+    if (isNaN(parsed) || parsed <= 0) return;
     const updated = [...purchaseItems];
-    updated[index].quantity = newQty;
-    updated[index].total = newQty * updated[index].purchaseRate;
+    updated[index].quantity = parsed;
+    updated[index].total = Math.round(parsed * updated[index].purchaseRate * 1000) / 1000;
     setPurchaseItems(updated);
   };
 
-  // Direct editing of item purchase price / rate in purchase bill
-  const updateItemRate = (index: number, newRate: number) => {
-    if (newRate < 0 || isNaN(newRate)) return;
+  // Direct editing of item purchase price / rate in purchase bill (supports multi-decimal)
+  const updateItemRate = (index: number, newRate: string | number) => {
+    const parsed = typeof newRate === 'number' ? newRate : parseFloat(newRate);
+    if (isNaN(parsed) || parsed < 0) return;
     const updated = [...purchaseItems];
-    updated[index].purchaseRate = newRate;
-    updated[index].total = updated[index].quantity * newRate;
+    updated[index].purchaseRate = parsed;
+    updated[index].total = Math.round(updated[index].quantity * parsed * 1000) / 1000;
     setPurchaseItems(updated);
   };
 
   // Direct editing of item MRP in purchase bill
-  const updateItemMrp = (index: number, newMrp: number) => {
-    if (newMrp < 0 || isNaN(newMrp)) return;
+  const updateItemMrp = (index: number, newMrp: string | number) => {
+    const parsed = typeof newMrp === 'number' ? newMrp : parseFloat(newMrp);
+    if (isNaN(parsed) || parsed < 0) return;
     const updated = [...purchaseItems];
-    updated[index].mrp = newMrp;
+    updated[index].mrp = parsed;
     setPurchaseItems(updated);
   };
 
@@ -329,10 +338,11 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     setIsPurchaseModalOpen(true);
   };
 
-  // Totals
+  // Totals & Exact Decimal Due Calculation
   const subtotal = purchaseItems.reduce((acc, item) => acc + item.total, 0);
-  const totalAmount = subtotal;
-  const dueAmount = Math.max(0, totalAmount - (paidAmount || 0));
+  const totalAmount = Math.round(subtotal * 1000) / 1000;
+  const numPaid = parseFloat(String(paidAmount)) || 0;
+  const dueAmount = numPaid >= totalAmount - 0.0001 ? 0 : Math.max(0, Math.round((totalAmount - numPaid) * 1000) / 1000);
 
   // Save or Update Purchase Bill
   const handleSavePurchase = async (e: React.FormEvent) => {
@@ -350,6 +360,8 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     const supplier = suppliers.find(s => s.id === selectedSupplierId);
     const chosenAgency = agencyName.trim() || (supplier ? (supplier.companyName || supplier.name) : 'Amul Agency');
     const chosenBillNumber = invoiceNumber.trim() || `PUR-${purchaseDate.replace(/-/g, '')}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const effectivePaid = Math.min(numPaid, totalAmount);
+    const effectiveDue = effectivePaid >= totalAmount - 0.0001 ? 0 : Math.max(0, Math.round((totalAmount - effectivePaid) * 1000) / 1000);
 
     try {
       if (editingPurchase) {
@@ -361,7 +373,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
           supplierName: chosenAgency,
           purchaseDate,
           items: purchaseItems,
-          paidAmount: Math.min(paidAmount || 0, totalAmount),
+          paidAmount: effectivePaid,
           status: purchaseStatus,
           paymentMode,
           notes: notes.trim() || undefined
@@ -383,8 +395,8 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
           taxAmount: 0,
           otherCharges: 0,
           totalAmount,
-          paidAmount: Math.min(paidAmount || 0, totalAmount),
-          dueAmount,
+          paidAmount: effectivePaid,
+          dueAmount: effectiveDue,
           status: purchaseStatus,
           paymentMode,
           notes: notes.trim() || undefined,
@@ -420,30 +432,110 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     }
   };
 
-  // Save New Supplier
+  // Dynamic Supplier Due Balance Calculation (returns 0.00 when all bills are paid)
+  const getSupplierDueBalance = (supplier: Supplier, allPurchases: PurchaseBill[]): number => {
+    const supplierPurchases = allPurchases.filter(p =>
+      p.status !== 'CANCELLED' && (
+        p.supplierId === supplier.id ||
+        (supplier.companyName && (p.agencyName === supplier.companyName || p.supplierName === supplier.companyName)) ||
+        (supplier.name && (p.agencyName === supplier.name || p.supplierName === supplier.name))
+      )
+    );
+
+    if (supplierPurchases.length > 0) {
+      const allFullyPaid = supplierPurchases.every(p =>
+        (p.paidAmount >= p.totalAmount - 0.001) || (p.dueAmount !== undefined && p.dueAmount <= 0.001)
+      );
+      if (allFullyPaid) {
+        return 0; // Strictly ₹0.00 when all bills/invoices are fully paid
+      }
+
+      const totalUnpaidDue = supplierPurchases.reduce((sum, p) => {
+        const billPending = Math.max(0, p.totalAmount - (p.paidAmount || 0));
+        const exactDue = p.dueAmount !== undefined ? Math.min(p.dueAmount, billPending) : billPending;
+        return sum + (exactDue > 0.001 ? exactDue : 0);
+      }, 0);
+
+      return Math.max(0, Math.round(totalUnpaidDue * 1000) / 1000);
+    }
+
+    return Math.max(0, supplier.currentBalance || 0);
+  };
+
+  const openAddSupplierModal = () => {
+    setEditingSupplier(null);
+    setSupplierName('');
+    setCompanyName('');
+    setSupplierPhone('');
+    setSupplierEmail('');
+    setSupplierGstin('');
+    setSupplierAddress('');
+    setOpeningBalance(0);
+    setIsSupplierModalOpen(true);
+  };
+
+  const openEditSupplierModal = (s: Supplier) => {
+    setEditingSupplier(s);
+    setSupplierName(s.name);
+    setCompanyName(s.companyName || '');
+    setSupplierPhone(s.phone);
+    setSupplierEmail(s.email || '');
+    setSupplierGstin(s.gstin || '');
+    setSupplierAddress(s.address || '');
+    setOpeningBalance(s.openingBalance || 0);
+    setIsSupplierModalOpen(true);
+  };
+
+  // Save or Update Supplier / Agency
   const handleSaveSupplier = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!supplierName.trim()) return;
+    if (!supplierName.trim() && !companyName.trim()) {
+      alert('Please enter a supplier contact person name or agency company name.');
+      return;
+    }
+
+    const numOpening = parseFloat(String(openingBalance)) || 0;
 
     try {
-      await AppRepository.suppliers.save({
-        id: `sup-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-        shopId: currentShop.id,
-        name: supplierName.trim(),
-        companyName: companyName.trim() || supplierName.trim(),
-        phone: supplierPhone.trim(),
-        email: supplierEmail.trim() || undefined,
-        gstin: supplierGstin.trim() || undefined,
-        currentBalance: openingBalance || 0,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      });
+      if (editingSupplier) {
+        const updatedSupplier: Supplier = {
+          ...editingSupplier,
+          name: supplierName.trim() || companyName.trim() || 'Supplier',
+          companyName: companyName.trim() || supplierName.trim() || 'Amul Agency',
+          phone: supplierPhone.trim() || 'N/A',
+          email: supplierEmail.trim() || undefined,
+          address: supplierAddress.trim() || undefined,
+          gstin: supplierGstin.trim() || undefined,
+          openingBalance: numOpening,
+          updatedAt: new Date().toISOString()
+        };
+        await AppRepository.suppliers.save(updatedSupplier);
+      } else {
+        const newSupplier: Supplier = {
+          id: `sup-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          shopId: currentShop.id,
+          name: supplierName.trim() || companyName.trim() || 'Supplier',
+          companyName: companyName.trim() || supplierName.trim() || 'Amul Agency',
+          phone: supplierPhone.trim() || 'N/A',
+          email: supplierEmail.trim() || undefined,
+          address: supplierAddress.trim() || undefined,
+          gstin: supplierGstin.trim() || undefined,
+          currentBalance: numOpening,
+          openingBalance: numOpening,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        await AppRepository.suppliers.save(newSupplier);
+      }
 
       setIsSupplierModalOpen(false);
+      setEditingSupplier(null);
       setSupplierName('');
       setCompanyName('');
       setSupplierPhone('');
+      setSupplierEmail('');
       setSupplierGstin('');
+      setSupplierAddress('');
       setOpeningBalance(0);
       await loadData();
     } catch (err: any) {
@@ -451,17 +543,29 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     }
   };
 
+  // Permanently Delete Supplier / Agency (safely preserves historical bills)
+  const handleDeleteSupplier = async (supplierId: string) => {
+    try {
+      await AppRepository.suppliers.delete(supplierId);
+      setDeletingSupplier(null);
+      await loadData();
+    } catch (err: any) {
+      alert(`Failed to delete supplier: ${err.message}`);
+    }
+  };
+
   // Record Supplier Payment
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!payingSupplier || paymentAmount <= 0) return;
+    const numPayment = parseFloat(String(paymentAmount)) || 0;
+    if (!payingSupplier || numPayment <= 0) return;
 
     try {
       await AppRepository.suppliers.recordPayment({
         shopId: currentShop.id,
         supplierId: payingSupplier.id,
         supplierName: payingSupplier.companyName || payingSupplier.name,
-        amount: paymentAmount,
+        amount: numPayment,
         paymentDate: new Date().toISOString().slice(0, 10),
         paymentMode: 'BANK_TRANSFER',
         referenceNumber: paymentReference.trim() || undefined,
@@ -478,7 +582,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     }
   };
 
-  const totalPayables = suppliers.reduce((sum, s) => sum + (s.currentBalance || 0), 0);
+  const totalPayables = suppliers.reduce((sum, s) => sum + getSupplierDueBalance(s, purchases), 0);
   const totalPurchasesAmount = purchases
     .filter(p => p.status === 'CONFIRMED')
     .reduce((sum, p) => sum + p.totalAmount, 0);
@@ -527,7 +631,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
             </button>
 
             <button
-              onClick={() => setIsSupplierModalOpen(true)}
+              onClick={openAddSupplierModal}
               className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold px-3 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer"
             >
               <Users className="w-3.5 h-3.5 text-blue-600" />
@@ -638,7 +742,11 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                       </td>
                       <td className="py-2.5 px-2 text-right font-sans">
                         <div className="text-emerald-700 font-mono font-bold">₹{p.paidAmount.toFixed(2)}</div>
-                        {p.dueAmount > 0 && (
+                        {(p.paidAmount >= p.totalAmount - 0.001 || (p.dueAmount !== undefined && p.dueAmount <= 0.001)) ? (
+                          <div className="text-[10px] text-emerald-600 font-sans font-semibold">
+                            સરભર / Paid in Full
+                          </div>
+                        ) : (
                           <div className="text-[10px] text-rose-600 font-mono font-bold">
                             Due: ₹{p.dueAmount.toFixed(2)}
                           </div>
@@ -722,45 +830,72 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 {suppliers.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="text-center py-10 text-slate-400 font-sans">
-                      No suppliers registered yet.
+                      No suppliers registered yet. Click "Add Supplier" to register distributor accounts.
                     </td>
                   </tr>
                 ) : (
-                  suppliers.map(s => (
-                    <tr key={s.id} className="hover:bg-slate-50 transition">
-                      <td className="py-2.5 px-3 font-sans">
-                        <div className="font-bold text-slate-900">{s.companyName || s.name}</div>
-                        <div className="text-[11px] text-slate-500">Contact: {s.name}</div>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <div className="text-slate-700">{s.phone}</div>
-                        {s.gstin && <div className="text-[10px] text-slate-400">GST: {s.gstin}</div>}
-                      </td>
-                      <td className="py-2.5 px-3 font-sans text-slate-600 text-[11px]">
-                        {s.address || 'Anand Depot'}
-                      </td>
-                      <td className="py-2.5 px-3 text-right">
-                        <div className={`font-black text-sm ${s.currentBalance > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
-                          ₹{(s.currentBalance || 0).toFixed(2)}
-                        </div>
-                        <div className="text-[9px] text-slate-400 font-sans">
-                          {s.currentBalance > 0 ? 'Due to pay' : 'All clear'}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-3 text-right font-sans">
-                        <button
-                          onClick={() => {
-                            setPayingSupplier(s);
-                            setPaymentAmount(s.currentBalance || 0);
-                            setIsPaymentModalOpen(true);
-                          }}
-                          className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition"
-                        >
-                          Record Payment
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  suppliers.map(s => {
+                    const due = getSupplierDueBalance(s, purchases);
+                    const isCleared = due <= 0.001;
+                    return (
+                      <tr key={s.id} className="hover:bg-slate-50 transition">
+                        <td className="py-2.5 px-3 font-sans">
+                          <div className="font-bold text-slate-900">{s.companyName || s.name}</div>
+                          <div className="text-[11px] text-slate-500">Contact: {s.name}</div>
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <div className="text-slate-700">{s.phone}</div>
+                          {s.gstin && <div className="text-[10px] text-slate-400">GST: {s.gstin}</div>}
+                        </td>
+                        <td className="py-2.5 px-3 font-sans text-slate-600 text-[11px]">
+                          {s.address || 'Anand Depot'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <div className={`font-black text-sm ${isCleared ? 'text-emerald-700' : 'text-rose-700'}`}>
+                            ₹{due.toFixed(2)}
+                          </div>
+                          <div className="text-[10px] font-sans font-semibold mt-0.5">
+                            {isCleared ? (
+                              <span className="text-emerald-700 inline-flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3" /> Settled / સરભર (₹0.00)
+                              </span>
+                            ) : (
+                              <span className="text-rose-600">Due to pay / બાકી રકમ</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-sans">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => {
+                                setPayingSupplier(s);
+                                setPaymentAmount(due > 0 ? due : (s.currentBalance || 0));
+                                setIsPaymentModalOpen(true);
+                              }}
+                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-2.5 py-1.5 rounded-lg transition"
+                              title="Record payment to supplier"
+                            >
+                              Record Payment
+                            </button>
+                            <button
+                              onClick={() => openEditSupplierModal(s)}
+                              className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition cursor-pointer"
+                              title="Edit Supplier / Agency Details"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeletingSupplier(s)}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg transition cursor-pointer"
+                              title="Delete Supplier / Agency (Safely Preserves Historical Bills)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -1042,9 +1177,10 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                     <input
                       ref={qtyInputRef}
                       type="number"
-                      min="1"
+                      step="any"
+                      min="0.001"
                       value={itemQty}
-                      onChange={e => setItemQty(Number(e.target.value))}
+                      onChange={e => setItemQty(e.target.value === '' ? '' : e.target.value)}
                       onKeyDown={e => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
@@ -1060,10 +1196,10 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                     <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Cost Rate / ખરીદ ભાવ (₹)</label>
                     <input
                       type="number"
-                      step="0.1"
-                      min="0.1"
+                      step="any"
+                      min="0"
                       value={itemRate}
-                      onChange={e => setItemRate(Number(e.target.value))}
+                      onChange={e => setItemRate(e.target.value === '' ? '' : e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs font-bold text-slate-900"
                       title="Wholesale purchase price from distributor"
                     />
@@ -1073,10 +1209,10 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                     <label className="block text-[10px] font-bold text-slate-600 mb-0.5">Retail MRP (₹)</label>
                     <input
                       type="number"
-                      step="0.1"
-                      min="0.1"
+                      step="any"
+                      min="0"
                       value={itemMrp}
-                      onChange={e => setItemMrp(Number(e.target.value))}
+                      onChange={e => setItemMrp(e.target.value === '' ? '' : e.target.value)}
                       className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-xs"
                       title="Printed Retail MRP"
                     />
@@ -1126,10 +1262,11 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                             <div className="inline-flex items-center gap-1 justify-end font-sans">
                               <input
                                 type="number"
-                                min="1"
+                                step="any"
+                                min="0.001"
                                 value={item.quantity}
-                                onChange={e => updateItemQuantity(idx, Number(e.target.value))}
-                                className="w-16 px-1.5 py-1 text-right bg-white border border-slate-300 rounded-md text-xs font-mono font-bold focus:ring-1 focus:ring-blue-500"
+                                onChange={e => updateItemQuantity(idx, e.target.value)}
+                                className="w-18 px-1.5 py-1 text-right bg-white border border-slate-300 rounded-md text-xs font-mono font-bold focus:ring-1 focus:ring-blue-500"
                               />
                               <span className="text-[10px] text-slate-500">{item.unit}</span>
                             </div>
@@ -1139,11 +1276,11 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                               <span className="text-slate-400 text-[11px]">₹</span>
                               <input
                                 type="number"
-                                step="0.1"
-                                min="0.1"
+                                step="any"
+                                min="0"
                                 value={item.purchaseRate}
-                                onChange={e => updateItemRate(idx, Number(e.target.value))}
-                                className="w-18 px-1.5 py-1 text-right bg-white border border-slate-300 rounded-md text-xs font-mono font-bold focus:ring-1 focus:ring-blue-500"
+                                onChange={e => updateItemRate(idx, e.target.value)}
+                                className="w-20 px-1.5 py-1 text-right bg-white border border-slate-300 rounded-md text-xs font-mono font-bold focus:ring-1 focus:ring-blue-500"
                                 title="Wholesale dealer rate"
                               />
                             </div>
@@ -1153,11 +1290,11 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                               <span className="text-slate-400 text-[11px]">₹</span>
                               <input
                                 type="number"
-                                step="0.1"
-                                min="0.1"
+                                step="any"
+                                min="0"
                                 value={item.mrp}
-                                onChange={e => updateItemMrp(idx, Number(e.target.value))}
-                                className="w-18 px-1.5 py-1 text-right bg-white border border-slate-300 rounded-md text-xs font-mono text-slate-700 focus:ring-1 focus:ring-blue-500"
+                                onChange={e => updateItemMrp(idx, e.target.value)}
+                                className="w-20 px-1.5 py-1 text-right bg-white border border-slate-300 rounded-md text-xs font-mono text-slate-700 focus:ring-1 focus:ring-blue-500"
                                 title="Printed MRP"
                               />
                             </div>
@@ -1204,10 +1341,10 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                   </label>
                   <input
                     type="number"
+                    step="any"
                     min="0"
-                    max={totalAmount}
                     value={paidAmount}
-                    onChange={e => setPaidAmount(Number(e.target.value))}
+                    onChange={e => setPaidAmount(e.target.value === '' ? '' : e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
@@ -1221,7 +1358,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 </div>
                 <div className="flex justify-between text-emerald-700">
                   <span>Paid Amount:</span>
-                  <span>₹{(paidAmount || 0).toFixed(2)}</span>
+                  <span>₹{(typeof paidAmount === 'number' ? paidAmount : parseFloat(paidAmount) || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-rose-700 font-bold border-t border-slate-200 pt-1">
                   <span>Outstanding Due Balance:</span>
@@ -1253,13 +1390,17 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
         </div>
       )}
 
-      {/* Add Supplier Modal */}
+      {/* Add / Edit Supplier Modal */}
       {isSupplierModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <h3 className="font-extrabold text-base text-slate-900 mb-1">Register New Supplier / Depot</h3>
+            <h3 className="font-extrabold text-base text-slate-900 mb-1">
+              {editingSupplier ? 'Edit Supplier / Agency / સપ્લાયર / એજન્સી સુધારો' : 'Register New Supplier / Depot / નવી સપ્લાયર નોંધણી'}
+            </h3>
             <p className="text-xs text-slate-500 mb-4">
-              Enter Amul route distributor or cooperative union details.
+              {editingSupplier
+                ? 'Update agency company details, contact information, and address.'
+                : 'Enter Amul route distributor or cooperative union details.'}
             </p>
 
             <form onSubmit={handleSaveSupplier} className="space-y-3">
@@ -1276,7 +1417,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Company / Depot Name</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Company / Agency / Depot Name</label>
                 <input
                   type="text"
                   placeholder="e.g. GCMMF Anand Central Depot"
@@ -1311,12 +1452,24 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Address / Location</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Amul Dairy Road, Anand, Gujarat"
+                  value={supplierAddress}
+                  onChange={e => setSupplierAddress(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs"
+                />
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Opening Payable Balance (₹)</label>
                 <input
                   type="number"
+                  step="any"
                   min="0"
                   value={openingBalance}
-                  onChange={e => setOpeningBalance(Number(e.target.value))}
+                  onChange={e => setOpeningBalance(e.target.value === '' ? '' : e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono"
                 />
               </div>
@@ -1324,16 +1477,19 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsSupplierModalOpen(false)}
-                  className="px-4 py-2 text-slate-600 text-xs font-semibold"
+                  onClick={() => {
+                    setIsSupplierModalOpen(false);
+                    setEditingSupplier(null);
+                  }}
+                  className="px-4 py-2 text-slate-600 text-xs font-semibold hover:bg-slate-100 rounded-xl transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md"
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md cursor-pointer transition"
                 >
-                  Save Supplier
+                  {editingSupplier ? 'Update Supplier / Agency' : 'Save Supplier'}
                 </button>
               </div>
             </form>
@@ -1347,7 +1503,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6">
             <h3 className="font-extrabold text-base text-slate-900 mb-1">Record Supplier Payment</h3>
             <p className="text-xs text-slate-500 mb-4">
-              Pay {payingSupplier.companyName || payingSupplier.name}. This reduces outstanding payable balance.
+              Pay {payingSupplier.companyName || payingSupplier.name}. This settles outstanding purchase dues and payable balances.
             </p>
 
             <form onSubmit={handleRecordPayment} className="space-y-3">
@@ -1355,10 +1511,11 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 <label className="block text-xs font-bold text-slate-700 mb-1">Payment Amount (₹)</label>
                 <input
                   type="number"
-                  min="1"
+                  step="any"
+                  min="0.001"
                   required
                   value={paymentAmount}
-                  onChange={e => setPaymentAmount(Number(e.target.value))}
+                  onChange={e => setPaymentAmount(e.target.value === '' ? '' : e.target.value)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-sm font-bold text-blue-700"
                 />
               </div>
@@ -1378,18 +1535,66 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 <button
                   type="button"
                   onClick={() => setIsPaymentModalOpen(false)}
-                  className="px-4 py-2 text-slate-600 text-xs font-semibold"
+                  className="px-4 py-2 text-slate-600 text-xs font-semibold hover:bg-slate-100 rounded-xl transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md cursor-pointer transition"
                 >
                   Confirm Payment
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Supplier Confirmation Modal */}
+      {deletingSupplier && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-base text-slate-900">
+                  Delete Supplier / Agency?
+                </h3>
+                <p className="text-xs text-slate-500">
+                  એજન્સી ખાતું કાયમ માટે કાઢી નાખો
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-2">
+              <p className="font-bold">
+                Are you sure you want to permanently delete "{deletingSupplier.companyName || deletingSupplier.name}"?
+              </p>
+              <p className="text-[11px] text-rose-700 leading-relaxed">
+                ✅ <strong>Historical Invoices Protected:</strong> All historical purchase bills, delivered stock items, and previous payments associated with this supplier will remain completely safe and intact in your purchase ledger.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingSupplier(null)}
+                className="px-4 py-2 text-slate-600 hover:text-slate-800 text-xs font-semibold rounded-xl hover:bg-slate-100 transition cursor-pointer"
+              >
+                Cancel / રદ કરો
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteSupplier(deletingSupplier.id)}
+                className="bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md transition cursor-pointer flex items-center gap-1.5"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete Supplier / ડીલીટ કરો</span>
+              </button>
+            </div>
           </div>
         </div>
       )}

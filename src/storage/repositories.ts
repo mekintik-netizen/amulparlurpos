@@ -37,6 +37,7 @@ import {
   syncPurchaseBillToCloud,
   deletePurchaseBillFromCloud,
   syncSupplierToCloud,
+  deleteSupplierFromCloud,
   fetchPurchasesFromCloud,
   fetchSuppliersFromCloud
 } from './firestoreSync.ts';
@@ -366,6 +367,13 @@ export const AppRepository = {
         return res.json();
       }
       return localDb.getSupplierPayments(shopId, supplierId);
+    },
+    delete: async (supplierId: string): Promise<void> => {
+      if (isBackendConnected()) {
+        await fetch(`${API_BASE_URL}/api/suppliers/${supplierId}`, { method: 'DELETE' });
+      }
+      await localDb.deleteSupplier(supplierId);
+      deleteSupplierFromCloud(supplierId).catch(() => {});
     }
   },
 

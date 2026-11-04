@@ -148,9 +148,10 @@ export const StockMovementModal: React.FC<StockMovementModalProps> = ({
               </label>
               <input
                 type="number"
-                min="1"
-                value={quantity}
-                onChange={(e) => setQuantity(Number(e.target.value))}
+                step="any"
+                min="0.001"
+                value={quantity || ''}
+                onChange={(e) => setQuantity(parseFloat(e.target.value) || 0)}
                 required
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-xs focus:ring-2 focus:ring-blue-500"
               />

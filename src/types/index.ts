@@ -203,6 +203,7 @@ export interface Supplier {
   address?: string;
   gstin?: string;
   currentBalance: number; // Positive = we owe supplier (Payable)
+  openingBalance?: number;
   createdAt: string;
   updatedAt: string;
 }

@@ -178,6 +178,15 @@ export async function syncSupplierToCloud(supplier: Supplier): Promise<void> {
   }
 }
 
+export async function deleteSupplierFromCloud(supplierId: string): Promise<void> {
+  try {
+    const supRef = doc(db, 'suppliers', supplierId);
+    await deleteDoc(supRef);
+  } catch (err) {
+    console.warn('[Firestore] Failed to delete supplier from cloud:', err);
+  }
+}
+
 export async function fetchPurchasesFromCloud(shopId: string): Promise<PurchaseBill[]> {
   try {
     const q = query(collection(db, 'purchases'), where('shopId', '==', shopId));
@@ -403,6 +412,13 @@ export function startShopRealtimeSync(
           const sup = change.doc.data() as Supplier;
           try {
             await localDb.saveSupplier(sup);
+            changed = true;
+          } catch (e) {
+            // ignore
+          }
+        } else if (change.type === 'removed') {
+          try {
+            await localDb.deleteSupplier(change.doc.id);
             changed = true;
           } catch (e) {
             // ignore

@@ -1013,7 +1013,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                           <span className="text-slate-400 text-[10px]">₹</span>
                           <input
                             type="number"
-                            step="0.1"
+                            step="any"
                             min="0"
                             value={inlineCost}
                             onChange={e => setInlineCost(Number(e.target.value))}
@@ -1044,7 +1044,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                           <span className="text-slate-400 text-[10px]">₹</span>
                           <input
                             type="number"
-                            step="0.1"
+                            step="any"
                             min="0"
                             value={inlineSelling}
                             onChange={e => setInlineSelling(Number(e.target.value))}
@@ -1074,7 +1074,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                           <span className="text-slate-400 text-[10px]">₹</span>
                           <input
                             type="number"
-                            step="0.1"
+                            step="any"
                             min="0"
                             value={inlineMrp}
                             onChange={e => setInlineMrp(Number(e.target.value))}
@@ -1372,7 +1372,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                   <label className="block text-xs font-bold text-slate-700 mb-1">Cost Price (₹)</label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="any"
                     min="0"
                     required
                     value={costPrice}
@@ -1385,7 +1385,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                   <label className="block text-xs font-bold text-slate-700 mb-1">Selling Price (₹)</label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="any"
                     min="0"
                     required
                     value={sellingPrice}
@@ -1398,7 +1398,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                   <label className="block text-xs font-bold text-slate-700 mb-1">Printed MRP (₹)</label>
                   <input
                     type="number"
-                    step="0.1"
+                    step="any"
                     min="0"
                     required
                     value={mrp}
@@ -1413,6 +1413,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                   <label className="block text-xs font-bold text-slate-700 mb-1">Current Stock Quantity</label>
                   <input
                     type="number"
+                    step="any"
                     min="0"
                     required
                     value={currentStock}

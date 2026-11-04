@@ -364,10 +364,11 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
                 <label className="block text-xs font-bold text-slate-700 mb-1">Amount (₹)</label>
                 <input
                   type="number"
-                  min="1"
+                  step="any"
+                  min="0.001"
                   required
-                  value={amount}
-                  onChange={e => setAmount(Number(e.target.value))}
+                  value={amount || ''}
+                  onChange={e => setAmount(parseFloat(e.target.value) || 0)}
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-sm font-bold text-blue-700"
                 />
               </div>
