@@ -184,7 +184,8 @@ export function subscribeToSubscriptionSettings(
 export function getUpiQrCodeUrl(
   config: SubscriptionSettingsConfig,
   amount: number = 500,
-  shop?: Shop | null
+  shop?: Shop | null,
+  isNewShopParam?: boolean
 ): string {
   if (config.upiQrImageUrl && config.upiQrImageUrl.trim().length > 0) {
     return config.upiQrImageUrl.trim();
@@ -193,7 +194,9 @@ export function getUpiQrCodeUrl(
   const payeeName = config.payeeName || 'Amul HQ Admin';
   const upiId = config.upiId || 'amulparlour.admin@okhdfcbank';
   const shopRef = shop?.shopCode ? ` (${shop.shopCode})` : '';
-  const note = `Amul POS Renewal${shopRef}`;
+  const note = (isNewShopParam || amount >= 3000)
+    ? `Amul POS Setup & 1st Month${shopRef}`
+    : `Amul POS Renewal${shopRef}`;
 
   const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(
     payeeName
@@ -206,10 +209,13 @@ export function getUpiQrCodeUrl(
 
 /**
  * Builds the direct WhatsApp chat link with pre-filled Gujarati payment confirmation message.
+ * Supports distinct messages for New Shop (₹3000 setup + 1st month) vs Existing Shop (₹500 renewal).
  */
 export function getWhatsAppPaymentLink(
   config: SubscriptionSettingsConfig,
-  shop?: Shop | null
+  shop?: Shop | null,
+  customAmount?: number,
+  isNewShopParam?: boolean
 ): string {
   // Clean phone number: remove non-numeric chars except leading +
   const rawNumber = config.whatsappNumber || '+919173598234';
@@ -217,15 +223,19 @@ export function getWhatsAppPaymentLink(
 
   const shopName = shop?.name || 'અમૂલ પાર્લર (Amul Parlour)';
   const shopCode = shop?.shopCode || 'AP-SHOP';
-  const amount = config.monthlyFee || 500;
+  const amount = customAmount !== undefined ? customAmount : (config.monthlyFee || 500);
 
-  let message = config.whatsappMessageTemplate ||
-    'નમસ્તે એડમિન, મેં અમુલ પાર્લર ({shopName} - {shopCode}) માટે ₹{amount} નું સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને સબ્સ્ક્રિપ્શન રિન્યુ કરી આપશો.';
-
-  message = message
-    .replace('{shopName}', shopName)
-    .replace('{shopCode}', shopCode)
-    .replace('{amount}', amount.toString());
+  let message = '';
+  if (isNewShopParam || amount >= 3000) {
+    message = `નમસ્તે એડમિન, મેં અમુલ પાર્લર (${shopName} - ${shopCode}) માટે સેટઅપ ચાર્જ ₹૨૫૦૦ + સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦ મળીને પહેલા મહિનાના કુલ ₹૩,૦૦૦ નું પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને એકાઉન્ટ સક્રિય કરી આપશો.`;
+  } else {
+    message = config.whatsappMessageTemplate ||
+      'નમસ્તે એડમિન, મેં અમુલ પાર્લર ({shopName} - {shopCode}) માટે ₹{amount} નું સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને સબ્સ્ક્રિપ્શન રિન્યુ કરી આપશો.';
+    message = message
+      .replace('{shopName}', shopName)
+      .replace('{shopCode}', shopCode)
+      .replace('{amount}', amount.toString());
+  }
 
   return `https://wa.me/${cleanNumber}?text=${encodeURIComponent(message)}`;
 }

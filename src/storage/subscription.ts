@@ -138,6 +138,23 @@ export function isShopSubscriptionActive(shop: Shop | null | undefined): Subscri
  * Activates or renews a 1-Month (30-day) plan for a shop.
  * Preserves all existing shop properties while advancing the subscription window.
  */
+/**
+ * Determines whether a shop is a New Shop (First Month / Onboarding Expiry / Free Trial)
+ * or an Existing / Regular Shop (From 2nd Month Onwards).
+ */
+export function isNewShop(shop: Shop | null | undefined): boolean {
+  if (!shop) return false;
+  if (shop.isFirstMonth === true) return true;
+  if (shop.isFirstMonth === false) return false;
+  if ((shop.renewalCount ?? 0) > 0) return false;
+  if (shop.subscriptionPlanId === 'TRIAL') return true;
+  return false;
+}
+
+/**
+ * Activates or renews a 1-Month (30-day) plan for a shop.
+ * Preserves all existing shop properties while advancing the subscription window.
+ */
 export function activateOneMonthSubscription(shop: Shop, adminUsername = 'admin'): Shop {
   return renewShopSubscription(shop, 30, adminUsername);
 }
@@ -163,11 +180,13 @@ export function renewShopSubscription(shop: Shop, extensionDays = 30, adminUsern
     approvalStatus: 'APPROVED',
     subscriptionStatus: 'ACTIVE',
     status: 'active',
-    subscriptionPlanId: shop.subscriptionPlanId || 'BASIC',
+    subscriptionPlanId: shop.subscriptionPlanId === 'TRIAL' ? 'BASIC' : (shop.subscriptionPlanId || 'BASIC'),
     subscriptionStartDate: shop.subscriptionStartDate || shop.planStartDate || now.toISOString(),
     subscriptionExpiryDate: newExpiryDateISO,
     planStartDate: shop.planStartDate || shop.subscriptionStartDate || now.toISOString(),
     planEndDate: newExpiryDateISO,
+    isFirstMonth: false,
+    renewalCount: (shop.renewalCount || 0) + 1,
     ownerIdVerified: true,
     ownerVerifiedAt: shop.ownerVerifiedAt || now.toISOString(),
     verifiedByAdmin: adminUsername,

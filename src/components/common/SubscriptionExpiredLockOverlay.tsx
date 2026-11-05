@@ -4,17 +4,17 @@
  * 
  * Professional "Subscription Expired" & Renewal Payment Modal
  * Features:
- * - Professional Gujarati guidance & prominent ₹500/month payment details
+ * - Clear pricing structure for New Shops (₹3000 = ₹2500 Setup + ₹500 Sub) vs Existing Shops (₹500 Renewal)
+ * - Professional Gujarati guidance & prominent payment details
  * - High-resolution UPI QR Code with instant scan support (GPay, PhonePe, Paytm, BHIM)
  * - Copyable UPI ID and Mobile Number for manual bank transfer
- * - Direct "WhatsApp પર સ્ક્રીનશોટ મોકલો" action button with pre-filled message
+ * - Direct "WhatsApp પર સ્ક્રીનશોટ મોકલો" action button with pre-filled message tailored by shop tier
  * - Real-time synchronization with Firestore so admin updates instantly restore access
- * - Supports live Admin HQ preview mode (both Expired and 10-Day warning views)
+ * - Supports live Admin HQ preview mode (both Expired and 10-Day warning views, and Shop Tier toggle)
  */
 
 import React, { useState, useEffect } from 'react';
 import { 
-  AlertTriangle, 
   Phone, 
   QrCode, 
   Lock, 
@@ -26,8 +26,8 @@ import {
   MessageCircle,
   ExternalLink,
   ShieldCheck,
-  Calendar,
-  Sparkles
+  Sparkles,
+  Info
 } from 'lucide-react';
 import { Shop, SubscriptionSettingsConfig, DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG } from '../../types/index.ts';
 import amulLogo from '../../assets/logo.ts';
@@ -37,6 +37,7 @@ import {
   getUpiQrCodeUrl, 
   getWhatsAppPaymentLink 
 } from '../../storage/subscriptionSettings.ts';
+import { isShopSubscriptionActive, isNewShop } from '../../storage/subscription.ts';
 
 export interface SubscriptionExpiredLockOverlayProps {
   currentShop: Shop;
@@ -44,6 +45,7 @@ export interface SubscriptionExpiredLockOverlayProps {
   onCheckStatus?: () => void;
   isPreview?: boolean; // When true, renders inline without fixed overlay for Admin Demo Tab
   previewMode?: 'EXPIRED' | 'WARNING_10_DAYS'; // Used in Admin Demo Tab
+  shopTypeOverride?: 'NEW_SHOP' | 'EXISTING_SHOP'; // Allows testing both tiers in Admin Demo
   customSettings?: SubscriptionSettingsConfig; // Allows live editing preview
 }
 
@@ -53,6 +55,7 @@ export const SubscriptionExpiredLockOverlay: React.FC<SubscriptionExpiredLockOve
   onCheckStatus,
   isPreview = false,
   previewMode = 'EXPIRED',
+  shopTypeOverride,
   customSettings
 }) => {
   const [config, setConfig] = useState<SubscriptionSettingsConfig>(
@@ -100,19 +103,42 @@ export const SubscriptionExpiredLockOverlay: React.FC<SubscriptionExpiredLockOve
     }
   };
 
-  const amount = config.monthlyFee || 500;
-  const qrCodeUrl = getUpiQrCodeUrl(config, amount, currentShop);
-  const whatsappUrl = getWhatsAppPaymentLink(config, currentShop);
-
   const isWarningMode = previewMode === 'WARNING_10_DAYS';
 
-  const title = isWarningMode
-    ? (config.warningHeaderTitle || '⚠️ સબ્સ્ક્રિપ્શન રિન્યુઅલ ચેતવણી (Subscription Renewal Due)')
-    : (config.headerTitle || '⚠️ સબ્સ્ક્રિપ્શન સમાપ્ત થઈ ગયું છે (Subscription Expired)');
+  // Determine if this is a New Shop (First Month / Onboarding Expiry / Free Trial) or Existing Shop
+  const isNew = shopTypeOverride 
+    ? shopTypeOverride === 'NEW_SHOP'
+    : isNewShop(currentShop);
 
-  const messageText = isWarningMode
-    ? (config.warningMessageGujarati || 'તમારો ૧ મહિનાનો સબ્સ્ક્રિપ્શન સમય ટૂંક સમયમાં પૂરો થઈ રહ્યો છે. સોફ્ટવેર અવિરત ચાલુ રાખવા માટે કૃપા કરીને ₹૫૦૦ (₹500) નું પેમેન્ટ કરીને સબ્સ્ક્રિપ્શન રિન્યુ કરાવો.')
-    : (config.messageGujarati || 'તમારો ૧ મહિનાનો સબ્સ્ક્રિપ્શન સમય પૂરો થઈ ગયો છે. સોફ્ટવેર સતત ચાલુ રાખવા માટે કૃપા કરીને નીચે આપેલા QR Code પર ₹૫૦૦ (₹500) નું પેમેન્ટ કરીને સબ્સ્ક્રિપ્શન રિન્યુ કરાવો.');
+  // Pricing configuration
+  const setupCharge = config.setupFee || 2500;
+  const monthlyCharge = config.monthlyFee || 500;
+  const newShopTotal = config.newShopTotalFee || (setupCharge + monthlyCharge);
+  const totalPayable = isNew ? newShopTotal : monthlyCharge;
+
+  // Days remaining calculation
+  const subCheck = isShopSubscriptionActive(currentShop);
+  const daysRemaining = subCheck.daysRemaining > 0 ? subCheck.daysRemaining : 10;
+
+  // URLs
+  const qrCodeUrl = getUpiQrCodeUrl(config, totalPayable, currentShop, isNew);
+  const whatsappUrl = getWhatsAppPaymentLink(config, currentShop, totalPayable, isNew);
+
+  // Headers and Messages tailored by shop tier
+  const title = isNew
+    ? (isWarningMode 
+        ? '⚠️ ૧ મહિનાનું ફ્રી ટ્રાયલ સમાપ્તિ (First Month Onboarding)'
+        : '⚠️ ૧ મહિનાનું ફ્રી ટ્રાયલ સમાપ્ત (Trial Expired)')
+    : (isWarningMode
+        ? (config.warningHeaderTitle || '⚠️ સબ્સ્ક્રિપ્શન રિન્યુઅલ ચેતવણી (Subscription Renewal Due)')
+        : (config.headerTitle || '⚠️ સબ્સ્ક્રિપ્શન સમાપ્ત થઈ ગયું છે (Subscription Expired)'));
+
+  // Gujarati Message Content
+  const messageContent = isNew
+    ? (config.newShopMessageGujarati || '⚠️ તમારું ૧ મહિનાનું ફ્રી ટ્રાયલ પૂરું થયું છે. સેટઅપ ચાર્જ ₹૨૫૦૦ + સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦ મળીને પહેલા મહિને કુલ ₹૩૦૦૦ નું પેમેન્ટ કરવાનું રહેશે. ત્યારપછીના મહિનાથી દર મહિને માત્ર ₹૫૦૦ સબ્સ્ક્રિપ્શન ચાર્જ આવશે.')
+    : (isWarningMode
+        ? `⚠️ તમારું માસિક સબ્સ્ક્રિપ્શન પૂરું થવામાં ${daysRemaining} દિવસ બાકી છે. સોફ્ટવેર ચાલુ રાખવા માટે કૃપા કરીને રિન્યુઅલ ચાર્જ ₹૫૦૦ પેમેન્ટ કરો.`
+        : (config.messageGujarati || 'તમારો ૧ મહિનાનો સબ્સ્ક્રિપ્શન સમય પૂરો થઈ ગયો છે. સોફ્ટવેર સતત ચાલુ રાખવા માટે કૃપા કરીને નીચે આપેલા QR Code પર ₹૫૦૦ (₹500) નું પેમેન્ટ કરીને સબ્સ્ક્રિપ્શન રિન્યુ કરાવો.'));
 
   // Modal Container: fixed overlay for real expiry, or inline container for Admin Demo preview
   const wrapperClass = isPreview
@@ -134,7 +160,9 @@ export const SubscriptionExpiredLockOverlay: React.FC<SubscriptionExpiredLockOve
             </div>
             <div className="text-left">
               <div className="text-xs font-black text-blue-900 dark:text-blue-400">AMUL PARLOUR POS</div>
-              <div className="text-[10px] text-slate-400 font-mono">1-Month Cloud Subscription</div>
+              <div className="text-[10px] text-slate-400 font-mono">
+                {isNew ? 'નવું પાર્લર (New Shop Onboarding)' : 'ચાલુ પાર્લર (Regular Shop Renewal)'}
+              </div>
             </div>
           </div>
 
@@ -144,7 +172,7 @@ export const SubscriptionExpiredLockOverlay: React.FC<SubscriptionExpiredLockOve
               : 'bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-rose-700 dark:text-rose-300'
           }`}>
             <Lock className="w-3.5 h-3.5 shrink-0" />
-            <span>{isWarningMode ? 'Renewal Due (૧૦ દિવસ બાકી)' : 'Expired (સમાપ્ત)'}</span>
+            <span>{isWarningMode ? `૧૦ દિવસ બાકી (${daysRemaining}d Left)` : 'Expired (સમાપ્ત)'}</span>
           </div>
         </div>
 
@@ -162,29 +190,95 @@ export const SubscriptionExpiredLockOverlay: React.FC<SubscriptionExpiredLockOve
           </div>
         </div>
 
-        {/* Message Content (Gujarati) */}
-        <div className="bg-amber-50/90 dark:bg-amber-950/40 border border-amber-300/80 dark:border-amber-900/60 rounded-2xl p-3.5 text-xs text-amber-950 dark:text-amber-200 leading-relaxed font-semibold my-3 text-left sm:text-center shadow-2xs">
-          {messageText}
+        {/* Gujarati Message Content Box */}
+        <div className={`border rounded-2xl p-3.5 text-xs leading-relaxed font-semibold my-3 text-left sm:text-center shadow-2xs ${
+          isNew 
+            ? 'bg-blue-50/90 dark:bg-blue-950/40 border-blue-300/80 dark:border-blue-900/60 text-blue-950 dark:text-blue-200'
+            : 'bg-amber-50/90 dark:bg-amber-950/40 border-amber-300/80 dark:border-amber-900/60 text-amber-950 dark:text-amber-200'
+        }`}>
+          {messageContent}
         </div>
 
-        {/* Payment Details Box with Prominent ₹500 Amount & Clear UPI QR Code */}
-        <div className="my-4 p-4 bg-slate-50 dark:bg-slate-800/70 rounded-2xl border-2 border-blue-500/30 dark:border-blue-500/20 shadow-xs flex flex-col items-center">
+        {/* Payment Details Box with Explicit Line-Item Breakdown */}
+        <div className="my-3.5 p-4 bg-slate-50 dark:bg-slate-800/70 rounded-2xl border-2 border-blue-500/30 dark:border-blue-500/20 shadow-xs flex flex-col items-center">
           {/* Prominent Amount Highlight */}
-          <div className="w-full bg-linear-to-r from-blue-700 via-[#005A9C] to-blue-800 text-white rounded-xl py-2 px-4 shadow-sm mb-3.5">
+          <div className={`w-full text-white rounded-xl py-2 px-4 shadow-sm mb-3.5 ${
+            isNew 
+              ? 'bg-linear-to-r from-blue-800 via-indigo-700 to-blue-900'
+              : 'bg-linear-to-r from-blue-700 via-[#005A9C] to-blue-800'
+          }`}>
             <div className="text-[10px] uppercase font-bold tracking-widest text-blue-100">
-              સબ્સ્ક્રિપ્શન ફી / RENEWAL AMOUNT
+              {isNew ? 'નવા પાર્લર માટે પ્રથમ મહિનાનું કુલ પેમેન્ટ' : 'સબ્સ્ક્રિપ્શન રિન્યુઅલ ફી / RENEWAL AMOUNT'}
             </div>
             <div className="text-xl sm:text-2xl font-black tracking-tight mt-0.5 flex items-center justify-center gap-1">
               <span>રકમ / Amount:</span>
-              <span className="text-yellow-300 font-mono">₹{amount}</span>
-              <span className="text-xs font-semibold text-blue-100">/ મહિનો (Month)</span>
+              <span className="text-yellow-300 font-mono">₹{totalPayable.toLocaleString('en-IN')}</span>
+              <span className="text-xs font-semibold text-blue-100">
+                {isNew ? '(સેટઅપ + પહેલો મહિનો)' : '/ મહિનો (Month)'}
+              </span>
             </div>
+          </div>
+
+          {/* Payment Breakdown Line Items */}
+          <div className="w-full bg-white dark:bg-slate-900 rounded-xl p-3 border border-slate-200 dark:border-slate-700 mb-3 text-xs space-y-1.5 text-left">
+            <div className="font-extrabold text-slate-800 dark:text-slate-200 pb-1 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <span>પેમેન્ટ વિગતો (Payment Breakdown):</span>
+              <span className="text-[11px] font-mono text-blue-600 dark:text-blue-400">
+                {isNew ? 'New Shop Tier' : 'Regular Tier'}
+              </span>
+            </div>
+
+            {isNew ? (
+              <>
+                {/* New Shop Breakdown */}
+                <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 text-[11px]">
+                  <span>૧. સેટઅપ ચાર્જ (Setup &amp; Provisioning):</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    ₹{setupCharge.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 text-[11px]">
+                  <span>૨. સબ્સ્ક્રિપ્શન ચાર્જ (1st Month Subscription):</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    ₹{monthlyCharge.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-slate-700 font-black text-blue-900 dark:text-blue-300 text-xs">
+                  <span>પહેલા મહિને કુલ ચૂકવવાપાત્ર રકમ (Total):</span>
+                  <span className="font-mono text-sm text-emerald-600 dark:text-emerald-400">
+                    ₹{newShopTotal.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="pt-1 text-[10px] text-slate-500 dark:text-slate-400 italic">
+                  * ત્યારપછીના મહિનાથી દર મહિને માત્ર ₹૫૦૦ સબ્સ્ક્રિપ્શન ચાર્જ આવશે.
+                </div>
+              </>
+            ) : (
+              <>
+                {/* Existing Shop Breakdown */}
+                <div className="flex items-center justify-between text-slate-600 dark:text-slate-300 text-[11px]">
+                  <span>૧. માસિક સબ્સ્ક્રિપ્શન રિન્યુઅલ ચાર્જ:</span>
+                  <span className="font-mono font-bold text-slate-900 dark:text-white">
+                    ₹{monthlyCharge.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between pt-1.5 border-t border-slate-200 dark:border-slate-700 font-black text-blue-900 dark:text-blue-300 text-xs">
+                  <span>કુલ ચૂકવવાપાત્ર રકમ (Total Renewal Fee):</span>
+                  <span className="font-mono text-sm text-emerald-600 dark:text-emerald-400">
+                    ₹{monthlyCharge.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <div className="pt-1 text-[10px] text-slate-500 dark:text-slate-400 italic">
+                  * દર મહિને માત્ર ₹૫૦૦ નિયમિત રિન્યુઅલ ચાર્જ.
+                </div>
+              </>
+            )}
           </div>
 
           {/* UPI QR Code Container */}
           <div className="text-[11px] font-extrabold text-slate-700 dark:text-slate-300 mb-2 flex items-center gap-1.5">
             <QrCode className="w-4 h-4 text-blue-600" />
-            <span>UPI પેમેન્ટ QR Code (Scan to Pay ₹{amount})</span>
+            <span>UPI પેમેન્ટ QR Code (Scan to Pay ₹{totalPayable.toLocaleString('en-IN')})</span>
           </div>
 
           <div className="bg-white p-3 rounded-2xl border-2 border-slate-300 dark:border-slate-600 shadow-md transition-transform hover:scale-[1.02]">

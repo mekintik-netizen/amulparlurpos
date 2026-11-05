@@ -90,6 +90,8 @@ export interface Shop {
   ownerVerifiedAt?: string; // ISO string when verification occurred
   verifiedByAdmin?: string; // Admin username who performed verification
   ownerIdentityNumber?: string; // Aadhaar / PAN / Franchise Agreement ID
+  isFirstMonth?: boolean; // True for first month / trial / onboarding shops
+  renewalCount?: number; // Number of times subscription has been renewed
   createdAt: string;
   updatedAt: string;
 }
@@ -531,11 +533,15 @@ export const DEFAULT_PRINT_SETTINGS_CONFIG: PrintSettingsConfig = {
 
 export interface SubscriptionSettingsConfig {
   monthlyFee: number; // in INR, e.g. 500
+  setupFee?: number; // One-time setup charge for new shops, e.g. 2500
+  newShopTotalFee?: number; // Total for first month (Setup 2500 + Sub 500 = 3000)
   currencySymbol: string; // e.g. "₹"
   headerTitle: string; // e.g. "⚠️ સબ્સ્ક્રિપ્શન સમાપ્ત થઈ ગયું છે (Subscription Expired)"
-  messageGujarati: string; // Exact requested Gujarati message
+  messageGujarati: string; // Exact requested Gujarati message for regular renewal
   warningHeaderTitle: string; // e.g. "⚠️ સબ્સ્ક્રિપ્શન રિન્યુઅલ ચેતવણી (Subscription Renewal Due)"
-  warningMessageGujarati: string; // Advance warning text for 10-day notice
+  warningMessageGujarati: string; // Advance warning text for 10-day notice for regular shops
+  newShopMessageGujarati?: string; // Exact Gujarati text for New Shop First Month / Onboarding
+  newShopWarningMessageGujarati?: string;
   warningDaysThreshold: number; // e.g. 10 days before expiry
   upiId: string; // e.g. "amulparlour.admin@okhdfcbank"
   payeeName: string; // e.g. "Amul HQ Admin"
@@ -549,11 +555,15 @@ export interface SubscriptionSettingsConfig {
 
 export const DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG: SubscriptionSettingsConfig = {
   monthlyFee: 500,
+  setupFee: 2500,
+  newShopTotalFee: 3000,
   currencySymbol: '₹',
   headerTitle: '⚠️ સબ્સ્ક્રિપ્શન સમાપ્ત થઈ ગયું છે (Subscription Expired)',
   messageGujarati: 'તમારો ૧ મહિનાનો સબ્સ્ક્રિપ્શન સમય પૂરો થઈ ગયો છે. સોફ્ટવેર સતત ચાલુ રાખવા માટે કૃપા કરીને નીચે આપેલા QR Code પર ₹૫૦૦ (₹500) નું પેમેન્ટ કરીને સબ્સ્ક્રિપ્શન રિન્યુ કરાવો.',
   warningHeaderTitle: '⚠️ સબ્સ્ક્રિપ્શન રિન્યુઅલ ચેતવણી (Subscription Renewal Due)',
   warningMessageGujarati: 'તમારો ૧ મહિનાનો સબ્સ્ક્રિપ્શન સમય ટૂંક સમયમાં પૂરો થઈ રહ્યો છે. સોફ્ટવેર અવિરત ચાલુ રાખવા માટે કૃપા કરીને ₹૫૦૦ (₹500) નું પેમેન્ટ કરીને સબ્સ્ક્રિપ્શન રિન્યુ કરાવો.',
+  newShopMessageGujarati: '⚠️ તમારું ૧ મહિનાનું ફ્રી ટ્રાયલ પૂરું થયું છે. સેટઅપ ચાર્જ ₹૨૫૦૦ + સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦ મળીને પહેલા મહિને કુલ ₹૩૦૦૦ નું પેમેન્ટ કરવાનું રહેશે. ત્યારપછીના મહિનાથી દર મહિને માત્ર ₹૫૦૦ સબ્સ્ક્રિપ્શન ચાર્જ આવશે.',
+  newShopWarningMessageGujarati: '⚠️ તમારું ૧ મહિનાનું ફ્રી ટ્રાયલ પૂરું થયું છે. સેટઅપ ચાર્જ ₹૨૫૦૦ + સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦ મળીને પહેલા મહિને કુલ ₹૩૦૦૦ નું પેમેન્ટ કરવાનું રહેશે. ત્યારપછીના મહિનાથી દર મહિને માત્ર ₹૫૦૦ સબ્સ્ક્રિપ્શન ચાર્જ આવશે.',
   warningDaysThreshold: 10,
   upiId: 'amulparlour.admin@okhdfcbank',
   payeeName: 'Amul HQ Admin',

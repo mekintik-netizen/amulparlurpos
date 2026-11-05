@@ -57,6 +57,7 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
   // Demo Preview State
   const [selectedShopId, setSelectedShopId] = useState<string>(shops[0]?.id || 'demo-shop');
   const [previewMode, setPreviewMode] = useState<'EXPIRED' | 'WARNING_10_DAYS'>('EXPIRED');
+  const [previewTier, setPreviewTier] = useState<'NEW_SHOP' | 'EXISTING_SHOP'>('NEW_SHOP');
   const [customQrPreview, setCustomQrPreview] = useState<string>('');
 
   // Load config on mount
@@ -247,29 +248,57 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
               </div>
 
               {/* Preview Mode Switcher (Expired vs 10-Days Warning) */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
-                <button
-                  type="button"
-                  onClick={() => setPreviewMode('EXPIRED')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    previewMode === 'EXPIRED'
-                      ? 'bg-rose-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  સમાપ્ત પ્લાન (Expired)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPreviewMode('WARNING_10_DAYS')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
-                    previewMode === 'WARNING_10_DAYS'
-                      ? 'bg-amber-600 text-white shadow-xs'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  ૧૦ દિવસ બાકી (Warning)
-                </button>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {/* Shop Tier Switcher (New Shop vs Existing Shop) */}
+                <div className="flex items-center gap-1 bg-blue-50 p-1 rounded-xl border border-blue-200">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTier('NEW_SHOP')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+                      previewTier === 'NEW_SHOP'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-blue-800 hover:text-blue-950'
+                    }`}
+                  >
+                    નવું પાર્લર (₹3,000)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTier('EXISTING_SHOP')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-black transition cursor-pointer ${
+                      previewTier === 'EXISTING_SHOP'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'text-blue-800 hover:text-blue-950'
+                    }`}
+                  >
+                    ચાલુ પાર્લર (₹500)
+                  </button>
+                </div>
+
+                <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('EXPIRED')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      previewMode === 'EXPIRED'
+                        ? 'bg-rose-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    સમાપ્ત (Expired)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewMode('WARNING_10_DAYS')}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition cursor-pointer ${
+                      previewMode === 'WARNING_10_DAYS'
+                        ? 'bg-amber-600 text-white shadow-xs'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    ૧૦ દિવસ બાકી
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -303,6 +332,7 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
                 currentShop={selectedShop}
                 isPreview={true}
                 previewMode={previewMode}
+                shopTypeOverride={previewTier}
                 customSettings={config}
                 onCheckStatus={() => alert('ડેમો ચેક સ્ટેટસ: લાઈવ સિસ્ટમમાં આ બટન એડમિન દ્વારા વધારાયેલ નવી એક્સપાયરી ડેટ ચકાસીને તુરંત એક્સેસ ખોલી આપે છે.')}
                 onLogout={() => alert('ડેમો લોગઆઉટ ક્લિક થયું.')}
@@ -329,12 +359,12 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
               </span>
             </div>
 
-            {/* 1. Monthly Fee & Currency */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* 1. Monthly Fee & Setup Fee */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
                   <DollarSign className="w-3.5 h-3.5 text-blue-600" />
-                  <span>માસિક ફી (Monthly Fee INR)</span>
+                  <span>માસિક ફી (Monthly Fee)</span>
                 </label>
                 <div className="relative">
                   <span className="absolute left-3 top-2.5 font-bold text-slate-500 font-mono text-sm">
@@ -349,13 +379,34 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
                     placeholder="500"
                   />
                 </div>
-                <span className="text-[10px] text-slate-400 mt-1 block">ડિફોલ્ટ રકમ: ₹500 / મહિનો</span>
+                <span className="text-[10px] text-slate-400 mt-1 block">ચાલુ પાર્લર: ₹500 / મહિનો</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
+                  <DollarSign className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>સેટઅપ ફી (Setup Fee)</span>
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3 top-2.5 font-bold text-slate-500 font-mono text-sm">
+                    {config.currencySymbol || '₹'}
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={config.setupFee ?? 2500}
+                    onChange={(e) => handleTextChange('setupFee', parseFloat(e.target.value) || 0)}
+                    className="w-full pl-8 pr-3 py-2 text-sm font-mono font-black text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                    placeholder="2500"
+                  />
+                </div>
+                <span className="text-[10px] text-slate-400 mt-1 block">નવું પાર્લર વન-ટાઇમ: ₹2500</span>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center gap-1.5">
                   <Smartphone className="w-3.5 h-3.5 text-blue-600" />
-                  <span>૧૦ દિવસ બાકી ચેતવણી લિમિટ</span>
+                  <span>૧૦ દિવસ બાકી લિમિટ</span>
                 </label>
                 <div className="relative">
                   <input
@@ -366,9 +417,9 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
                     onChange={(e) => handleTextChange('warningDaysThreshold', parseInt(e.target.value) || 10)}
                     className="w-full px-3 py-2 text-sm font-mono font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
-                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">દિવસ (Days)</span>
+                  <span className="absolute right-3 top-2.5 text-xs text-slate-400 font-bold">દિવસ</span>
                 </div>
-                <span className="text-[10px] text-slate-400 mt-1 block">પ્લાન પૂરું થવાના ૧૦ દિવસ પહેલા ચેતવણી દર્શાવો</span>
+                <span className="text-[10px] text-slate-400 mt-1 block">૧૦ દિવસ પહેલા ચેતવણી દર્શાવો</span>
               </div>
             </div>
 
@@ -386,10 +437,24 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
               />
             </div>
 
-            {/* 3. Main Gujarati Expiry Message */}
+            {/* 3. New Shop Message (First Month Onboarding) */}
+            <div className="p-3.5 rounded-2xl bg-blue-50/60 border border-blue-200">
+              <label className="block text-xs font-black text-blue-900 mb-1 flex items-center justify-between">
+                <span>૧. નવા પાર્લર માટે સંદેશ (New Shop - First Month / ₹3,000)</span>
+                <span className="text-[10px] font-mono text-blue-700 font-bold">₹2500 સેટઅપ + ₹500 સબ્સ્ક્રિપ્શન</span>
+              </label>
+              <textarea
+                rows={3}
+                value={config.newShopMessageGujarati || '⚠️ તમારું ૧ મહિનાનું ફ્રી ટ્રાયલ પૂરું થયું છે. સેટઅપ ચાર્જ ₹૨૫૦૦ + સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦ મળીને પહેલા મહિને કુલ ₹૩૦૦૦ નું પેમેન્ટ કરવાનું રહેશે. ત્યારપછીના મહિનાથી દર મહિને માત્ર ₹૫૦૦ સબ્સ્ક્રિપ્શન ચાર્જ આવશે.'}
+                onChange={(e) => handleTextChange('newShopMessageGujarati', e.target.value)}
+                className="w-full p-2.5 text-xs font-medium text-slate-900 bg-white border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden leading-relaxed"
+              />
+            </div>
+
+            {/* 4. Main Gujarati Expiry Message (Existing Shop) */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1">
-                મુખ્ય ગુજરાતી સંદેશ (Gujarati Expiry Message)
+                ૨. ચાલુ પાર્લર માટે રિન્યુઅલ સંદેશ (Regular Shop Renewal / ₹500)
               </label>
               <textarea
                 rows={3}
@@ -399,7 +464,7 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
                 placeholder="તમારો ૧ મહિનાનો સબ્સ્ક્રિપ્શન સમય પૂરો થઈ ગયો છે..."
               />
               <span className="text-[10px] text-slate-400 mt-1 block">
-                દુકાનદારને ₹૫૦૦ નું પેમેન્ટ કરી સોફ્ટવેર ચાલુ રાખવા માટેની સ્પષ્ટ સૂચના.
+                ચાલુ દુકાનદારને ₹૫૦૦ નું પેમેન્ટ કરી સોફ્ટવેર ચાલુ રાખવા માટેની સ્પષ્ટ સૂચના.
               </span>
             </div>
 

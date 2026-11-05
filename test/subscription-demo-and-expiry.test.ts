@@ -23,7 +23,8 @@ import {
 } from '../src/storage/subscriptionSettings.ts';
 import { 
   isShopSubscriptionActive, 
-  renewShopSubscription 
+  renewShopSubscription,
+  isNewShop
 } from '../src/storage/subscription.ts';
 
 describe('1. Professional Subscription Expiry Popup (Gujarati & ₹500 Payment)', () => {
@@ -186,3 +187,91 @@ describe('4. Automatic Restoration When Admin Updates Expiry Date', () => {
     expect(renewedCheck.daysRemaining).toBeGreaterThanOrEqual(29);
   });
 });
+
+describe('5. Pricing Structure for New Shops vs Existing Shops', () => {
+  const newShop: Shop = {
+    id: 'shop-trial-001',
+    shopCode: 'AP-NEW-101',
+    name: 'Shree Amul Parlour - Palanpur',
+    ownerName: 'Jayesh Prajapati',
+    phone: '+91 98251 11223',
+    email: 'palanpur@amul.in',
+    address: 'Highway Circle, Palanpur',
+    city: 'Palanpur',
+    state: 'Gujarat',
+    pincode: '385001',
+    approvalStatus: 'APPROVED',
+    subscriptionPlanId: 'TRIAL',
+    subscriptionStatus: 'ACTIVE',
+    isFirstMonth: true,
+    renewalCount: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  const existingShop: Shop = {
+    id: 'shop-regular-002',
+    shopCode: 'AP-REG-202',
+    name: 'Amul Depot - Surat',
+    ownerName: 'Manish Varma',
+    phone: '+91 98980 99887',
+    email: 'surat@amul.in',
+    address: 'Ring Road, Surat',
+    city: 'Surat',
+    state: 'Gujarat',
+    pincode: '395002',
+    approvalStatus: 'APPROVED',
+    subscriptionPlanId: 'BASIC',
+    subscriptionStatus: 'ACTIVE',
+    isFirstMonth: false,
+    renewalCount: 3,
+    createdAt: new Date(Date.now() - 120 * 24 * 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+
+  it('correctly identifies new shops vs existing shops', () => {
+    expect(isNewShop(newShop)).toBe(true);
+    expect(isNewShop(existingShop)).toBe(false);
+  });
+
+  it('provides exact Gujarati message for New Shops (Setup ₹2500 + Sub ₹500 = ₹3000)', () => {
+    const msg = DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG.newShopMessageGujarati;
+    expect(msg).toBeDefined();
+    expect(msg).toContain('૧ મહિનાનું ફ્રી ટ્રાયલ પૂરું થયું છે');
+    expect(msg).toContain('સેટઅપ ચાર્જ ₹૨૫૦૦');
+    expect(msg).toContain('સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦');
+    expect(msg).toContain('પહેલા મહિને કુલ ₹૩૦૦૦');
+    expect(msg).toContain('ત્યારપછીના મહિનાથી દર મહિને માત્ર ₹૫૦૦');
+  });
+
+  it('generates ₹3000 UPI QR code and WhatsApp confirmation for New Shops', () => {
+    const config = DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG;
+    const qrUrl = getUpiQrCodeUrl(config, 3000, newShop, true);
+    expect(decodeURIComponent(qrUrl)).toContain('am=3000.00');
+
+    const waLink = getWhatsAppPaymentLink(config, newShop, 3000, true);
+    const decodedWa = decodeURIComponent(waLink);
+    expect(decodedWa).toContain('સેટઅપ ચાર્જ ₹૨૫૦૦');
+    expect(decodedWa).toContain('સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦');
+    expect(decodedWa).toContain('₹૩,૦૦૦');
+  });
+
+  it('generates ₹500 UPI QR code and WhatsApp confirmation for Existing Shops', () => {
+    const config = DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG;
+    const qrUrl = getUpiQrCodeUrl(config, 500, existingShop, false);
+    expect(decodeURIComponent(qrUrl)).toContain('am=500.00');
+
+    const waLink = getWhatsAppPaymentLink(config, existingShop, 500, false);
+    const decodedWa = decodeURIComponent(waLink);
+    expect(decodedWa).toContain('₹500');
+    expect(decodedWa).toContain('સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ');
+  });
+
+  it('transitions New Shop to Existing Shop upon admin subscription renewal', () => {
+    const renewed = renewShopSubscription(newShop, 30, 'Master Admin');
+    expect(renewed.isFirstMonth).toBe(false);
+    expect(renewed.renewalCount).toBe(1);
+    expect(renewed.subscriptionPlanId).toBe('BASIC');
+  });
+});
+
