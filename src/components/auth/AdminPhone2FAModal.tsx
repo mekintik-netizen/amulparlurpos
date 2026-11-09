@@ -191,12 +191,23 @@ export const AdminPhone2FAModal: React.FC<AdminPhone2FAModalProps> = ({
           <X className="w-5 h-5" />
         </button>
 
-        {/* Shield Icon */}
-        <div className="w-14 h-14 bg-red-50 dark:bg-red-950/50 text-[#E31837] rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-sm border border-red-100 dark:border-red-900/40">
-          <ShieldCheck className="w-7 h-7" />
+        {/* Animated Dairy Shield & Brand Motif */}
+        <div className="relative mb-3 flex justify-center">
+          <div className="relative">
+            <div className="absolute -inset-2 bg-gradient-to-r from-[#E31837]/25 via-amber-400/20 to-[#005A9C]/25 rounded-2xl blur-sm animate-pulse" />
+            <div className="relative w-14 h-14 bg-gradient-to-br from-red-600 via-[#E31837] to-red-700 text-white rounded-2xl flex items-center justify-center mx-auto shadow-md border border-white/20">
+              <ShieldCheck className="w-7 h-7 text-white drop-shadow-xs" />
+            </div>
+            {/* Top golden crown motif */}
+            <div className="flex justify-center gap-1 mt-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+              <span className="w-2 h-2 rounded-full bg-amber-300" />
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+            </div>
+          </div>
         </div>
 
-        <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+        <h3 className="text-base font-extrabold text-slate-900 dark:text-white mt-1">
           Admin 2FA Verification
         </h3>
         <p className="text-xs text-slate-500 dark:text-neutral-400 mt-1">

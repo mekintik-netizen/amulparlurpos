@@ -43,6 +43,7 @@ import { RightSideNavigation } from './components/layout/RightSideNavigation.tsx
 import { MorningGreetingModal } from './components/common/MorningGreetingModal.tsx';
 import { SubscriptionExpiredLockOverlay } from './components/common/SubscriptionExpiredLockOverlay.tsx';
 import { SubscriptionRenewalReminderBanner } from './components/common/SubscriptionRenewalReminderBanner.tsx';
+import { AmulStartupSplash } from './components/common/AmulBrandMotion.tsx';
 import { Shop, SaleBill } from './types/index.ts';
 import { AppRepository } from './storage/repositories.ts';
 import { AuthSession, UserRole, getActiveSession, clearActiveSession, ensureDefaultAccountsSeeded } from './storage/auth.ts';
@@ -257,21 +258,7 @@ export default function App() {
 
   // 3. Database Loading State
   if (loading && !currentShop) {
-    return (
-      <div className="min-h-screen bg-slate-100 flex flex-col items-center justify-center p-6 text-center font-sans">
-        <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-200 max-w-sm w-full">
-          <div className="w-12 h-12 bg-blue-100 text-[#005A9C] rounded-2xl flex items-center justify-center mx-auto mb-4">
-            <RefreshCw className="w-6 h-6 animate-spin text-blue-600" />
-          </div>
-          <h2 className="text-base font-extrabold text-slate-900 mb-1">
-            Opening Amul Parlour POS...
-          </h2>
-          <p className="text-xs text-slate-500">
-            Initializing application and authentic product catalog.
-          </p>
-        </div>
-      </div>
-    );
+    return <AmulStartupSplash />;
   }
 
   // 4. Authenticated Gate: If no user session, show Dual Login Page
@@ -291,7 +278,7 @@ export default function App() {
   const isShopPlanExpired = isShopUser && subCheck !== null && !subCheck.isActive;
 
   return (
-    <div className="min-h-screen bg-slate-100/90 dark:bg-slate-950 flex flex-col font-sans text-slate-900 dark:text-slate-100 selection:bg-blue-600 selection:text-white transition-colors duration-200">
+    <div className="min-h-screen bg-slate-100/90 dark:bg-slate-950 flex flex-col font-sans text-slate-900 dark:text-slate-100 selection:bg-blue-600 selection:text-white transition-colors duration-200 animate-fadeIn">
       {/* Professional Morning Greeting Modal (5:00 AM - 11:59 AM) */}
       <MorningGreetingModal />
 

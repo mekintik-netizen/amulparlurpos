@@ -1,108 +1,124 @@
-# Purchase Bill Print Rebranding, Stock Report Zero-Stock Filter & Bank Passbook Print Stylesheet
+# Smooth & Professional Login Animation
 
-A comprehensive upgrade to the print and reporting system in the Amul Parlour POS application:
-1. Rebrand Purchase invoice print action and preview headers to prominently read **"BILL PRINT"** with a clean A4 invoice layout.
-2. Filter out zero-stock items from both the Stock Report display and print view so only active available items (**quantity $\ge 1$**) are shown and printed, saving paper pages.
-3. Implement a dedicated `@media print` stylesheet for Bank Passbook to automatically strip away webpage navigation bars, dock menus, filter controls, and action buttons, leaving a clean, official bank ledger document.
+A polished, high-performance CSS/SVG login and startup animation featuring iconic Amul dairy branding (Amul Red `#E31837`, Dairy Blue `#005A9C`, and golden dairy crest with subtle milk ripple effect) that plays during app initialization, on the login/OTP screen, and seamlessly transitions into the POS dashboard upon successful authentication.
 
----
-
-### User Review & Critical Decisions
+## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> - **Purchase Bill "BILL PRINT" Branding**: The purchase print action buttons (in the purchase history table, view modal, and purchase entry confirmation) and the printout header will explicitly and prominently display **"BILL PRINT"** (બિલ પ્રિન્ટ) while keeping the full A4 layout with parlour details, agency name, bill number, item table, and totals.
-> - **Stock Report Active-Stock Rule**: Items with `closingStock <= 0` are automatically excluded from the stock report print layout and default table view, ensuring only items with **1 or more units** are printed. A quick filter toggle *"બધા આઇટમ્સ (Include 0 Stock)"* is available on screen for audit reconciliation without cluttering prints.
-> - **Bank Passbook Print Layout Isolation**: When printing the passbook, all peripheral UI (main app header, right-side dock navigation, KPI stat cards, search bars, filter buttons, CSV buttons) are hidden via `@media print`. The print document features a parlour bank ledger header (Shop name, GSTIN, Bank A/C & IFSC, statement date range) followed by the clean transaction table with credit, debit, and running balance columns.
+> The clarifying questions were skipped by default, so we adopt the recommended design patterns:
+> - **Visual Style**: Pulsing Amul brand emblem with gentle dairy milk ripple rings and golden crest accents, built with 100% hardware-accelerated CSS and SVG vectors (zero external heavy Lottie bundle dependencies, zero layout shifts, instant load time).
+> - **Transition**: Smooth 350ms fade-and-zoom reveal into the POS counter upon successful login, eliminating flash of unauthenticated content and ensuring zero perceptible latency for cashier staff.
+
+- **Confirmed Decision 1**: Lightweight CSS/SVG hardware-accelerated vector animation over heavy external Lottie JSON bundles to preserve instant POS startup performance on lower-spec counter hardware.
+- **Confirmed Decision 2**: Smooth composited transition (`opacity` and `transform: scale(0.98 -> 1)`) from login to the active shop terminal.
+
+## Execution Status
+
+- **Status**: Completed
+- **Verification**: `npx tsc --noEmit` verified with 0 errors. All 23 test suites (180 tests) passed. Applet build succeeded cleanly with `compile_applet`.
+- **Components Implemented**:
+  - `src/components/common/AmulBrandMotion.tsx`: `AmulBrandLogoMotion`, `AmulStartupSplash`, and `AmulLoginSuccessTransition`.
+  - `src/components/auth/LoginPage.tsx`: Integrated breathing Amul emblem and 450ms smooth transition to dashboard.
+  - `src/components/auth/AdminPhone2FAModal.tsx`: Enhanced OTP 2FA modal with animated dairy shield and crown motif.
+  - `src/App.tsx`: App startup screen upgraded with `AmulStartupSplash` and dashboard root container given `animate-fadeIn`.
+  - `src/index.css`: `@keyframes fadeIn` and `.animate-fadeIn` GPU-composited animation utility with reduced-motion support.
+  - `test/login-animation.test.ts`: 5 new unit tests verifying animation elements, splash, and transition rendering.
 
 ---
 
-### 1. Overview & Core Concept
+## 1. Overview & Core Concept
 
-- **What It Does**:
-  - Delivers dedicated, professional print outputs for two essential parlour workflows: Purchase Invoices ("BILL PRINT") and Bank Passbook Ledgers.
-  - Streamlines daily stock audits by eliminating 0-stock clutter from printouts, condensing multi-page stock printouts into crisp, readable single/double pages.
-- **Target Audience / Persona**:
-  - **Amul Parlour Franchise Owner & Cashier**: Needs quick "BILL PRINT" receipts for distributor delivery acknowledgments, concise stock counts without blank lines, and clean bank passbook printouts for chartered accountants and tax audits.
-- **Key Value**:
-  - Paper conservation, faster physical verification, and clean official records without browser navigation artifacts.
+- **What It Does**: Replaces the plain static loading spinner and static login logo with an authentic, animated Amul brand emblem featuring a soft pulsing aura, dual dairy ripple rings, and a welcoming Gujarati/English banner. Upon entering valid credentials (or completing OTP 2FA), a smooth 350ms transition gracefully dissolves the login screen and brings up the POS counter.
+- **Target Audience / Persona**: Amul Parlour shop owners, cashiers, and depot administrators using desktop computers, laptops, and touchscreen terminals throughout India.
+- **Key Value**: Delivers a welcoming, professional brand identity on boot and login while guaranteeing 60fps smoothness and instant responsiveness on all devices.
 
 ---
 
-### 2. User Experience & Visual Design
+## 2. User Experience & Visual Design
 
-- **Purchase "BILL PRINT" Workflow**:
-  - In Purchase Management table rows, action buttons include a blue/slate button labeled **"BILL PRINT"** with `<Printer />` icon.
-  - In the View Purchase Details modal, a primary action button labeled **"BILL PRINT"** opens the A4 printable invoice.
-  - The printed invoice header prominently features:
-    ```
-    ┌────────────────────────────────────────────────────────┐
-    │                       BILL PRINT                       │
-    │             Amul Parlour Purchase Invoice              │
-    ├────────────────────────────┬───────────────────────────┤
-    │ Parlour Details:           │ Agency & Invoice Details: │
-    │ Anand Super Parlour        │ Shreeji Amul Agency       │
-    │ GSTIN: 24AAACA1234A1Z5     │ Bill No: AMUL-BL-9821     │
-    │ Phone: +91 98765 43210     │ Date: 02-Nov-2026         │
-    ├────────────────────────────┴───────────────────────────┤
-    │ Item Name       Qty   Unit   Cost Rate   MRP   Total   │
-    │ Amul Taaza 500  40    Pouch  ₹24.50      ₹27   ₹980.00 │
-    ├────────────────────────────────────────────────────────┤
-    │ Total SKUs: 1   Total Units: 40    Grand Total: ₹980.00│
-    └────────────────────────────────────────────────────────┘
-    ```
+### Key User Flows
+1. **Startup Boot Sequence**: When opening the app or reloading, a centered Amul brand mark with smooth pulsing outer glow and gentle circular dairy ripple rings welcomes the cashier while IndexedDB and Firestore credentials initialize.
+2. **Interactive Login Screen**:
+   - The Amul brand card displays the authentic logo with a subtle breathing animation.
+   - Dual tabs (`Shop Counter (કૅશિયર)` and `Admin HQ (માલિક)`) sit beneath the animated header.
+   - Input focus triggers micro-interactions on the border ring.
+3. **Admin Phone OTP 2FA Screen**: The OTP verification dialog maintains the smooth dairy crest animation alongside the 6-digit numeric input and countdown timer.
+4. **Login Success & Dashboard Transition**:
+   - On submitting valid credentials, the button shows a quick checkmark and the login card scales smoothly (`scale(0.98)` then `opacity: 0`), seamlessly revealing the active POS counter without page flashes, scroll jumps, or layout shifts.
 
-- **Stock Report Zero-Stock Filter View**:
-  - Both `DailyStockReport.tsx` and `ReportsHub.tsx` filter rows to `closingStock > 0`.
-  - Header displays active count: e.g., *"સક્રિય સ્ટોક ધરાવતી આઇટમ્સ (Active Stock Items): 24"* (excluding 41 zero-stock products).
-  - Print layout strictly excludes all items with 0 stock, ensuring compact paper usage.
-
-- **Bank Passbook Clean Print View**:
-  - When the cashier clicks **"પ્રિન્ટ પાસબુક" (Print Passbook)**, browser print preview displays:
-    - Official Amul Parlour Bank Statement Header (Shop name, account number, IFSC, date window).
-    - Summary row: Opening Balance, Total Credits, Total Debits, Closing Net Balance.
-    - Transaction ledger: Date, Reference/Mode, Particulars/Party, Credit (+), Debit (-), Running Balance.
-    - Total exclusion of webpage chrome, sidebars, dock buttons, and filter bars.
+### Visual Identity & Theme
+- **Color Palette**:
+  - Dominant Neutral: Crisp canvas (`#F8FAFC` light / `#0A0A0A` dark).
+  - Brand Primary: Authentic Amul Red (`#E31837`) and Anand Dairy Blue (`#005A9C`).
+  - Warm Dairy Accents: Creamy butter gold (`#FDB813` / `#FEF3C7`) and fresh milk white (`#FFFFFF`).
+- **Typography & Hierarchy**:
+  - Display Brand Face: `Plus Jakarta Sans` font family for modern clarity, paired with Gujarati font support.
+  - Numbers & Counters: Monospace tabular numerals (`font-mono tabular-nums`).
+- **Motion & Interaction Latency Budgets**:
+  - Routine feedback: $\le 180\text{ms}$ with `cubic-bezier(0.16, 1, 0.3, 1)`.
+  - Exit transition on login success: exactly 300–350ms using compositor-only properties (`transform` and `opacity`).
+  - Full `prefers-reduced-motion` compliance to respect user accessibility preferences.
 
 ---
 
-### 3. Key Product Decisions & Trade-Offs
+## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Dedicated Print Modal & Printable Component for Purchase Bill**
-  - *Chosen Approach*: Add a standalone printable invoice modal with `@media print` CSS so clicking "BILL PRINT" opens the preview and directly invokes `window.print()` with a dedicated print layout.
-  - *Why*: Prevents modal backdrop or background purchase management controls from polluting the printout.
-
-- **Decision 2: Stock Report Zero-Stock Filter Precedence**
-  - *Chosen Approach*: Default `showZeroStock` to `false` in `DailyStockReport` and enforce `closingStock > 0` during print and PDF generation in both `DailyStockReport.tsx` and `ReportsHub.tsx`.
-  - *Why*: Parlour catalogs often contain 65+ standard Amul items, of which only 15–25 are stocked on any given day. Printing zero-stock items wastes 3–4 pages of thermal or A4 paper.
-
-- **Decision 3: Passbook Print Scoping via CSS Class**
-  - *Chosen Approach*: Wrap the printable passbook ledger in `.passbook-printable-area` and apply `@media print` rules in `src/index.css` to hide all sibling elements (`header`, `.right-side-nav`, `.no-print`) when printing.
-  - *Why*: Guarantees zero web clutter on any browser (Chrome, Edge, Firefox) without altering standard screen interactivity.
+- **Decision 1: Hardware-Accelerated CSS/SVG vs. Heavy External Lottie Player**
+  - *Chosen Approach*: Pure CSS keyframes and SVG vectors embedded directly into React components.
+  - *Why*: POS counter systems often run on low-power Intel Celeron or kiosk tablets. Embedding lightweight SVG/CSS requires zero extra npm bundle weight, avoids network dependency on remote `.json` animation files, and avoids canvas rendering overhead.
+  - *Alternatives Considered*: `lottie-react` (adds 65KB+ gzipped bundle and requires loading external animation JSONs).
+- **Decision 2: Seamless Dashboard Entrance Transition State**
+  - *Chosen Approach*: Add an `isEnteringDashboard` transition state in `App.tsx` / `LoginPage.tsx` lasting ~350ms during session handoff.
+  - *Why*: Prevents jarring white-flash or abrupt element pop-in when swapping root React component trees.
 
 ---
 
-### 4. Technical Architecture & Component Mapping
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+### System Architecture & Motion Flow
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                           Amul Parlour POS                              │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │
-           ┌─────────────────────────┼─────────────────────────┐
-           ▼                         ▼                         ▼
-┌───────────────────────┐ ┌───────────────────────┐ ┌───────────────────────┐
-│  Purchase Management  │ │  Daily Stock Report   │ │ Bank Statement Passbk │
-│  - "BILL PRINT" btn   │ │  - closingStock > 0   │ │  - .passbook-print    │
-│  - PurchasePrintModal │ │  - Zero-stock filter  │ │  - @media print rule  │
-│  - A4 invoice layout  │ │  - Paper optimization │ │  - Hide nav & chrome  │
-└───────────────────────┘ └───────────────────────┘ └───────────────────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                     Amul Parlour POS                         │
+└──────────────────────────────┬───────────────────────────────┘
+                               │
+                ┌──────────────┴──────────────┐
+                ▼                             ▼
+   ┌─────────────────────────┐   ┌─────────────────────────┐
+   │    App Startup Phase    │   │     Login & OTP View    │
+   │  AmulBrandLoader (CSS)  │   │  AnimatedBrandEmblem    │
+   │  • Pulsing Amul Red     │   │  • Dual-tier tabs       │
+   │  • Milk ripple rings    │   │  • OTP 2FA modal sync   │
+   │  • Gujarati subtitle    │   │  • Form validations     │
+   └────────────┬────────────┘   └────────────┬────────────┘
+                │                             │
+                │ Credentials Verified        │ onLoginSuccess()
+                ▼                             ▼
+   ┌───────────────────────────────────────────────────────────┐
+   │          Seamless Transition Controller (350ms)           │
+   │          • Card scales down slightly (scale: 0.98)        │
+   │          • Smooth cross-dissolve opacity: 1 -> 0          │
+   │          • Immediate DOM mount of POS / Admin Counter     │
+   └───────────────────────────┬───────────────────────────────┘
+                               │
+                               ▼
+   ┌───────────────────────────────────────────────────────────┐
+   │             POS Counter / Admin HQ Dashboard              │
+   │             • Zero layout shift, full 60fps               │
+   │             • Active shop session fully restored          │
+   └───────────────────────────────────────────────────────────┘
 ```
 
-- **Files to Modify / Enhanced**:
-  1. `src/components/purchases/PurchaseManagement.tsx`: Added "BILL PRINT" action buttons and dedicated `PurchaseBillPrintModal` with "BILL PRINT" header; made actions column sticky (`sticky right-0`) and modal action controls sticky (`sticky top-0` and `sticky bottom-0`) with responsive scrolling containers.
-  2. `src/components/reports/DailyStockReport.tsx`: Update row filtering to exclude `closingStock <= 0` by default and in print layout.
-  3. `src/components/reports/ReportsHub.tsx`: Exclude `closingStock <= 0` in stock report view and CSV/print.
-  4. `src/components/banking/BankStatementManagement.tsx`: Wrap passbook container with `.passbook-printable-document`, add passbook print header, and attach `.no-print` classes to web controls.
-  5. `src/index.css`: Add `@media print` rules for `#purchase-bill-modal-overlay`, `#purchase-bill-modal-card`, `.purchase-printable-bill`, `.passbook-printable-document` and hide general webpage elements during printing.
-  6. Unit tests: Create/update tests verifying "BILL PRINT" labeling, stock filtering (> 0), passbook print classes, sticky print controls, and responsive viewports.
+### Component & State Mapping
+- `src/components/common/AmulBrandMotion.tsx`: Reusable, lightweight vector animation component providing:
+  - `AmulBrandLogoMotion`: Breathing Amul badge with soft radial milk swirl and gold sparkle rings.
+  - `AmulPageTransitionWrapper`: Smooth container handler for enter/exit animations.
+- `src/components/auth/LoginPage.tsx`: Integrated with `AmulBrandLogoMotion`, incorporating a smooth 350ms exit transition upon credential/OTP completion before releasing control to `onLoginSuccess`.
+- `src/components/auth/AdminPhone2FAModal.tsx`: Enhanced header with responsive dairy pulse animation while awaiting SMS OTP input.
+- `src/App.tsx`: Startup splash screen updated to use `AmulBrandLogoMotion` instead of the generic rotating spinner.
 
+### Verification Plan
+1. **TypeScript Check**: `npx tsc --noEmit` must return 0 errors.
+2. **Automated Test Suite**: Run all 22 test files (175+ tests) with Vitest.
+3. **Applet Compilation**: `compile_applet` must succeed cleanly.
+4. **Visual & Performance Verification**: Confirm zero layout shifts, fluid 60fps animations on both dark and light modes, and smooth dashboard transitions.

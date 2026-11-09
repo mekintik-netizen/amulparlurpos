@@ -27,6 +27,7 @@ import { AdminPasswordResetModal } from './AdminPasswordResetModal.tsx';
 import { AdminCredentialsRecoveryModal } from './AdminCredentialsRecoveryModal.tsx';
 import { AdminPhone2FAModal } from './AdminPhone2FAModal.tsx';
 import amulLogo from '../../assets/logo.ts';
+import { AmulBrandLogoMotion, AmulLoginSuccessTransition } from '../common/AmulBrandMotion.tsx';
 import { getAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from '../../storage/firebase.ts';
 import { saveSession } from '../../storage/auth.ts';
 import { 
@@ -107,6 +108,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [resetSuccessMessage, setResetSuccessMessage] = useState<string | null>(null);
 
+  // Smooth Dashboard Transition State
+  const [transitioningSession, setTransitioningSession] = useState<AuthSession | null>(null);
+
+  const triggerSuccessfulLoginTransition = (session: AuthSession, isTrusted: boolean = false) => {
+    saveSession(session, isTrusted);
+    setTransitioningSession(session);
+    setTimeout(() => {
+      onLoginSuccess(session);
+    }, 450);
+  };
+
   // Forgot Password Modal State
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
 
@@ -166,8 +178,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         setPendingAdminSession(session);
         setIs2FAModalOpen(true);
       } else {
-        saveSession(session, false);
-        onLoginSuccess(session);
+        triggerSuccessfulLoginTransition(session, false);
       }
     } catch (err: any) {
       setError(err?.message || 'Authentication failed. Please verify credentials.');
@@ -178,9 +189,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   const handle2FAVerified = () => {
     if (pendingAdminSession) {
-      saveSession(pendingAdminSession, isTrustedDevice);
       setIs2FAModalOpen(false);
-      onLoginSuccess(pendingAdminSession);
+      triggerSuccessfulLoginTransition(pendingAdminSession, isTrustedDevice);
     }
   };
 
@@ -234,7 +244,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       // Once successfully created, lock and hide the Admin Register tab permanently
       setHasMasterAdmin(true);
       setActiveTab('ADMIN');
-      onLoginSuccess(session);
+      triggerSuccessfulLoginTransition(session, false);
     } catch (err: any) {
       setError(err?.message || 'Failed to initialize master admin account.');
     } finally {
@@ -250,7 +260,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     <div className={wrapperClass}>
       
       {/* Primary Login / Registration Card */}
-      <div className="max-w-[420px] w-full bg-white dark:bg-neutral-950 border border-slate-300 dark:border-neutral-800 rounded-2xl shadow-sm p-6 sm:p-7 relative transition-all">
+      <div className={`max-w-[420px] w-full bg-white dark:bg-neutral-950 border border-slate-300 dark:border-neutral-800 rounded-2xl shadow-sm p-6 sm:p-7 relative transition-all duration-300 ease-in-out ${
+        transitioningSession ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'
+      }`}>
         
         {/* Close button if opened as modal */}
         {onClose && (
@@ -264,19 +276,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           </button>
         )}
 
-        {/* Amul Brand Header with Official Logo Artwork */}
+        {/* Amul Brand Header with Animated Logo Motion */}
         <div className="text-center mb-5">
           <div className="flex justify-center mb-2">
-            <div className="bg-white p-2 rounded-2xl border border-slate-200 dark:border-neutral-800 shadow-xs inline-block">
-              <img
-                src={amulLogo}
-                alt="Amul - The Taste of India"
-                className="h-16 max-w-[240px] w-auto object-contain mx-auto"
-                loading="eager"
-              />
-            </div>
+            <AmulBrandLogoMotion size="lg" showTagline={false} isPulsing={true} />
           </div>
-          <h1 className="text-base font-black text-slate-900 dark:text-white tracking-tight">
+          <h1 className="text-base font-black text-slate-900 dark:text-white tracking-tight mt-2">
             Amul Preferred Parlour
           </h1>
           <p className="text-[11px] text-slate-500 dark:text-neutral-400 mt-0.5">
@@ -625,6 +630,18 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           setPendingAdminSession(null);
         }}
       />
+
+      {/* Smooth Transition Overlay on Successful Login */}
+      {transitioningSession && (
+        <AmulLoginSuccessTransition
+          userName={transitioningSession.fullName || transitioningSession.username}
+          shopName={
+            shops.find(s => s.id === transitioningSession.shopId || s.shopCode === transitioningSession.shopCode)?.name ||
+            transitioningSession.shopCode ||
+            (transitioningSession.role === 'ADMIN' ? 'Amul Headquarters Admin HQ' : 'Amul Preferred Parlour')
+          }
+        />
+      )}
 
     </div>
   );
