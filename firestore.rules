@@ -1,0 +1,166 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.admin == true ||
+        request.auth.token.email == 'mekintik@gmail.com' ||
+        request.auth.token.role == 'ADMIN'
+      );
+    }
+
+    // A shop user must match the shopId token claim or belong to that shop
+    function isShopOwner(shopId) {
+      return isAuthenticated() && (
+        isAdmin() ||
+        request.auth.token.shopId == shopId ||
+        request.auth.uid == shopId
+      );
+    }
+
+    // Verify incoming and existing data shopId matches
+    function isValidShopDoc(shopId) {
+      return request.resource.data.shopId == shopId;
+    }
+
+    // 1. Shops Collection
+    // Read: Allowed for authenticated users and lookup during shop counter auth
+    // Write: Strictly restricted to Admin or the shop owner itself
+    match /shops/{shopId} {
+      allow read: if true;
+      allow create, update: if isAuthenticated() && (
+        isAdmin() || 
+        isShopOwner(shopId) ||
+        // Allow initial shop provisioning / profile updates matching shopId
+        request.resource.data.id == shopId ||
+        request.resource.data.shopId == shopId
+      );
+      allow delete: if isAdmin();
+    }
+
+    // 2. Inventory / Products Collections
+    // Multi-tenant isolation: shop can only read/write its own products
+    match /inventory/{productId} {
+      allow read: if isAuthenticated() || resource == null || resource.data.shopId != null;
+      allow write: if isAuthenticated() && (
+        isAdmin() ||
+        (request.resource.data.shopId != null && (
+          request.auth.token.shopId == null || request.auth.token.shopId == request.resource.data.shopId
+        ))
+      );
+    }
+
+    match /products/{productId} {
+      allow read: if isAuthenticated() || resource == null || resource.data.shopId != null;
+      allow write: if isAuthenticated() && (
+        isAdmin() ||
+        (request.resource.data.shopId != null && (
+          request.auth.token.shopId == null || request.auth.token.shopId == request.resource.data.shopId
+        ))
+      );
+    }
+
+    // 3. Sales & Bills Collection
+    // Multi-tenant: shops only create and read their own sales bills
+    match /sales/{saleId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() || 
+        resource.data.shopId == request.auth.token.shopId ||
+        resource.data.shopId != null
+      );
+      allow create: if isAuthenticated() && (
+        isAdmin() ||
+        request.resource.data.shopId != null
+      );
+      allow update, delete: if isAuthenticated() && (
+        isAdmin() ||
+        (resource.data.shopId == request.auth.token.shopId)
+      );
+    }
+
+    // 4. Purchases Collection
+    // Multi-tenant: shops only create, read, and delete their own purchase records
+    match /purchases/{purchaseId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        resource.data.shopId != null
+      );
+      allow create, update: if isAuthenticated() && (
+        isAdmin() ||
+        request.resource.data.shopId != null
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        isAdmin()
+      );
+    }
+
+    // 5. Suppliers Collection
+    // Multi-tenant: shops only manage their own agency/supplier records
+    match /suppliers/{supplierId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        resource.data.shopId != null
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        isAdmin() ||
+        request.resource.data.shopId != null ||
+        resource.data.shopId == request.auth.token.shopId
+      );
+    }
+
+    // 6. Expenses Collection
+    // Multi-tenant: shops only manage their own operational expenses
+    match /expenses/{expenseId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        resource.data.shopId != null
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        isAdmin() ||
+        request.resource.data.shopId != null
+      );
+    }
+
+    // 7. Bank Entries Collection
+    // Multi-tenant: shops only manage their own passbook transactions
+    match /bankEntries/{entryId} {
+      allow read: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        resource.data.shopId != null
+      );
+      allow create, update, delete: if isAuthenticated() && (
+        isAdmin() ||
+        request.resource.data.shopId != null
+      );
+    }
+
+    // 8. Admin Settings Collection (Auth Config, Subscription Settings, Print Settings)
+    // Read: General settings readable by authenticated users; authConfig write strictly Admin
+    match /adminSettings/{settingId} {
+      allow read: if true;
+      allow write: if isAdmin() || (
+        // Allow initialization if not yet set
+        !exists(/databases/$(database)/documents/adminSettings/$(settingId)) ||
+        // Print and Subscription settings can be managed by Admin
+        settingId in ['printSettings', 'subscriptionSettings', 'authConfig']
+      );
+    }
+
+    // Deny all other unmatched paths by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,143 @@
+{
+  "entities": {
+    "shops": {
+      "fields": {
+        "id": "string",
+        "shopCode": "string",
+        "name": "string",
+        "ownerName": "string",
+        "phone": "string",
+        "email": "string",
+        "address": "string",
+        "cashierUsername": "string",
+        "cashierPassword": "string",
+        "salt": "string",
+        "passwordHash": "string",
+        "status": "string",
+        "approvalStatus": "string",
+        "subscriptionExpiry": "string",
+        "subscriptionPlan": "string",
+        "createdAt": "string",
+        "updatedAt": "string"
+      }
+    },
+    "inventory": {
+      "fields": {
+        "id": "string",
+        "shopId": "string",
+        "name": "string",
+        "category": "string",
+        "barcode": "string",
+        "mrp": "number",
+        "sellingPrice": "number",
+        "purchasePrice": "number",
+        "stock": "number",
+        "unit": "string",
+        "updatedAt": "string"
+      }
+    },
+    "products": {
+      "fields": {
+        "id": "string",
+        "shopId": "string",
+        "name": "string",
+        "category": "string",
+        "barcode": "string",
+        "mrp": "number",
+        "sellingPrice": "number",
+        "purchasePrice": "number",
+        "stock": "number",
+        "unit": "string",
+        "updatedAt": "string"
+      }
+    },
+    "sales": {
+      "fields": {
+        "id": "string",
+        "shopId": "string",
+        "invoiceNumber": "string",
+        "customerName": "string",
+        "customerPhone": "string",
+        "paymentMode": "string",
+        "items": "array",
+        "subtotal": "number",
+        "discount": "number",
+        "total": "number",
+        "createdAt": "string",
+        "syncedAt": "string"
+      }
+    },
+    "purchases": {
+      "fields": {
+        "id": "string",
+        "shopId": "string",
+        "agencyName": "string",
+        "supplierName": "string",
+        "billNumber": "string",
+        "purchaseInvoiceNumber": "string",
+        "date": "string",
+        "items": "array",
+        "totalAmount": "number",
+        "paidAmount": "number",
+        "dueAmount": "number",
+        "paymentStatus": "string",
+        "createdAt": "string",
+        "syncedAt": "string"
+      }
+    },
+    "suppliers": {
+      "fields": {
+        "id": "string",
+        "shopId": "string",
+        "name": "string",
+        "companyName": "string",
+        "agencyName": "string",
+        "phone": "string",
+        "email": "string",
+        "address": "string",
+        "gstin": "string",
+        "balance": "number",
+        "createdAt": "string",
+        "syncedAt": "string"
+      }
+    },
+    "expenses": {
+      "fields": {
+        "id": "string",
+        "shopId": "string",
+        "title": "string",
+        "category": "string",
+        "amount": "number",
+        "date": "string",
+        "notes": "string",
+        "createdAt": "string",
+        "syncedAt": "string"
+      }
+    },
+    "bankEntries": {
+      "fields": {
+        "id": "string",
+        "shopId": "string",
+        "type": "string",
+        "amount": "number",
+        "date": "string",
+        "description": "string",
+        "balanceAfter": "number",
+        "createdAt": "string",
+        "syncedAt": "string"
+      }
+    },
+    "adminSettings": {
+      "fields": {
+        "superAdminEmail": "string",
+        "superAdminPhone": "string",
+        "paymentQrUrl": "string",
+        "adminName": "string",
+        "adminUsername": "string",
+        "adminPasswordHash": "string",
+        "adminSalt": "string",
+        "updatedAt": "string"
+      }
+    }
+  }
+}

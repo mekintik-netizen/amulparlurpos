@@ -30,6 +30,7 @@ import amulLogo from '../../assets/logo.ts';
 import { AmulBrandLogoMotion, AmulLoginSuccessTransition } from '../common/AmulBrandMotion.tsx';
 import { getAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from '../../storage/firebase.ts';
 import { saveSession } from '../../storage/auth.ts';
+import { checkRateLimit, recordFailedAttempt, clearRateLimit, sanitizeErrorMessage } from '../../utils/sanitizer.ts';
 import { 
   Store, 
   Shield, 
@@ -152,6 +153,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     setResetSuccessMessage(null);
     setLoading(true);
 
+    const cleanInput = username.trim();
+    const rateLimitKey = `login_${activeTab}_${cleanInput.toLowerCase()}`;
+    const rateCheck = checkRateLimit(rateLimitKey);
+
+    if (!rateCheck.allowed) {
+      setError(`Too many failed login attempts. Please wait ${rateCheck.retryAfterSeconds} seconds before trying again.`);
+      setLoading(false);
+      return;
+    }
+
     const enteredUsername = username.trim();
     const enteredPassword = password;
     // Clear password state on submit for privacy & anti-shoulder surfing
@@ -173,6 +184,9 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         });
       }
 
+      // Successful credentials verification -> clear rate limit
+      clearRateLimit(rateLimitKey);
+
       if (activeTab === 'ADMIN') {
         // Trigger Real-time SMS Phone OTP 2FA for Master Admin
         setPendingAdminSession(session);
@@ -181,7 +195,12 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         triggerSuccessfulLoginTransition(session, false);
       }
     } catch (err: any) {
-      setError(err?.message || 'Authentication failed. Please verify credentials.');
+      const lockResult = recordFailedAttempt(rateLimitKey);
+      if (lockResult.locked) {
+        setError(`Maximum login attempts exceeded. Account access temporarily locked for ${lockResult.retryAfterSeconds} seconds.`);
+      } else {
+        setError(sanitizeErrorMessage(err?.message, 'Authentication failed. Please verify credentials.'));
+      }
     } finally {
       setLoading(false);
     }

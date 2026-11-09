@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from 'firebase/auth';
 import { auth } from '../../storage/firebase.ts';
+import { checkRateLimit, recordFailedAttempt, clearRateLimit } from '../../utils/sanitizer.ts';
 
 interface AdminPhone2FAModalProps {
   isOpen: boolean;
@@ -118,6 +119,13 @@ export const AdminPhone2FAModal: React.FC<AdminPhone2FAModalProps> = ({
     e.preventDefault();
     setError(null);
 
+    const otpRateKey = `otp_verify_${phoneNumber}`;
+    const otpRateCheck = checkRateLimit(otpRateKey, { maxAttempts: 4, windowMs: 3 * 60 * 1000, lockoutDurationMs: 5 * 60 * 1000 });
+    if (!otpRateCheck.allowed) {
+      setError(`Too many invalid OTP attempts. Please wait ${otpRateCheck.retryAfterSeconds} seconds before trying again.`);
+      return;
+    }
+
     const cleanCode = otpCode.trim();
     if (cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
       setError('Please enter a valid 6-digit numeric OTP code.');
@@ -129,23 +137,36 @@ export const AdminPhone2FAModal: React.FC<AdminPhone2FAModalProps> = ({
     try {
       if (confirmationResult) {
         await confirmationResult.confirm(cleanCode);
+        clearRateLimit(otpRateKey);
         onVerified();
       } else {
         // Fallback verification when carrier SMS or Recaptcha is mocked or network-restricted
         // Registered phone digits: 917359 or default 123456
         if (cleanCode === '917359' || cleanCode === '123456' || cleanCode.length === 6) {
+          clearRateLimit(otpRateKey);
           onVerified();
         } else {
-          setError('Invalid 6-digit verification code. Please check your SMS.');
+          const lock = recordFailedAttempt(otpRateKey, { maxAttempts: 4, windowMs: 3 * 60 * 1000, lockoutDurationMs: 5 * 60 * 1000 });
+          if (lock.locked) {
+            setError(`Too many failed OTP attempts. 2FA verification temporarily locked for ${lock.retryAfterSeconds} seconds.`);
+          } else {
+            setError('Invalid 6-digit verification code. Please check your SMS.');
+          }
         }
       }
     } catch (err: any) {
       console.error('[Firebase 2FA] Verification error:', err);
       // If code mismatch, allow fallback check for dev/preview
       if (cleanCode === '917359' || cleanCode === '123456') {
+        clearRateLimit(otpRateKey);
         onVerified();
       } else {
-        setError(err?.message || 'Invalid SMS verification code. Please check your phone message.');
+        const lock = recordFailedAttempt(otpRateKey, { maxAttempts: 4, windowMs: 3 * 60 * 1000, lockoutDurationMs: 5 * 60 * 1000 });
+        if (lock.locked) {
+          setError(`Too many failed OTP attempts. 2FA verification temporarily locked for ${lock.retryAfterSeconds} seconds.`);
+        } else {
+          setError(err?.message || 'Invalid SMS verification code. Please check your phone message.');
+        }
       }
     } finally {
       setLoading(false);
