@@ -33,8 +33,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
-  signInAnonymously,
-  onAuthStateChanged
+  signInAnonymously
 } from 'firebase/auth';
 
 export const firebaseConfig = {
@@ -52,14 +51,14 @@ export const app: FirebaseApp = getApps().length === 0 ? initializeApp(firebaseC
 export const db: Firestore = getFirestore(app);
 export const auth: Auth = getAuth(app);
 
-// Automatically ensure an authenticated session for Firestore security rules
-onAuthStateChanged(auth, (user) => {
-  if (!user) {
-    signInAnonymously(auth).catch((error) => {
-      console.error("[Firebase] Anonymous auth error:", error);
-    });
-  }
-});
+// પેજ ખુલતાની સાથે જ તરત Anonymous Login શરૂ કરો
+export const authReady: Promise<void> = signInAnonymously(auth)
+  .then(() => {
+    console.log("[Firebase] Secure anonymous session active");
+  })
+  .catch((error) => {
+    console.error("[Firebase] Anonymous auth failed:", error.code, error.message);
+  });
 
 export interface AdminAuthConfig {
   superAdminEmail: string;
@@ -86,6 +85,7 @@ export const DEFAULT_ADMIN_AUTH_CONFIG: AdminAuthConfig = {
  */
 export async function getAdminAuthConfig(): Promise<AdminAuthConfig> {
   try {
+    await authReady;
     const configDocRef = doc(db, 'adminSettings', 'authConfig');
     const snapshot = await getDoc(configDocRef);
     if (snapshot.exists()) {
@@ -112,6 +112,7 @@ export async function getAdminAuthConfig(): Promise<AdminAuthConfig> {
  */
 export async function updateAdminAuthConfig(updates: Partial<AdminAuthConfig>): Promise<void> {
   try {
+    await authReady;
     const configDocRef = doc(db, 'adminSettings', 'authConfig');
     await setDoc(configDocRef, {
       ...updates,
