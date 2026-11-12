@@ -32,7 +32,9 @@ import {
   ConfirmationResult,
   GoogleAuthProvider,
   signInWithPopup,
-  signOut
+  signOut,
+  signInAnonymously,
+  onAuthStateChanged
 } from 'firebase/auth';
 
 export const firebaseConfig = {
@@ -49,6 +51,15 @@ export const firebaseConfig = {
 export const app: FirebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 export const db: Firestore = getFirestore(app);
 export const auth: Auth = getAuth(app);
+
+// Automatically ensure an authenticated session for Firestore security rules
+onAuthStateChanged(auth, (user) => {
+  if (!user) {
+    signInAnonymously(auth).catch((error) => {
+      console.error("[Firebase] Anonymous auth error:", error);
+    });
+  }
+});
 
 export interface AdminAuthConfig {
   superAdminEmail: string;
@@ -150,4 +161,3 @@ export {
   getUpiQrCodeUrl,
   getWhatsAppPaymentLink
 } from './subscriptionSettings.ts';
-
