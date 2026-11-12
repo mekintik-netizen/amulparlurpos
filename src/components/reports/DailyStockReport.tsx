@@ -21,11 +21,13 @@ import {
   CheckCircle2,
   DollarSign,
   X,
-  Printer
+  Printer,
+  FileSpreadsheet
 } from 'lucide-react';
 import { DailyStockReportRow, Product, Shop, StockMovement } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import amulLogo from '../../assets/logo.ts';
+import { exportDataToExcel } from '../../utils/excelEngine.ts';
 
 interface DailyStockReportProps {
   currentShop: Shop;
@@ -161,6 +163,30 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
     document.body.removeChild(link);
   };
 
+  // Export Excel (.xlsx)
+  const handleExportExcel = () => {
+    const rowsToExport = includeZeroStock ? rows : rows.filter(r => r.closingStock > 0);
+    const excelData = rowsToExport.map((r) => ({
+      'Product Name': r.productName,
+      'Barcode': r.barcode,
+      'Category': r.category,
+      'Unit': r.unit,
+      'Opening Stock': r.openingStock,
+      'Stock Received (In)': r.stockIn,
+      'Sales Quantity': r.salesQty,
+      'Stock Out / Adjustment': r.stockOut,
+      'Closing Stock': r.closingStock,
+      'Min Alert Level': r.minStockAlert,
+      'Stock Status': r.isLowStock ? 'LOW STOCK ALERT' : 'Normal'
+    }));
+
+    exportDataToExcel({
+      filename: `Amul_Stock_Report_${currentShop.shopCode}_${targetDate}.xlsx`,
+      sheetName: 'Stock Audit Report',
+      data: excelData
+    });
+  };
+
   // Filtered rows: by default excludes all items with 0 stock (quantity >= 1 only)
   const filteredRows = rows.filter((r) => {
     const matchesSearch =
@@ -226,11 +252,21 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
             </button>
 
             <button
+              onClick={handleExportExcel}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Export Stock Report to Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Export to Excel</span>
+            </button>
+
+            <button
               onClick={handleExportCSV}
-              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Export CSV"
             >
               <Download className="w-4 h-4" />
-              Export CSV
+              <span>CSV</span>
             </button>
           </div>
         </div>

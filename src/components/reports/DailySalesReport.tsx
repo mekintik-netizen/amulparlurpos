@@ -17,16 +17,18 @@ import {
   IndianRupee, 
   Banknote, 
   QrCode, 
-  CreditCard, 
-  User, 
-  CheckCircle2, 
+  CreditCard,
+  User,
+  CheckCircle2,
   RefreshCw,
   ShoppingBag,
-  Eye
+  Eye,
+  FileSpreadsheet
 } from 'lucide-react';
 import { DailySalesReportSummary, SaleBill, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import amulLogo from '../../assets/logo.ts';
+import { exportDataToExcel } from '../../utils/excelEngine.ts';
 
 interface DailySalesReportProps {
   currentShop: Shop;
@@ -82,6 +84,34 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
     );
   });
 
+  // Export Sales History & Daily Cash Register to Excel
+  const handleExportSalesToExcel = () => {
+    if (!summary || summary.bills.length === 0) {
+      alert('No sales transactions recorded for this date to export.');
+      return;
+    }
+
+    const excelData = summary.bills.map((b) => ({
+      'Invoice / Bill No': b.billNumber,
+      'Date & Time': new Date(b.createdAt || b.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }),
+      'Customer Name': b.customerName || 'Walk-in Customer',
+      'Customer Phone': b.customerPhone || 'N/A',
+      'Payment Mode': b.paymentMode,
+      'Total Items': b.items.reduce((acc, it) => acc + it.quantity, 0),
+      'Item Details': b.items.map(it => `${it.productName} (x${it.quantity})`).join(', '),
+      'Subtotal (₹)': b.subtotal,
+      'Discount (₹)': b.discountAmount || 0,
+      'Final Amount (₹)': b.finalAmount,
+      'Status': b.status || 'COMPLETED'
+    }));
+
+    exportDataToExcel({
+      filename: `Amul_Daily_Sales_Register_${currentShop.shopCode}_${targetDate}.xlsx`,
+      sheetName: 'Daily Cash Register',
+      data: excelData
+    });
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Header & Date Filter */}
@@ -117,6 +147,15 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
                 className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-hidden"
               />
             </div>
+
+            <button
+              onClick={handleExportSalesToExcel}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Export Daily Cash Register & Sales to Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              <span>Export to Excel</span>
+            </button>
 
             <button
               onClick={() => window.print()}

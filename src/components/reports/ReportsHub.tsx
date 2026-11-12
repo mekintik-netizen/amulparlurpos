@@ -46,6 +46,7 @@ import {
 import { AppRepository } from '../../storage/repositories.ts';
 import { BrandedReportHeader } from '../common/BrandedReportHeader.tsx';
 import { SalesProfitAnalytics } from './SalesProfitAnalytics.tsx';
+import { exportDataToExcel } from '../../utils/excelEngine.ts';
 
 interface ReportsHubProps {
   currentShop: Shop | null;
@@ -172,6 +173,80 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
     document.body.removeChild(link);
   };
 
+  // Export as formatted Excel (.xlsx) spreadsheet
+  const handleExportExcel = () => {
+    let excelRows: Record<string, any>[] = [];
+    const filename = `Amul_${selectedReport}_Report_${currentShop?.shopCode || 'HQ'}_${selectedDate}.xlsx`;
+    const sheetName = selectedReport;
+
+    if (selectedReport === 'SALES') {
+      excelRows = sales.map(s => ({
+        'Bill / Invoice Number': s.billNumber,
+        'Time': new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        'Customer Name': s.customerName || 'Walk-in Customer',
+        'Customer Phone': s.customerPhone || 'N/A',
+        'Items Count': s.itemCount,
+        'Payment Mode': s.paymentMode,
+        'Status': s.status,
+        'Subtotal (₹)': s.subtotal,
+        'Discount (₹)': s.discountAmount || 0,
+        'Final Amount (₹)': s.finalAmount
+      }));
+    } else if (selectedReport === 'STOCK') {
+      excelRows = stockRows.filter(r => r.closingStock > 0).map(r => ({
+        'Product Name': r.productName,
+        'Barcode': r.barcode,
+        'Category': r.category,
+        'Opening Stock': r.openingStock,
+        'Stock Received (In)': r.stockIn,
+        'Sales Quantity': r.salesQty,
+        'Stock Out / Adjustment': r.stockOut,
+        'Closing Stock': r.closingStock,
+        'Status': r.isLowStock ? 'LOW STOCK' : 'Normal'
+      }));
+    } else if (selectedReport === 'PURCHASES') {
+      excelRows = purchases.map(p => ({
+        'Invoice Number': p.purchaseInvoiceNumber,
+        'Distributor / Agency': p.supplierName,
+        'Purchase Date': p.purchaseDate,
+        'Items Count': p.itemCount,
+        'Payment Mode': p.paymentMode,
+        'Status': p.status,
+        'Total Amount (₹)': p.totalAmount,
+        'Due Amount (₹)': p.dueAmount
+      }));
+    } else if (selectedReport === 'EXPENSES') {
+      excelRows = expenses.map(e => ({
+        'Expense Category': e.category,
+        'Notes & Remarks': e.notes || '-',
+        'Payment Mode': e.paymentMode,
+        'Created By': e.createdBy,
+        'Amount (₹)': e.amount
+      }));
+    } else if (selectedReport === 'PNL' && financialSummary) {
+      excelRows = [
+        { 'Financial Metric': 'Total Sales Revenue', 'Amount (₹)': financialSummary.salesRevenue },
+        { 'Financial Metric': 'Cost of Goods Sold (COGS)', 'Amount (₹)': financialSummary.costOfGoodsSold },
+        { 'Financial Metric': 'Gross Margin Profit', 'Amount (₹)': financialSummary.grossProfit },
+        { 'Financial Metric': 'Operating Expenses', 'Amount (₹)': financialSummary.expensesTotal },
+        { 'Financial Metric': 'Net Operating Profit', 'Amount (₹)': financialSummary.netOperatingProfit }
+      ];
+    } else {
+      excelRows = [{ 'Report': 'Summary', 'Date': selectedDate, 'Status': 'Complete' }];
+    }
+
+    if (excelRows.length === 0) {
+      alert('No data records available to export for this report.');
+      return;
+    }
+
+    exportDataToExcel({
+      filename,
+      sheetName,
+      data: excelRows
+    });
+  };
+
   // Titles mapping
   const reportTitles: Record<ReportType, { title: string; subtitle: string; ref: string }> = {
     ANALYTICS: {
@@ -245,11 +320,20 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
             </div>
 
             <button
+              onClick={handleExportExcel}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="Export report directly to Microsoft Excel (.xlsx)"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-white" />
+              <span>Export to Excel</span>
+            </button>
+
+            <button
               onClick={handleExportCSV}
               className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-xs"
               title="Export as CSV spreadsheet"
             >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <Download className="w-4 h-4 text-slate-500" />
               <span>CSV</span>
             </button>
 
@@ -258,7 +342,7 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
               className="bg-[#005A9C] hover:bg-blue-800 text-white text-xs font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-sm"
               title="Download or Print PDF with official Amul header and timestamp"
             >
-              <Download className="w-4 h-4 text-amber-300" />
+              <Printer className="w-4 h-4 text-amber-300" />
               <span>Download PDF / Print</span>
             </button>
           </div>

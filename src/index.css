@@ -224,7 +224,43 @@
   }
 
   /* 3b. Dedicated Purchase Bill A4 Invoice Print Styles */
-  #purchase-bill-modal-overlay {
+  @page {
+    size: A4 portrait;
+    margin: 10mm;
+  }
+
+  body:has(#purchase-invoice-print-area) {
+    visibility: hidden !important;
+    background: #ffffff !important;
+  }
+
+  body:has(#purchase-invoice-print-area) * {
+    visibility: hidden;
+  }
+
+  #purchase-invoice-print-area,
+  #purchase-invoice-print-area * {
+    visibility: visible !important;
+  }
+
+  #purchase-invoice-print-area {
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    font-family: 'Inter', 'Noto Sans Gujarati', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  }
+
+  #purchase-bill-modal-overlay,
+  #purchase-bill-modal-card {
     position: static !important;
     display: block !important;
     background: transparent !important;
@@ -234,64 +270,35 @@
     width: 100% !important;
     height: auto !important;
     min-height: 0 !important;
-    overflow: visible !important;
-    box-shadow: none !important;
-  }
-
-  #purchase-bill-modal-card {
-    position: static !important;
-    display: block !important;
-    background: #ffffff !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    max-width: none !important;
-    width: 100% !important;
-    height: auto !important;
     max-height: none !important;
+    max-width: none !important;
+    overflow: visible !important;
     box-shadow: none !important;
     border: none !important;
     border-radius: 0 !important;
-    overflow: visible !important;
   }
 
-  .purchase-printable-bill {
-    display: block !important;
-    visibility: visible !important;
+  .purchase-table-print {
     width: 100% !important;
-    max-width: 100% !important;
-    margin: 0 auto !important;
-    padding: 8mm !important;
-    background: #ffffff !important;
-    color: #000000 !important;
-    box-shadow: none !important;
-    border: none !important;
-    box-sizing: border-box !important;
-  }
-
-  .purchase-printable-bill * {
-    visibility: visible !important;
-    color: #000000 !important;
-  }
-
-  .purchase-printable-bill table {
-    width: 100% !important;
+    table-layout: fixed !important;
     border-collapse: collapse !important;
-    font-size: 11px !important;
   }
 
-  .purchase-printable-bill thead {
+  .purchase-table-print thead {
     display: table-header-group !important;
-    background-color: #f1f5f9 !important;
   }
 
-  .purchase-printable-bill th,
-  .purchase-printable-bill td {
-    border: 1px solid #64748b !important;
-    padding: 5px 8px !important;
-    color: #000000 !important;
+  .purchase-table-print tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 
-  .purchase-printable-bill tr {
+  .purchase-table-print th,
+  .purchase-table-print td {
+    word-break: break-word;
+  }
+
+  .purchase-footer-container {
     page-break-inside: avoid !important;
     break-inside: avoid !important;
   }

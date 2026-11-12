@@ -28,7 +28,9 @@ import {
   CopyX,
   Layers,
   GitMerge,
-  RefreshCw
+  RefreshCw,
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 import { Product, ProductCategory, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
@@ -36,6 +38,8 @@ import { isShopSubscriptionActive } from '../../storage/subscription.ts';
 import { getAmulProductPresetImage, AMUL_PRODUCT_IMAGE_PRESETS } from '../../storage/productImages.ts';
 import { detectDuplicateGroups, DuplicateGroup, normalizeBarcode, normalizeSku } from '../../storage/duplicateDetector.ts';
 import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
+import { ExcelProductImportModal } from './ExcelProductImportModal.tsx';
+import { exportDataToExcel } from '../../utils/excelEngine.ts';
 
 interface CatalogManagementProps {
   currentShop: Shop;
@@ -63,7 +67,36 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isExcelModalOpen, setIsExcelModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+
+  // Export current catalog to Excel
+  const handleExportProductsToExcel = () => {
+    if (products.length === 0) {
+      alert('No products available to export.');
+      return;
+    }
+    const data = products.map(p => ({
+      'Product Name': p.name,
+      'Regional / Gujarati Name': p.regionalName || '',
+      'Category': p.category,
+      'Barcode': p.barcode,
+      'SKU': p.sku,
+      'Unit': p.unit,
+      'Cost Price (₹)': p.costPrice,
+      'Selling Price (₹)': p.sellingPrice,
+      'MRP (₹)': p.mrp,
+      'Current Stock': p.currentStock,
+      'Min Stock Alert': p.minStockAlert,
+      'Status': p.currentStock <= 0 ? 'Out of Stock' : p.currentStock <= p.minStockAlert ? 'Low Stock' : 'In Stock'
+    }));
+
+    exportDataToExcel({
+      filename: `${currentShop.shopCode}_Amul_Products_Catalog_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      sheetName: 'Products Catalog',
+      data
+    });
+  };
 
   // Form State
   const [name, setName] = useState('');
@@ -498,7 +531,30 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            onClick={() => setIsExcelModalOpen(true)}
+            disabled={!subCheck.isActive}
+            className={`${
+              subCheck.isActive
+                ? 'bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer'
+                : 'bg-slate-300 text-slate-500 cursor-not-allowed'
+            } text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm`}
+            title="Upload Excel (.xlsx or .csv) to bulk add or update products and stock"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Import Products from Excel</span>
+          </button>
+
+          <button
+            onClick={handleExportProductsToExcel}
+            className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+            title="Export all current products and stock to an Excel (.xlsx) file"
+          >
+            <Download className="w-4 h-4" />
+            <span>Export to Excel</span>
+          </button>
+
           <button
             onClick={() => {
               if (products.length > 0) {
@@ -510,11 +566,11 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
               }
             }}
             disabled={loading}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
+            className="bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
             title="Populate complete official Amul product lineup with 0 stock and barcodes"
           >
             <Sparkles className="w-4 h-4" />
-            <span>Pre-Fill Amul Catalog (0 Stock)</span>
+            <span>Pre-Fill (0 Stock)</span>
           </button>
 
           <button
@@ -1454,6 +1510,19 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
           </div>
         </div>
       )}
+
+      {/* Excel Product Bulk Import Modal */}
+      <ExcelProductImportModal
+        isOpen={isExcelModalOpen}
+        onClose={() => setIsExcelModalOpen(false)}
+        currentShop={currentShop}
+        onImportComplete={({ added, updated }) => {
+          loadProducts();
+          onProductChanged?.();
+          setPriceSaveNotice(`Excel Import Success: ${added} new products added, ${updated} existing products updated!`);
+          setTimeout(() => setPriceSaveNotice(null), 5000);
+        }}
+      />
     </div>
   );
 };

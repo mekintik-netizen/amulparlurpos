@@ -1734,7 +1734,11 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
             {/* Document Preview Area (Scrollable viewport on screen, full A4 in print) */}
             <div className="flex-1 overflow-y-auto overflow-x-auto p-3 sm:p-6 bg-slate-100/70 dark:bg-slate-900/60 flex justify-center print:bg-white print:p-0 print:overflow-visible">
               {/* Printable Document (Rendered for both Screen Preview & A4 Print) */}
-              <div className="purchase-printable-bill bg-white p-5 sm:p-8 border border-slate-200 shadow-sm rounded-xl max-w-[210mm] w-full text-slate-900 print:border-none print:shadow-none print:p-0 print:max-w-none print:w-full print:rounded-none">
+              <div 
+                id="purchase-invoice-print-area"
+                className="purchase-printable-bill bg-white p-5 sm:p-8 border border-slate-200 shadow-sm rounded-xl max-w-[210mm] w-full text-slate-900 print:border-none print:shadow-none print:p-0 print:max-w-none print:w-full print:rounded-none"
+                style={{ fontFamily: "'Inter', 'Noto Sans Gujarati', sans-serif" }}
+              >
                 {/* Header Title strictly labeled BILL PRINT */}
                 <div className="text-center pb-4 mb-4 border-b-2 border-slate-900">
                   <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase">
@@ -1752,7 +1756,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4 mb-4 border-b border-slate-200 text-xs">
                   {/* Left: Parlour Details */}
                   <div className="space-y-1">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-sans">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block font-sans">
                       ખરીદનાર પાર્લર / Consignee (Amul Parlour):
                     </span>
                     <div className="font-extrabold text-sm text-slate-900">
@@ -1776,7 +1780,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
 
                   {/* Right: Agency / Supplier & Bill Details */}
                   <div className="space-y-1 sm:text-right">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-sans">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block font-sans">
                       એજન્સી / સપ્લાયર / Agency &amp; Invoice:
                     </span>
                     <div className="font-extrabold text-sm text-[#005A9C]">
@@ -1794,47 +1798,60 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                   </div>
                 </div>
 
-                {/* Items Table - wrapped in responsive overflow container so it never breaks layout on small screens */}
+                {/* Items Table with fixed column widths and clean A4 print alignment */}
                 <div className="overflow-x-auto my-3 border border-slate-300 rounded-lg print:border-none print:overflow-visible">
-                  <table className="w-full text-left text-xs border-collapse min-w-[580px] print:min-w-full">
-                    <thead className="bg-slate-100 font-bold text-slate-800 uppercase text-[10px] border-b border-slate-300">
+                  <table 
+                    className="purchase-table-print w-full text-left text-xs border-collapse min-w-[620px] print:min-w-full"
+                    style={{ tableLayout: 'fixed' }}
+                  >
+                    <colgroup>
+                      <col style={{ width: '5%' }} />
+                      <col style={{ width: '37%' }} />
+                      <col style={{ width: '16%' }} />
+                      <col style={{ width: '8%' }} />
+                      <col style={{ width: '9%' }} />
+                      <col style={{ width: '8%' }} />
+                      <col style={{ width: '8%' }} />
+                      <col style={{ width: '9%' }} />
+                    </colgroup>
+                    <thead className="bg-slate-100 font-bold text-slate-800 uppercase text-[10px] border-b border-slate-300" style={{ display: 'table-header-group' }}>
                       <tr>
-                        <th className="py-2 px-2.5 w-8 text-center border-r border-slate-300">#</th>
-                        <th className="py-2 px-3 border-r border-slate-300">Item Description / આઇટમ</th>
-                        <th className="py-2 px-2 border-r border-slate-300">Barcode</th>
-                        <th className="py-2 px-2 text-right border-r border-slate-300">Qty</th>
-                        <th className="py-2 px-2 text-center border-r border-slate-300">Unit</th>
-                        <th className="py-2 px-2.5 text-right border-r border-slate-300">Cost Rate (₹)</th>
-                        <th className="py-2 px-2 text-right border-r border-slate-300">MRP (₹)</th>
-                        <th className="py-2 px-3 text-right">Total (₹)</th>
+                        <th className="py-2 px-1 text-center border border-slate-300">#</th>
+                        <th className="py-2 px-2 border border-slate-300">ITEM DESCRIPTION</th>
+                        <th className="py-2 px-1.5 border border-slate-300">BARCODE</th>
+                        <th className="py-2 px-1 text-right border border-slate-300 whitespace-nowrap">QTY</th>
+                        <th className="py-2 px-1 text-center border border-slate-300 whitespace-nowrap">UNIT</th>
+                        <th className="py-2 px-1 text-right border border-slate-300 whitespace-nowrap">COST RATE</th>
+                        <th className="py-2 px-1 text-right border border-slate-300 whitespace-nowrap">MRP</th>
+                        <th className="py-2 px-1.5 text-right border border-slate-300 whitespace-nowrap">TOTAL</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-200 font-mono">
+                    <tbody className="divide-y divide-slate-200 font-mono text-[11px]">
                       {printingBill.items.map((item, idx) => (
-                        <tr key={idx} className="hover:bg-slate-50/50">
-                          <td className="py-2 px-2 text-center border-r border-slate-200 text-slate-500">
+                        <tr key={idx} className="hover:bg-slate-50/50" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
+                          <td className="py-1.5 px-1 text-center border border-slate-300 text-slate-500">
                             {idx + 1}
                           </td>
-                          <td className="py-2 px-3 font-sans font-semibold text-slate-900 border-r border-slate-200">
+                          <td className="py-1.5 px-2 font-sans font-semibold text-slate-900 border border-slate-300 truncate">
                             {item.productName}
                           </td>
-                          <td className="py-2 px-2 text-slate-500 border-r border-slate-200 text-[11px]">
+                          <td className="py-1.5 px-1.5 text-slate-500 border border-slate-300 text-[10px] truncate">
                             {item.barcode || '—'}
                           </td>
-                          <td className="py-2 px-2 text-right font-bold text-slate-900 border-r border-slate-200">
+                          <td className="py-1.5 px-1 text-right font-bold text-slate-900 border border-slate-300 whitespace-nowrap">
                             {item.quantity}
                           </td>
-                          <td className="py-2 px-2 text-center text-slate-600 font-sans border-r border-slate-200 text-[11px]">
+                          <td className="py-1.5 px-1 text-center text-slate-600 font-sans border border-slate-300 whitespace-nowrap text-[10px]">
                             {item.unit}
                           </td>
-                          <td className="py-2 px-2.5 text-right text-slate-800 border-r border-slate-200">
-                            ₹{item.purchaseRate.toFixed(2)}
+                          <td className="py-1.5 px-1 text-right text-slate-800 border border-slate-300 whitespace-nowrap">
+                            <span style={{ fontFamily: 'sans-serif' }}>₹</span>{item.purchaseRate.toFixed(2)}
                           </td>
-                          <td className="py-2 px-2 text-right text-slate-500 border-r border-slate-200">
-                            ₹{item.mrp.toFixed(2)}
+                          <td className="py-1.5 px-1 text-right text-slate-500 border border-slate-300 whitespace-nowrap">
+                            <span style={{ fontFamily: 'sans-serif' }}>₹</span>{item.mrp.toFixed(2)}
                           </td>
-                          <td className="py-2 px-3 text-right font-bold text-slate-900">
-                            ₹{item.total.toFixed(2)}
+                          <td className="py-1.5 px-1.5 text-right font-bold text-slate-900 border border-slate-300 whitespace-nowrap">
+                            <span style={{ fontFamily: 'sans-serif' }}>₹</span>{item.total.toFixed(2)}
                           </td>
                         </tr>
                       ))}
@@ -1842,57 +1859,63 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                   </table>
                 </div>
 
-                {/* Summary & Totals */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-300 text-xs">
-                  <div className="space-y-1 text-slate-600 text-[11px]">
-                    <div><strong>Total Item Lines:</strong> {printingBill.items.length} SKUs</div>
-                    <div><strong>Total Delivered Quantity:</strong> {printingBill.itemCount} units</div>
-                    {printingBill.notes && (
-                      <div className="pt-2 italic text-slate-500">
-                        <strong>Notes:</strong> {printingBill.notes}
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="space-y-1.5 font-mono text-right">
-                    <div className="flex justify-between text-slate-600 text-xs">
-                      <span>Subtotal / કુલ રકમ:</span>
-                      <span className="font-bold">₹{printingBill.subtotal.toFixed(2)}</span>
+                {/* Footer Container: Keeps Summary Totals & Signatures strictly together on the same page */}
+                <div 
+                  className="purchase-footer-container pt-3 border-t-2 border-slate-800"
+                  style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}
+                >
+                  {/* Summary & Totals */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                    <div className="space-y-1 text-slate-600 text-[11px]">
+                      <div><strong>Total Item Lines:</strong> {printingBill.items.length} SKUs</div>
+                      <div><strong>Total Delivered Quantity:</strong> {printingBill.itemCount} units</div>
+                      {printingBill.notes && (
+                        <div className="pt-1.5 italic text-slate-500">
+                          <strong>Notes:</strong> {printingBill.notes}
+                        </div>
+                      )}
                     </div>
-                    {printingBill.otherCharges > 0 && (
+
+                    <div className="space-y-1.5 font-mono text-right">
                       <div className="flex justify-between text-slate-600 text-xs">
-                        <span>Other Charges / ભાડું વગેરે:</span>
-                        <span>₹{printingBill.otherCharges.toFixed(2)}</span>
+                        <span>Subtotal / કુલ રકમ:</span>
+                        <span className="font-bold"><span style={{ fontFamily: 'sans-serif' }}>₹</span>{printingBill.subtotal.toFixed(2)}</span>
                       </div>
-                    )}
-                    <div className="flex justify-between text-sm font-black text-slate-900 border-t border-b border-slate-400 py-1">
-                      <span>GRAND TOTAL / આખરી રકમ:</span>
-                      <span>₹{printingBill.totalAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-emerald-800 text-xs">
-                      <span>ચૂકવેલ રકમ / Paid:</span>
-                      <span className="font-bold">₹{printingBill.paidAmount.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-rose-800 text-xs font-bold">
-                      <span>બાકી રકમ / Due Balance:</span>
-                      <span>₹{printingBill.dueAmount.toFixed(2)}</span>
+                      {printingBill.otherCharges > 0 && (
+                        <div className="flex justify-between text-slate-600 text-xs">
+                          <span>Other Charges / ભાડું વગેરે:</span>
+                          <span><span style={{ fontFamily: 'sans-serif' }}>₹</span>{printingBill.otherCharges.toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex justify-between text-sm font-black text-slate-900 border-t border-b border-slate-400 py-1">
+                        <span>GRAND TOTAL / આખરી રકમ:</span>
+                        <span><span style={{ fontFamily: 'sans-serif' }}>₹</span>{printingBill.totalAmount.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-emerald-800 text-xs">
+                        <span>ચૂકવેલ રકમ / Paid:</span>
+                        <span className="font-bold"><span style={{ fontFamily: 'sans-serif' }}>₹</span>{printingBill.paidAmount.toFixed(2)}</span>
+                      </div>
+                      <div className="flex justify-between text-rose-800 text-xs font-bold">
+                        <span>બાકી રકમ / Due Balance:</span>
+                        <span><span style={{ fontFamily: 'sans-serif' }}>₹</span>{printingBill.dueAmount.toFixed(2)}</span>
+                      </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Signatures */}
-                <div className="grid grid-cols-2 gap-8 pt-10 mt-6 border-t border-slate-300 text-xs text-center font-sans">
-                  <div>
-                    <div className="border-t border-dashed border-slate-400 pt-1.5 font-bold text-slate-700">
-                      Agency / Distributor Signature
+                  {/* Signatures */}
+                  <div className="grid grid-cols-2 gap-8 pt-8 mt-4 border-t border-slate-300 text-xs text-center font-sans">
+                    <div>
+                      <div className="border-t border-dashed border-slate-400 pt-1.5 font-bold text-slate-700">
+                        Agency / Distributor Signature
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-medium">એજન્સી / ડિસ્ટ્રીબ્યુટર સહી</div>
                     </div>
-                    <div className="text-[10px] text-slate-400">એજન્સી / ડિસ્ટ્રીબ્યુટર સહી</div>
-                  </div>
-                  <div>
-                    <div className="border-t border-dashed border-slate-400 pt-1.5 font-bold text-slate-700">
-                      Authorized Parlour Receiver Signature
+                    <div>
+                      <div className="border-t border-dashed border-slate-400 pt-1.5 font-bold text-slate-700">
+                        Authorized Parlour Receiver Signature
+                      </div>
+                      <div className="text-[10px] text-slate-500 font-medium">માલ સ્વીકારનાર પાર્લર પ્રતિનિધિ સહી</div>
                     </div>
-                    <div className="text-[10px] text-slate-400">માલ સ્વીકારનાર પાર્લર પ્રતિનિધિ સહી</div>
                   </div>
                 </div>
               </div>
