@@ -123,13 +123,61 @@ export const AppRepository = {
       syncProductToCloud(saved).catch(() => {});
       return saved;
     },
-    delete: async (productId: string): Promise<void> => {
+    delete: async (productId: string, shopId?: string): Promise<void> => {
       if (isBackendConnected()) {
         await fetch(`${API_BASE_URL}/api/products/${productId}`, { method: 'DELETE' });
         return;
       }
-      await localDb.deleteProduct(productId);
-      deleteProductFromCloud(productId).catch(() => {});
+      const existing = shopId ? null : await localDb.getProductById(productId);
+      const resolvedShopId = shopId || existing?.shopId;
+      await localDb.deleteProduct(productId, resolvedShopId);
+      await deleteProductFromCloud(productId, resolvedShopId);
+    },
+    mergeDuplicates: async (
+      shopId: string,
+      primaryProduct: Product,
+      duplicateProducts: Product[]
+    ): Promise<{ primary: Product; deletedIds: string[] }> => {
+      if (isBackendConnected()) {
+        const mergedStock =
+          (primaryProduct.currentStock || 0) +
+          duplicateProducts.reduce((sum, d) => sum + (d.currentStock || 0), 0);
+        const updatedPrimary: Product = {
+          ...primaryProduct,
+          currentStock: mergedStock,
+          updatedAt: new Date().toISOString()
+        };
+        const res = await fetch(`${API_BASE_URL}/api/products`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(updatedPrimary)
+        });
+        if (!res.ok) throw new Error('Failed to save merged primary product');
+        const saved = await res.json();
+        for (const dup of duplicateProducts) {
+          if (dup.id && dup.id !== primaryProduct.id) {
+            await fetch(`${API_BASE_URL}/api/products/${dup.id}`, { method: 'DELETE' });
+          }
+        }
+        return {
+          primary: saved,
+          deletedIds: duplicateProducts.filter(d => d.id !== primaryProduct.id).map(d => d.id)
+        };
+      }
+
+      const { primary: updatedPrimary, deletedIds } = await localDb.mergeDuplicateProducts(
+        shopId,
+        primaryProduct,
+        duplicateProducts
+      );
+
+      // Persist updated primary product stock immediately with setDoc(..., { merge: true })
+      await syncProductToCloud(updatedPrimary);
+
+      // Permanently delete all merged duplicate docs from Cloud Firestore (shops/{shopId}/products & root)
+      await Promise.all(deletedIds.map(dupId => deleteProductFromCloud(dupId, shopId)));
+
+      return { primary: updatedPrimary, deletedIds };
     },
     syncPreFilledCatalog: async (shopId: string): Promise<{ added: number; total: number }> => {
       return localDb.syncPreFilledAmulCatalogForShop(shopId);

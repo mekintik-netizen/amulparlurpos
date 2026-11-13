@@ -71,27 +71,65 @@ service cloud.firestore {
           request.auth.token.shopId == null
         );
       }
+
+      match /products/{productId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isAuthenticated() && (
+          isAdmin() ||
+          request.resource.data.shopId == shopId ||
+          request.auth.token.shopId == null
+        );
+        allow delete: if isAuthenticated() && (
+          isAdmin() ||
+          request.auth.token.shopId == shopId ||
+          request.auth.token.shopId == null
+        );
+      }
+
+      match /inventory/{productId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isAuthenticated() && (
+          isAdmin() ||
+          request.resource.data.shopId == shopId ||
+          request.auth.token.shopId == null
+        );
+        allow delete: if isAuthenticated() && (
+          isAdmin() ||
+          request.auth.token.shopId == shopId ||
+          request.auth.token.shopId == null
+        );
+      }
     }
 
     // 2. Inventory / Products Collections
-    // Multi-tenant isolation: shop can only read/write its own products
+    // Multi-tenant isolation: shop can only read/write/delete its own products
     match /inventory/{productId} {
       allow read: if isAuthenticated() || resource == null || resource.data.shopId != null;
-      allow write: if isAuthenticated() && (
+      allow create, update: if isAuthenticated() && (
         isAdmin() ||
         (request.resource.data.shopId != null && (
           request.auth.token.shopId == null || request.auth.token.shopId == request.resource.data.shopId
         ))
       );
+      allow delete: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        (request.auth.token.shopId == null && resource.data.shopId != null)
+      );
     }
 
     match /products/{productId} {
       allow read: if isAuthenticated() || resource == null || resource.data.shopId != null;
-      allow write: if isAuthenticated() && (
+      allow create, update: if isAuthenticated() && (
         isAdmin() ||
         (request.resource.data.shopId != null && (
           request.auth.token.shopId == null || request.auth.token.shopId == request.resource.data.shopId
         ))
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        (request.auth.token.shopId == null && resource.data.shopId != null)
       );
     }
 

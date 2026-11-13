@@ -72,28 +72,41 @@ export async function syncProductToCloud(product: Product): Promise<void> {
     const payload = sanitizeForFirestore({
       ...product,
       shopId: product.shopId,
-      updatedAt: new Date().toISOString()
+      updatedAt: product.updatedAt || new Date().toISOString()
     });
     const prodRef = doc(db, 'products', product.id);
     const invRef = doc(db, 'inventory', product.id);
-    await Promise.all([
+    const shopProdRef = doc(db, 'shops', product.shopId, 'products', product.id);
+    const results = await Promise.allSettled([
       setDoc(prodRef, payload, { merge: true }),
-      setDoc(invRef, payload, { merge: true })
+      setDoc(invRef, payload, { merge: true }),
+      setDoc(shopProdRef, payload, { merge: true })
     ]);
+    const failed = results.find(r => r.status === 'rejected');
+    if (failed && failed.status === 'rejected') {
+      console.warn('[Firestore] Partial notice syncing product/inventory to cloud:', failed.reason);
+    }
   } catch (err) {
     console.warn('[Firestore] Failed to sync product/inventory to cloud:', err);
   }
 }
 
-export async function deleteProductFromCloud(productId: string): Promise<void> {
+export async function deleteProductFromCloud(productId: string, shopId?: string): Promise<void> {
   try {
     await ensureAnonymousAuth();
-    const prodRef = doc(db, 'products', productId);
-    const invRef = doc(db, 'inventory', productId);
-    await Promise.all([
-      deleteDoc(prodRef),
-      deleteDoc(invRef)
-    ]);
+    const deleteTasks: Promise<void>[] = [
+      deleteDoc(doc(db, 'products', productId)),
+      deleteDoc(doc(db, 'inventory', productId))
+    ];
+    if (shopId) {
+      deleteTasks.push(deleteDoc(doc(db, 'shops', shopId, 'products', productId)));
+      deleteTasks.push(deleteDoc(doc(db, 'shops', shopId, 'inventory', productId)));
+    }
+    const results = await Promise.allSettled(deleteTasks);
+    const failed = results.find(r => r.status === 'rejected');
+    if (failed && failed.status === 'rejected') {
+      console.warn('[Firestore] Partial notice deleting product/inventory from cloud:', failed.reason);
+    }
   } catch (err) {
     console.warn('[Firestore] Failed to delete product/inventory from cloud:', err);
   }
@@ -285,9 +298,38 @@ export function startShopRealtimeSync(
   const unsubscribers: Unsubscribe[] = [];
   let isCancelled = false;
 
-  // Await silent anonymous auth before mounting Firestore snapshot listeners
-  ensureAnonymousAuth().then(() => {
+  // Await silent anonymous auth and load deletion tombstones before mounting Firestore snapshot listeners
+  ensureAnonymousAuth().then(async () => {
     if (isCancelled) return;
+    await Promise.all([
+      localDb.loadDeletedProductIds(),
+      localDb.loadDeletedSupplierIds(),
+      localDb.loadDeletedPurchaseIds()
+    ]);
+    if (isCancelled) return;
+
+    const handleRemoteProductUpsert = async (prod: Product, docId: string): Promise<boolean> => {
+      if (!prod || (!prod.id && !docId)) return false;
+      const resolvedId = prod.id || docId;
+      if (localDb.isProductDeleted(resolvedId) || localDb.isProductDeleted(docId)) {
+        deleteProductFromCloud(docId, shopId).catch(() => {});
+        return false;
+      }
+      try {
+        const existingLocal = await localDb.getProductById(resolvedId);
+        if (
+          existingLocal?.updatedAt &&
+          prod.updatedAt &&
+          new Date(existingLocal.updatedAt).getTime() > new Date(prod.updatedAt).getTime()
+        ) {
+          return false;
+        }
+        await localDb.saveProduct({ ...prod, id: resolvedId });
+        return true;
+      } catch {
+        return false;
+      }
+    };
 
     try {
       // 1. Listen for Shop Document Updates (e.g. Plan Renewal, Admin Reactivation, Profile Changes)
@@ -312,15 +354,12 @@ export function startShopRealtimeSync(
         for (const change of snapshot.docChanges()) {
           if (change.type === 'added' || change.type === 'modified') {
             const prod = change.doc.data() as Product;
-            try {
-              await localDb.saveProduct(prod);
+            if (await handleRemoteProductUpsert(prod, change.doc.id)) {
               changed = true;
-            } catch (e) {
-              // ignore local conflict
             }
           } else if (change.type === 'removed') {
             try {
-              await localDb.deleteProduct(change.doc.id);
+              await localDb.deleteProduct(change.doc.id, shopId);
               changed = true;
             } catch (e) {
               // ignore
@@ -340,15 +379,12 @@ export function startShopRealtimeSync(
         for (const change of snapshot.docChanges()) {
           if (change.type === 'added' || change.type === 'modified') {
             const item = change.doc.data() as Product;
-            try {
-              await localDb.saveProduct(item);
+            if (await handleRemoteProductUpsert(item, change.doc.id)) {
               changed = true;
-            } catch (e) {
-              // ignore
             }
           } else if (change.type === 'removed') {
             try {
-              await localDb.deleteProduct(change.doc.id);
+              await localDb.deleteProduct(change.doc.id, shopId);
               changed = true;
             } catch (e) {
               // ignore
@@ -360,6 +396,31 @@ export function startShopRealtimeSync(
         }
       }, (err) => console.warn('[Firestore] Inventory listener error:', err.message));
       unsubscribers.push(unsubInventory);
+
+      // 2c. Listen for Shop Subcollection Products (shops/{shopId}/products)
+      const shopProductsCol = collection(db, 'shops', shopId, 'products');
+      const unsubShopProducts = onSnapshot(shopProductsCol, async (snapshot) => {
+        let changed = false;
+        for (const change of snapshot.docChanges()) {
+          if (change.type === 'added' || change.type === 'modified') {
+            const prod = change.doc.data() as Product;
+            if (await handleRemoteProductUpsert({ ...prod, shopId }, change.doc.id)) {
+              changed = true;
+            }
+          } else if (change.type === 'removed') {
+            try {
+              await localDb.deleteProduct(change.doc.id, shopId);
+              changed = true;
+            } catch (e) {
+              // ignore
+            }
+          }
+        }
+        if (changed && onRemoteChange) {
+          onRemoteChange();
+        }
+      }, (err) => console.warn('[Firestore] Shop products listener error:', err.message));
+      unsubscribers.push(unsubShopProducts);
 
       // 3. Listen for Sales/Bills Updates (Strictly where shopId == currentShopId)
       const salesQuery = query(collection(db, 'sales'), where('shopId', '==', shopId));

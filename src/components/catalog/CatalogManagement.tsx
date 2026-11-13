@@ -345,7 +345,8 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     }
     if (!window.confirm('Delete this product from catalog? Past sales records will retain historical details.')) return;
     try {
-      await AppRepository.products.delete(productId);
+      await AppRepository.products.delete(productId, currentShop.id);
+      setProducts(prev => prev.filter(p => p.id !== productId));
       await loadProducts();
       onProductChanged?.();
     } catch (err: any) {
@@ -363,7 +364,8 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     }
 
     try {
-      await AppRepository.products.delete(productId);
+      await AppRepository.products.delete(productId, currentShop.id);
+      setProducts(prev => prev.filter(p => p.id !== productId));
       await loadProducts();
       onProductChanged?.();
       setDuplicateActionNotice(`ડુપ્લિકેટ આઇટમ "${productName}" સફળતાપૂર્વક ડિલીટ થઈ ગઈ છે. સ્ટોક રિપોર્ટ અપડેટ થઈ ગયો.`);
@@ -386,22 +388,20 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     if (!window.confirm(confirmMsg)) return;
 
     try {
-      // 1. Add duplicate's stock to keeper item and preserve barcode/SKU if keeper was missing it
-      const updatedKeeper: Product = {
-        ...keeper,
-        barcode: keeper.barcode && keeper.barcode !== '-' ? keeper.barcode : (duplicate.barcode || keeper.barcode),
-        sku: keeper.sku && keeper.sku !== '-' ? keeper.sku : (duplicate.sku || keeper.sku),
-        currentStock: (keeper.currentStock || 0) + dupStock,
-        updatedAt: new Date().toISOString()
-      };
-      await AppRepository.products.save(updatedKeeper);
+      const { primary: updatedKeeper } = await AppRepository.products.mergeDuplicates(
+        currentShop.id,
+        keeper,
+        [duplicate]
+      );
 
-      // 2. Delete duplicate product
-      await AppRepository.products.delete(duplicate.id);
-
+      setProducts(prev =>
+        prev
+          .filter(p => p.id !== duplicate.id)
+          .map(p => (p.id === updatedKeeper.id ? updatedKeeper : p))
+      );
       await loadProducts();
       onProductChanged?.();
-      setDuplicateActionNotice(`સ્ટોક સફળતાપૂર્વક મર્જ થયો! ${dupStock} ${duplicate.unit || 'units'} મુખ્ય આઇટમમાં ઉમેરાયા અને ડુપ્લિકેટ દૂર થઈ.`);
+      setDuplicateActionNotice(`સ્ટોક સફળતાપૂર્વક મર્જ થયો! ${dupStock} ${duplicate.unit || 'units'} મુખ્ય આઇટમમાં ઉમેરાયા અને ડુપ્લિકેટ કાયમ માટે દૂર થઈ.`);
       setTimeout(() => setDuplicateActionNotice(null), 4500);
     } catch (err: any) {
       alert(`Failed to merge duplicate items: ${err.message}`);
@@ -420,36 +420,20 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
 
     setIsMergingAll(true);
     try {
+      const groupsCount = duplicateGroups.length;
       for (const group of duplicateGroups) {
-        let accumulatedStock = group.primaryItem.currentStock || 0;
-        let bestBarcode = group.primaryItem.barcode;
-        let bestSku = group.primaryItem.sku;
         const redundantItems = group.items.filter(it => it.id !== group.primaryItem.id);
-
-        for (const redundant of redundantItems) {
-          accumulatedStock += (redundant.currentStock || 0);
-          if ((!bestBarcode || bestBarcode === '-') && redundant.barcode && redundant.barcode !== '-') {
-            bestBarcode = redundant.barcode;
-          }
-          if ((!bestSku || bestSku === '-') && redundant.sku && redundant.sku !== '-') {
-            bestSku = redundant.sku;
-          }
-          await AppRepository.products.delete(redundant.id);
-        }
-
-        const updatedPrimary: Product = {
-          ...group.primaryItem,
-          barcode: bestBarcode || group.primaryItem.barcode,
-          sku: bestSku || group.primaryItem.sku,
-          currentStock: accumulatedStock,
-          updatedAt: new Date().toISOString()
-        };
-        await AppRepository.products.save(updatedPrimary);
+        if (redundantItems.length === 0) continue;
+        await AppRepository.products.mergeDuplicates(
+          currentShop.id,
+          group.primaryItem,
+          redundantItems
+        );
       }
 
       await loadProducts();
       onProductChanged?.();
-      setDuplicateActionNotice(`તમામ ${duplicateGroups.length} ડુપ્લિકેટ ગ્રૂપ્સ સફળતાપૂર્વક મર્જ થઈ ગયા અને સ્ટોક સચોટ થઈ ગયો.`);
+      setDuplicateActionNotice(`તમામ ${groupsCount} ડુપ્લિકેટ ગ્રૂપ્સ સફળતાપૂર્વક મર્જ થઈ ગયા અને સ્ટોક સચોટ થઈ ગયો.`);
       setTimeout(() => setDuplicateActionNotice(null), 5000);
     } catch (err: any) {
       alert(`Failed to auto-merge duplicates: ${err.message}`);

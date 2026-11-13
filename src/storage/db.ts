@@ -38,6 +38,7 @@ import {
 } from '../types/index.ts';
 import { INITIAL_SHOPS, getSeedProductsForShop, getSeedSuppliersForShop, getSeedBankEntriesForShop } from './seedData.ts';
 import { getAmulProductPresetImage } from './productImages.ts';
+import { normalizeBarcode, normalizeProductName, normalizeSku } from './duplicateDetector.ts';
 
 const DB_NAME = 'AmulParlourDB';
 const DB_VERSION = 3; // Upgraded for Bank Entries & Passbook Statements
@@ -206,11 +207,13 @@ async function ensureSeedData(db: IDBDatabase): Promise<void> {
           for (const p of prods) {
             prodStore.add(p);
           }
+          markProductSeedCompleted(shop.id);
 
           const sups = getSeedSuppliersForShop(shop.id);
           for (const s of sups) {
             supStore.add(s);
           }
+          markSupplierSeedCompleted(shop.id);
 
           if (bankStore) {
             const initialBank = getSeedBankEntriesForShop(shop.id);
@@ -221,38 +224,25 @@ async function ensureSeedData(db: IDBDatabase): Promise<void> {
         }
         resolve();
       } else {
-        // Automatically ensure existing shops receive the expanded 65+ Amul products catalog
-        const prodCountReq = prodStore.count();
-        prodCountReq.onsuccess = () => {
-          if (prodCountReq.result < 50) {
-            for (const shop of INITIAL_SHOPS) {
-              const fullSeed = getSeedProductsForShop(shop.id);
-              for (const p of fullSeed) {
-                prodStore.put(p);
-              }
-            }
-          }
-
-          // If bank entries store is newly created for existing db, seed initial entries
-          if (bankStore) {
-            const bankCountReq = bankStore.count();
-            bankCountReq.onsuccess = () => {
-              if (bankCountReq.result === 0) {
-                for (const shop of INITIAL_SHOPS) {
-                  const initialBank = getSeedBankEntriesForShop(shop.id);
-                  for (const b of initialBank) {
-                    bankStore.put(b);
-                  }
+        // Never overwrite or re-seed products that were already merged or deleted by the user.
+        // Only ensure bank entries are initialized if the new store is empty.
+        if (bankStore) {
+          const bankCountReq = bankStore.count();
+          bankCountReq.onsuccess = () => {
+            if (bankCountReq.result === 0) {
+              for (const shop of INITIAL_SHOPS) {
+                const initialBank = getSeedBankEntriesForShop(shop.id);
+                for (const b of initialBank) {
+                  bankStore.put(b);
                 }
               }
-              resolve();
-            };
-            bankCountReq.onerror = () => resolve();
-          } else {
+            }
             resolve();
-          }
-        };
-        prodCountReq.onerror = () => resolve();
+          };
+          bankCountReq.onerror = () => resolve();
+        } else {
+          resolve();
+        }
       }
     };
 
@@ -336,6 +326,7 @@ export async function deleteShop(id: string): Promise<void> {
 // ==========================================
 
 export async function getProductsByShop(shopId: string): Promise<Product[]> {
+  const deletedIds = await loadDeletedProductIds();
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('products', 'readonly');
@@ -343,9 +334,9 @@ export async function getProductsByShop(shopId: string): Promise<Product[]> {
     const index = store.index('shopId');
     const req = index.getAll(shopId);
     req.onsuccess = async () => {
-      const list = (req.result || []) as Product[];
-      if (list.length === 0) {
-        // Automatically populate authentic 65+ Amul items with 0 stock so catalog is never blank!
+      const list = ((req.result || []) as Product[]).filter(p => !deletedIds.has(p.id));
+      if (list.length === 0 && !isProductSeedCompleted(shopId)) {
+        // Automatically populate authentic 65+ Amul items with 0 stock on first shop initialization
         try {
           const seeded = await prefillMasterAmulCatalogWithZeroStock(shopId);
           resolve(seeded);
@@ -366,8 +357,30 @@ export async function getProductsByShop(shopId: string): Promise<Product[]> {
 }
 
 /**
+ * Checks whether a candidate product matches any existing product by
+ * normalized barcode, normalized product name, or normalized SKU.
+ */
+function findMatchingProduct(existingList: Product[], candidate: Product): Product | undefined {
+  const candBarcode = normalizeBarcode(candidate.barcode);
+  const candName = normalizeProductName(candidate.name);
+  const candSku = normalizeSku(candidate.sku);
+
+  return existingList.find((e) => {
+    if (e.id === candidate.id) return true;
+    const exBarcode = normalizeBarcode(e.barcode);
+    if (candBarcode && exBarcode && exBarcode === candBarcode) return true;
+    const exName = normalizeProductName(e.name);
+    if (candName && exName && exName === candName) return true;
+    const exSku = normalizeSku(e.sku);
+    if (candSku && exSku && exSku === candSku) return true;
+    return false;
+  });
+}
+
+/**
  * Pre-fills or resets the full authentic 65+ Amul product catalog
  * for a shop with initial currentStock = 0, along with official Amul suppliers.
+ * Respects deleted/merged product tombstones and matches by barcode OR normalized name.
  */
 export async function prefillMasterAmulCatalogWithZeroStock(
   shopId: string,
@@ -376,7 +389,10 @@ export async function prefillMasterAmulCatalogWithZeroStock(
   const db = await openAppDatabase();
   const seedProducts = getSeedProductsForShop(shopId, true);
   const seedSuppliers = getSeedSuppliersForShop(shopId);
-  const deletedSups = await loadDeletedSupplierIds();
+  const [deletedSups, deletedProds] = await Promise.all([
+    loadDeletedSupplierIds(),
+    loadDeletedProductIds()
+  ]);
   const supSeedDone = isSupplierSeedCompleted(shopId);
 
   return new Promise((resolve, reject) => {
@@ -388,13 +404,12 @@ export async function prefillMasterAmulCatalogWithZeroStock(
 
     getReq.onsuccess = () => {
       const existingList = (getReq.result || []) as Product[];
-      const existingMap = new Map<string, Product>();
-      existingList.forEach((p) => {
-        existingMap.set(p.barcode, p);
-      });
 
       for (const p of seedProducts) {
-        const existing = existingMap.get(p.barcode);
+        if (!overwriteExisting && deletedProds.has(p.id)) {
+          continue;
+        }
+        const existing = findMatchingProduct(existingList, p);
         if (existing) {
           if (overwriteExisting) {
             const updated: Product = {
@@ -414,9 +429,12 @@ export async function prefillMasterAmulCatalogWithZeroStock(
             prodStore.put(updated);
           }
         } else {
-          prodStore.add(p);
+          prodStore.put(p);
+          existingList.push(p);
         }
       }
+
+      markProductSeedCompleted(shopId);
 
       // Ensure standard Amul suppliers are seeded only on initial setup and never resurrect deleted ones
       if (!supSeedDone) {
@@ -441,7 +459,7 @@ export async function prefillMasterAmulCatalogWithZeroStock(
       const store = readTx.objectStore('products');
       const req = store.index('shopId').getAll(shopId);
       req.onsuccess = () => {
-        const list = (req.result || []) as Product[];
+        const list = ((req.result || []) as Product[]).filter(p => !deletedProds.has(p.id));
         resolve(
           list.map((p) => ({
             ...p,
@@ -470,11 +488,18 @@ export async function getProductById(id: string): Promise<Product | null> {
 
 export async function getProductByBarcode(shopId: string, barcode: string): Promise<Product | null> {
   const products = await getProductsByShop(shopId);
-  const trimmed = barcode.trim();
-  return products.find(p => p.barcode === trimmed && p.isActive) || null;
+  const trimmed = normalizeBarcode(barcode) || barcode.trim();
+  return (
+    products.find(
+      p => p.isActive && (p.barcode === barcode.trim() || (trimmed && normalizeBarcode(p.barcode) === trimmed))
+    ) || null
+  );
 }
 
 export async function saveProduct(product: Product): Promise<Product> {
+  if (isProductDeleted(product.id)) {
+    return product;
+  }
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('products', 'readwrite');
@@ -485,7 +510,8 @@ export async function saveProduct(product: Product): Promise<Product> {
   });
 }
 
-export async function deleteProduct(productId: string): Promise<void> {
+export async function deleteProduct(productId: string, shopId?: string): Promise<void> {
+  await markProductDeleted(productId, shopId);
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('products', 'readwrite');
@@ -497,11 +523,132 @@ export async function deleteProduct(productId: string): Promise<void> {
 }
 
 /**
+ * Atomically merges one or more duplicate products into a primary/master product in IndexedDB:
+ * 1. Combines currentStock and fills missing barcode/SKU/regionalName on primary product.
+ * 2. Remaps historical references (sales, purchases, stockMovements) from duplicate IDs to primary ID.
+ * 3. Permanently deletes duplicate product records and records tombstones so sync/seeding never resurrects them.
+ */
+export async function mergeDuplicateProducts(
+  shopId: string,
+  primaryProduct: Product,
+  duplicateProducts: Product[]
+): Promise<{ primary: Product; deletedIds: string[] }> {
+  const duplicates = duplicateProducts.filter(d => d.id && d.id !== primaryProduct.id);
+  const duplicateIdSet = new Set(duplicates.map(d => d.id));
+
+  let combinedStock = primaryProduct.currentStock || 0;
+  let bestBarcode = primaryProduct.barcode;
+  let bestSku = primaryProduct.sku;
+  let bestRegionalName = primaryProduct.regionalName;
+  let bestImageUrl = primaryProduct.imageUrl;
+
+  for (const dup of duplicates) {
+    combinedStock += (dup.currentStock || 0);
+    if (!normalizeBarcode(bestBarcode) && normalizeBarcode(dup.barcode)) {
+      bestBarcode = dup.barcode;
+    }
+    if (!normalizeSku(bestSku) && normalizeSku(dup.sku)) {
+      bestSku = dup.sku;
+    }
+    if (!bestRegionalName && dup.regionalName) {
+      bestRegionalName = dup.regionalName;
+    }
+    if (!bestImageUrl && dup.imageUrl) {
+      bestImageUrl = dup.imageUrl;
+    }
+  }
+
+  const updatedPrimary: Product = {
+    ...primaryProduct,
+    shopId,
+    barcode: bestBarcode || primaryProduct.barcode,
+    sku: bestSku || primaryProduct.sku,
+    regionalName: bestRegionalName,
+    imageUrl: bestImageUrl || getAmulProductPresetImage(primaryProduct.name, primaryProduct.category),
+    currentStock: combinedStock,
+    updatedAt: new Date().toISOString()
+  };
+
+  if (duplicates.length === 0) {
+    await saveProduct(updatedPrimary);
+    return { primary: updatedPrimary, deletedIds: [] };
+  }
+
+  for (const dupId of duplicateIdSet) {
+    await markProductDeleted(dupId, shopId);
+  }
+
+  const db = await openAppDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(['products', 'sales', 'purchases', 'stockMovements'], 'readwrite');
+    const prodStore = tx.objectStore('products');
+    const saleStore = tx.objectStore('sales');
+    const purStore = tx.objectStore('purchases');
+    const movStore = tx.objectStore('stockMovements');
+
+    prodStore.put(updatedPrimary);
+    for (const dupId of duplicateIdSet) {
+      prodStore.delete(dupId);
+    }
+
+    // Update historical productId references so stock/sales reports stay consolidated on the primary item
+    const movReq = movStore.index('shopId').getAll(shopId);
+    movReq.onsuccess = () => {
+      const movements = (movReq.result || []) as StockMovement[];
+      for (const mov of movements) {
+        if (duplicateIdSet.has(mov.productId)) {
+          movStore.put({ ...mov, productId: updatedPrimary.id });
+        }
+      }
+    };
+
+    const saleReq = saleStore.index('shopId').getAll(shopId);
+    saleReq.onsuccess = () => {
+      const sales = (saleReq.result || []) as SaleBill[];
+      for (const sale of sales) {
+        if (Array.isArray(sale.items) && sale.items.some(it => duplicateIdSet.has(it.productId))) {
+          saleStore.put({
+            ...sale,
+            items: sale.items.map(it =>
+              duplicateIdSet.has(it.productId) ? { ...it, productId: updatedPrimary.id } : it
+            )
+          });
+        }
+      }
+    };
+
+    const purReq = purStore.index('shopId').getAll(shopId);
+    purReq.onsuccess = () => {
+      const purchases = (purReq.result || []) as PurchaseBill[];
+      for (const pur of purchases) {
+        if (Array.isArray(pur.items) && pur.items.some(it => duplicateIdSet.has(it.productId))) {
+          purStore.put({
+            ...pur,
+            items: pur.items.map(it =>
+              duplicateIdSet.has(it.productId) ? { ...it, productId: updatedPrimary.id } : it
+            )
+          });
+        }
+      }
+    };
+
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+
+  return { primary: updatedPrimary, deletedIds: Array.from(duplicateIdSet) };
+}
+
+/**
  * Pre-fills the entire 65+ authentic Amul product catalog into a shop's database.
- * Preserves any existing products and avoids duplicate entries.
+ * Preserves any existing products and matches by barcode OR normalized name/SKU
+ * so merged/deleted duplicate entries are never re-inserted.
  */
 export async function syncPreFilledAmulCatalogForShop(shopId: string): Promise<{ added: number; total: number }> {
-  const existing = await getProductsByShop(shopId);
+  const [existing, deletedIds] = await Promise.all([
+    getProductsByShop(shopId),
+    loadDeletedProductIds()
+  ]);
   const masterSeed = getSeedProductsForShop(shopId);
   const db = await openAppDatabase();
 
@@ -511,15 +658,18 @@ export async function syncPreFilledAmulCatalogForShop(shopId: string): Promise<{
     const store = tx.objectStore('products');
 
     for (const item of masterSeed) {
-      const exists = existing.some(
-        e => e.barcode === item.barcode || e.name.toLowerCase() === item.name.toLowerCase()
-      );
-      if (!exists) {
+      if (deletedIds.has(item.id)) {
+        continue;
+      }
+      const matched = findMatchingProduct(existing, item);
+      if (!matched) {
         store.put(item);
+        existing.push(item);
         added++;
       }
     }
 
+    markProductSeedCompleted(shopId);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -845,11 +995,15 @@ export async function cancelSaleBill(
 
 const DELETED_SUPPLIERS_KEY = 'amul_pos_deleted_suppliers';
 const DELETED_PURCHASES_KEY = 'amul_pos_deleted_purchases';
+const DELETED_PRODUCTS_KEY = 'amul_pos_deleted_products';
 const SUPPLIER_SEED_DONE_PREFIX = 'amul_pos_sup_seeded_';
+const PRODUCT_SEED_DONE_PREFIX = 'amul_pos_prod_seeded_';
 
 const deletedSupplierIdsMemory = new Set<string>();
 const deletedPurchaseIdsMemory = new Set<string>();
+const deletedProductIdsMemory = new Set<string>();
 const supplierSeedDoneMemory = new Set<string>();
+const productSeedDoneMemory = new Set<string>();
 
 function readSetFromLocalStorage(key: string): string[] {
   try {
@@ -897,6 +1051,90 @@ function markSupplierSeedCompleted(shopId: string): void {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       window.localStorage.setItem(`${SUPPLIER_SEED_DONE_PREFIX}${shopId}`, '1');
+    }
+  } catch {
+    // ignore
+  }
+}
+
+function isProductSeedCompleted(shopId: string): boolean {
+  if (productSeedDoneMemory.has(shopId)) return true;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      if (window.localStorage.getItem(`${PRODUCT_SEED_DONE_PREFIX}${shopId}`) === '1') {
+        productSeedDoneMemory.add(shopId);
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+function markProductSeedCompleted(shopId: string): void {
+  if (!shopId) return;
+  productSeedDoneMemory.add(shopId);
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(`${PRODUCT_SEED_DONE_PREFIX}${shopId}`, '1');
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export async function loadDeletedProductIds(): Promise<Set<string>> {
+  for (const id of readSetFromLocalStorage(DELETED_PRODUCTS_KEY)) {
+    deletedProductIdsMemory.add(id);
+  }
+  try {
+    const db = await openAppDatabase();
+    if (db.objectStoreNames.contains('appSettings')) {
+      const stored = await new Promise<string[]>((resolve) => {
+        const tx = db.transaction('appSettings', 'readonly');
+        const req = tx.objectStore('appSettings').get(DELETED_PRODUCTS_KEY);
+        req.onsuccess = () => {
+          resolve(Array.isArray(req.result?.value) ? req.result.value : []);
+        };
+        req.onerror = () => resolve([]);
+      });
+      for (const id of stored) {
+        deletedProductIdsMemory.add(id);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return deletedProductIdsMemory;
+}
+
+export function isProductDeleted(productId: string): boolean {
+  if (deletedProductIdsMemory.has(productId)) return true;
+  for (const id of readSetFromLocalStorage(DELETED_PRODUCTS_KEY)) {
+    deletedProductIdsMemory.add(id);
+  }
+  return deletedProductIdsMemory.has(productId);
+}
+
+async function markProductDeleted(productId: string, shopId?: string): Promise<void> {
+  deletedProductIdsMemory.add(productId);
+  if (shopId) {
+    markProductSeedCompleted(shopId);
+  }
+  writeSetToLocalStorage(DELETED_PRODUCTS_KEY, deletedProductIdsMemory);
+  try {
+    const db = await openAppDatabase();
+    if (db.objectStoreNames.contains('appSettings')) {
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction('appSettings', 'readwrite');
+        tx.objectStore('appSettings').put({
+          key: DELETED_PRODUCTS_KEY,
+          value: Array.from(deletedProductIdsMemory)
+        });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
     }
   } catch {
     // ignore
