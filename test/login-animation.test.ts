@@ -93,3 +93,19 @@ describe('3. AmulLoginSuccessTransition Component', () => {
     expect(html).toContain('Loading POS Terminal');
   });
 });
+
+describe('4. LoginPage Glassmorphism & Blurred Amul Logo Backdrop', () => {
+  it('renders full-screen blurred Amul logo background and frosted glass login card', async () => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const loginSource = fs.readFileSync(path.resolve(process.cwd(), 'src/components/auth/LoginPage.tsx'), 'utf8');
+
+    expect(loginSource).toContain('fixed inset-0 w-full h-full object-cover');
+    expect(loginSource).toContain('blur-sm opacity-20');
+    expect(loginSource).toContain('backdrop-blur-md');
+    expect(loginSource).toContain('bg-white/85');
+    expect(loginSource).toContain('backdrop-blur-xl');
+    expect(loginSource).toContain('border-white/60');
+    expect(loginSource).toContain('rounded-3xl');
+  });
+});

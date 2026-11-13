@@ -42,6 +42,35 @@ service cloud.firestore {
         request.resource.data.shopId == shopId
       );
       allow delete: if isAdmin();
+
+      // Shop subcollections for suppliers and purchases
+      match /suppliers/{supplierId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isAuthenticated() && (
+          isAdmin() ||
+          request.resource.data.shopId == shopId ||
+          request.auth.token.shopId == null
+        );
+        allow delete: if isAuthenticated() && (
+          isAdmin() ||
+          request.auth.token.shopId == shopId ||
+          request.auth.token.shopId == null
+        );
+      }
+
+      match /purchases/{purchaseId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isAuthenticated() && (
+          isAdmin() ||
+          request.resource.data.shopId == shopId ||
+          request.auth.token.shopId == null
+        );
+        allow delete: if isAuthenticated() && (
+          isAdmin() ||
+          request.auth.token.shopId == shopId ||
+          request.auth.token.shopId == null
+        );
+      }
     }
 
     // 2. Inventory / Products Collections
@@ -99,7 +128,7 @@ service cloud.firestore {
       allow delete: if isAuthenticated() && (
         isAdmin() ||
         resource.data.shopId == request.auth.token.shopId ||
-        isAdmin()
+        (request.auth.token.shopId == null && resource.data.shopId != null)
       );
     }
 
@@ -111,10 +140,14 @@ service cloud.firestore {
         resource.data.shopId == request.auth.token.shopId ||
         resource.data.shopId != null
       );
-      allow create, update, delete: if isAuthenticated() && (
+      allow create, update: if isAuthenticated() && (
         isAdmin() ||
-        request.resource.data.shopId != null ||
-        resource.data.shopId == request.auth.token.shopId
+        request.resource.data.shopId != null
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        (request.auth.token.shopId == null && resource.data.shopId != null)
       );
     }
 
@@ -126,9 +159,14 @@ service cloud.firestore {
         resource.data.shopId == request.auth.token.shopId ||
         resource.data.shopId != null
       );
-      allow create, update, delete: if isAuthenticated() && (
+      allow create, update: if isAuthenticated() && (
         isAdmin() ||
         request.resource.data.shopId != null
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        (request.auth.token.shopId == null && resource.data.shopId != null)
       );
     }
 
@@ -140,9 +178,14 @@ service cloud.firestore {
         resource.data.shopId == request.auth.token.shopId ||
         resource.data.shopId != null
       );
-      allow create, update, delete: if isAuthenticated() && (
+      allow create, update: if isAuthenticated() && (
         isAdmin() ||
         request.resource.data.shopId != null
+      );
+      allow delete: if isAuthenticated() && (
+        isAdmin() ||
+        resource.data.shopId == request.auth.token.shopId ||
+        (request.auth.token.shopId == null && resource.data.shopId != null)
       );
     }
 

@@ -32,10 +32,14 @@ import {
   Sparkles,
   Printer,
   Download,
-  X
+  X,
+  Lock,
+  EyeOff,
+  ShieldAlert
 } from 'lucide-react';
 import { Product, PurchaseBill, PurchaseItem, PurchaseBillStatus, PaymentMode, Shop, Supplier } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
+import { verifyShopPassword } from '../../storage/auth.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
 import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
 
@@ -102,6 +106,14 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   const [viewingPurchase, setViewingPurchase] = useState<PurchaseBill | null>(null);
   // Dedicated A4 BILL PRINT modal state
   const [printingBill, setPrintingBill] = useState<PurchaseBill | null>(null);
+
+  // Permanent deletion states (Supplier & Password-Protected Cancelled Bills)
+  const [isDeletingSupplier, setIsDeletingSupplier] = useState(false);
+  const [deletingCancelledBill, setDeletingCancelledBill] = useState<PurchaseBill | null>(null);
+  const [deleteBillPassword, setDeleteBillPassword] = useState('');
+  const [showDeletePassword, setShowDeletePassword] = useState(false);
+  const [deleteBillError, setDeleteBillError] = useState('');
+  const [isDeletingBill, setIsDeletingBill] = useState(false);
 
   const loadData = async () => {
     try {
@@ -543,14 +555,48 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     }
   };
 
-  // Permanently Delete Supplier / Agency (safely preserves historical bills)
+  // Permanently Delete Supplier / Agency (deletes from IndexedDB + Cloud Firestore, preserves historical bills)
   const handleDeleteSupplier = async (supplierId: string) => {
     try {
-      await AppRepository.suppliers.delete(supplierId);
+      setIsDeletingSupplier(true);
+      await AppRepository.suppliers.delete(supplierId, currentShop.id);
+      setSuppliers(prev => prev.filter(s => s.id !== supplierId));
+      if (selectedSupplierId === supplierId) {
+        setSelectedSupplierId('');
+      }
       setDeletingSupplier(null);
       await loadData();
     } catch (err: any) {
       alert(`Failed to delete supplier: ${err.message}`);
+    } finally {
+      setIsDeletingSupplier(false);
+    }
+  };
+
+  // Password-Protected Permanent Delete for CANCELLED Purchase Bills
+  const handleConfirmDeleteCancelledBill = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!deletingCancelledBill) return;
+
+    setDeleteBillError('');
+    setIsDeletingBill(true);
+    try {
+      const isPasswordValid = await verifyShopPassword(currentShop, deleteBillPassword);
+      if (!isPasswordValid) {
+        setDeleteBillError('Wrong password! Permission denied to delete bill.');
+        return;
+      }
+
+      await AppRepository.purchases.deleteCancelledBill(deletingCancelledBill.id, currentShop.id);
+      setPurchases(prev => prev.filter(bill => bill.id !== deletingCancelledBill.id));
+      setDeletingCancelledBill(null);
+      setDeleteBillPassword('');
+      setDeleteBillError('');
+      await loadData();
+    } catch (err: any) {
+      setDeleteBillError(err?.message || 'Failed to delete purchase bill.');
+    } finally {
+      setIsDeletingBill(false);
     }
   };
 
@@ -797,13 +843,28 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                               <Edit3 className="w-3.5 h-3.5" />
                             </button>
                           )}
-                          {p.status === 'CONFIRMED' && (
+                          {p.status !== 'CANCELLED' && (
                             <button
                               onClick={() => handleCancelPurchase(p.id)}
-                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg transition"
-                              title="Cancel & Deduct Stock"
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg transition cursor-pointer"
+                              title={p.status === 'CONFIRMED' ? 'Cancel & Deduct Stock' : 'Cancel Draft Bill'}
                             >
                               <XCircle className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {p.status === 'CANCELLED' && (
+                            <button
+                              onClick={() => {
+                                setDeletingCancelledBill(p);
+                                setDeleteBillPassword('');
+                                setShowDeletePassword(false);
+                                setDeleteBillError('');
+                              }}
+                              className="p-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition cursor-pointer shadow-xs"
+                              title="Permanent Delete Cancelled Bill"
+                              aria-label="Permanent Delete Cancelled Bill"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           )}
                         </div>
@@ -1581,20 +1642,139 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
+                disabled={isDeletingSupplier}
                 onClick={() => setDeletingSupplier(null)}
-                className="px-4 py-2 text-slate-600 hover:text-slate-800 text-xs font-semibold rounded-xl hover:bg-slate-100 transition cursor-pointer"
+                className="px-4 py-2 text-slate-600 hover:text-slate-800 text-xs font-semibold rounded-xl hover:bg-slate-100 transition cursor-pointer disabled:opacity-50"
               >
                 Cancel / રદ કરો
               </button>
               <button
                 type="button"
+                disabled={isDeletingSupplier}
                 onClick={() => handleDeleteSupplier(deletingSupplier.id)}
-                className="bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md transition cursor-pointer flex items-center gap-1.5"
+                className="bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md transition cursor-pointer flex items-center gap-1.5 disabled:opacity-60"
               >
                 <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete Supplier / ડીલીટ કરો</span>
+                <span>{isDeletingSupplier ? 'Deleting...' : 'Delete Supplier / ડીલીટ કરો'}</span>
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password-Protected Permanent Delete Cancelled Bill Modal */}
+      {deletingCancelledBill && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
+                  <ShieldAlert className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-base text-slate-900">
+                    Permanent Delete Cancelled Bill
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    રદ કરેલ ખરીદી બિલ કાયમ માટે ડીલીટ કરો
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setDeletingCancelledBill(null);
+                  setDeleteBillPassword('');
+                  setDeleteBillError('');
+                }}
+                className="text-slate-400 hover:text-slate-700 p-1 rounded-lg cursor-pointer"
+                aria-label="Close modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-900 space-y-1.5">
+              <div className="flex justify-between font-mono">
+                <span className="text-rose-700">Bill Number:</span>
+                <span className="font-bold">{deletingCancelledBill.billNumber || deletingCancelledBill.purchaseInvoiceNumber}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-rose-700">Agency / Supplier:</span>
+                <span className="font-bold">{deletingCancelledBill.agencyName || deletingCancelledBill.supplierName}</span>
+              </div>
+              <div className="flex justify-between font-mono">
+                <span className="text-rose-700">Cancelled Amount:</span>
+                <span className="font-bold">₹{deletingCancelledBill.totalAmount.toFixed(2)}</span>
+              </div>
+              <p className="text-[11px] text-rose-700 pt-1 border-t border-rose-200/70">
+                Stock was already reversed when this bill was cancelled. Deleting permanently removes it from local storage and Cloud Firestore.
+              </p>
+            </div>
+
+            <form onSubmit={handleConfirmDeleteCancelledBill} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Current Shop Login Password / શોપ લોગિન પાસવર્ડ *</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showDeletePassword ? 'text' : 'password'}
+                    required
+                    autoFocus
+                    value={deleteBillPassword}
+                    onChange={e => {
+                      setDeleteBillPassword(e.target.value);
+                      if (deleteBillError) setDeleteBillError('');
+                    }}
+                    placeholder="Enter shop password to confirm permanent deletion"
+                    className="w-full pl-3 pr-9 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-rose-500 focus:border-rose-500 focus:outline-hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowDeletePassword(v => !v)}
+                    className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-700 cursor-pointer"
+                    title={showDeletePassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showDeletePassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {deleteBillError && (
+                <div
+                  role="alert"
+                  className="p-2.5 bg-rose-100 border border-rose-300 rounded-xl text-xs font-bold text-rose-800 flex items-center gap-2"
+                >
+                  <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{deleteBillError}</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  disabled={isDeletingBill}
+                  onClick={() => {
+                    setDeletingCancelledBill(null);
+                    setDeleteBillPassword('');
+                    setDeleteBillError('');
+                  }}
+                  className="px-4 py-2 text-slate-600 hover:text-slate-800 text-xs font-semibold rounded-xl hover:bg-slate-100 transition cursor-pointer disabled:opacity-50"
+                >
+                  Cancel / રદ કરો
+                </button>
+                <button
+                  type="submit"
+                  disabled={isDeletingBill || !deleteBillPassword}
+                  className="bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md transition cursor-pointer flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{isDeletingBill ? 'Deleting...' : 'Permanent Delete Bill'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

@@ -288,10 +288,15 @@ export const AppRepository = {
         return res.json();
       }
       try {
-        const cloudBills = await fetchPurchasesFromCloud(shopId);
+        const [cloudBills, deletedIds] = await Promise.all([
+          fetchPurchasesFromCloud(shopId),
+          localDb.loadDeletedPurchaseIds()
+        ]);
         if (cloudBills && cloudBills.length > 0) {
           for (const b of cloudBills) {
-            await localDb.savePurchaseBill(b);
+            if (!deletedIds.has(b.id)) {
+              await localDb.savePurchaseBill(b);
+            }
           }
         }
       } catch (e) {
@@ -312,6 +317,16 @@ export const AppRepository = {
       const cancelled = await localDb.cancelPurchaseBill(billId, shopId, reason);
       syncPurchaseBillToCloud(cancelled).catch(() => {});
       return cancelled;
+    },
+    deleteCancelledBill: async (billId: string, shopId: string): Promise<void> => {
+      if (isBackendConnected()) {
+        const res = await fetch(`${API_BASE_URL}/api/purchases/${billId}?shopId=${encodeURIComponent(shopId)}`, {
+          method: 'DELETE'
+        });
+        if (!res.ok) throw new Error('Failed to permanently delete cancelled purchase bill');
+      }
+      await localDb.deleteCancelledPurchaseBill(billId, shopId);
+      await deletePurchaseBillFromCloud(billId, shopId);
     }
   },
 
@@ -323,10 +338,15 @@ export const AppRepository = {
         return res.json();
       }
       try {
-        const cloudSups = await fetchSuppliersFromCloud(shopId);
+        const [cloudSups, deletedIds] = await Promise.all([
+          fetchSuppliersFromCloud(shopId),
+          localDb.loadDeletedSupplierIds()
+        ]);
         if (cloudSups && cloudSups.length > 0) {
           for (const s of cloudSups) {
-            await localDb.saveSupplier(s);
+            if (!deletedIds.has(s.id)) {
+              await localDb.saveSupplier(s);
+            }
           }
         }
       } catch (e) {
@@ -368,12 +388,12 @@ export const AppRepository = {
       }
       return localDb.getSupplierPayments(shopId, supplierId);
     },
-    delete: async (supplierId: string): Promise<void> => {
+    delete: async (supplierId: string, shopId?: string): Promise<void> => {
       if (isBackendConnected()) {
         await fetch(`${API_BASE_URL}/api/suppliers/${supplierId}`, { method: 'DELETE' });
       }
-      await localDb.deleteSupplier(supplierId);
-      deleteSupplierFromCloud(supplierId).catch(() => {});
+      await localDb.deleteSupplier(supplierId, shopId);
+      await deleteSupplierFromCloud(supplierId, shopId);
     }
   },
 

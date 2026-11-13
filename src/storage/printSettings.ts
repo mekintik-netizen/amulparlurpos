@@ -9,7 +9,7 @@
  */
 
 import { doc, getDoc, setDoc, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { db } from './firebase.ts';
+import { db, ensureAnonymousAuth } from './firebase.ts';
 import { PrintSettingsConfig, DEFAULT_PRINT_SETTINGS_CONFIG } from '../types/index.ts';
 
 const LOCAL_STORAGE_KEY = 'amul_pos_print_settings';
@@ -61,6 +61,7 @@ function cacheLocally(config: PrintSettingsConfig): void {
  */
 export async function getPrintSettingsConfig(): Promise<PrintSettingsConfig> {
   try {
+    await ensureAnonymousAuth();
     const docRef = doc(db, 'adminSettings', 'printConfig');
     const snap = await getDoc(docRef);
 
@@ -109,6 +110,7 @@ export async function savePrintSettingsConfig(
 
   // 2. Persist to Cloud Firestore
   try {
+    await ensureAnonymousAuth();
     const docRef = doc(db, 'adminSettings', 'printConfig');
     await setDoc(docRef, updated, { merge: true });
   } catch (err) {
@@ -134,26 +136,31 @@ export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig)
   // 1. Trigger immediately with current cached values
   callback(getCachedPrintSettings());
 
-  // 2. Listen to Firestore real-time snapshot
+  // 2. Listen to Firestore real-time snapshot once authenticated
   let firestoreUnsub: Unsubscribe = () => {};
-  try {
-    const docRef = doc(db, 'adminSettings', 'printConfig');
-    firestoreUnsub = onSnapshot(docRef, (snap) => {
-      if (snap.exists()) {
-        const remote = snap.data() as Partial<PrintSettingsConfig>;
-        const merged: PrintSettingsConfig = {
-          ...DEFAULT_PRINT_SETTINGS_CONFIG,
-          ...remote
-        };
-        cacheLocally(merged);
-        callback(merged);
-      }
-    }, (err) => {
-      console.warn('[PrintSettings] Firestore realtime snapshot notice:', err.message);
-    });
-  } catch (err) {
-    console.warn('[PrintSettings] Realtime listener setup skipped:', err);
-  }
+  let isCancelled = false;
+
+  ensureAnonymousAuth().then(() => {
+    if (isCancelled) return;
+    try {
+      const docRef = doc(db, 'adminSettings', 'printConfig');
+      firestoreUnsub = onSnapshot(docRef, (snap) => {
+        if (snap.exists()) {
+          const remote = snap.data() as Partial<PrintSettingsConfig>;
+          const merged: PrintSettingsConfig = {
+            ...DEFAULT_PRINT_SETTINGS_CONFIG,
+            ...remote
+          };
+          cacheLocally(merged);
+          callback(merged);
+        }
+      }, (err) => {
+        console.warn('[PrintSettings] Firestore realtime snapshot notice:', err.message);
+      });
+    } catch (err) {
+      console.warn('[PrintSettings] Realtime listener setup skipped:', err);
+    }
+  });
 
   // 3. Listen to local custom event for instant same-tab updates
   const handleCustomEvent = (e: Event) => {
@@ -181,6 +188,7 @@ export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig)
   }
 
   return () => {
+    isCancelled = true;
     firestoreUnsub();
     if (typeof window !== 'undefined') {
       window.removeEventListener(CUSTOM_EVENT_KEY, handleCustomEvent);

@@ -60,6 +60,10 @@ export const authReady: Promise<void> = signInAnonymously(auth)
     console.error("[Firebase] Anonymous auth failed:", error.code, error.message);
   });
 
+export function ensureAnonymousAuth(): Promise<void> {
+  return authReady;
+}
+
 export interface AdminAuthConfig {
   superAdminEmail: string;
   superAdminPhone: string;

@@ -376,6 +376,8 @@ export async function prefillMasterAmulCatalogWithZeroStock(
   const db = await openAppDatabase();
   const seedProducts = getSeedProductsForShop(shopId, true);
   const seedSuppliers = getSeedSuppliersForShop(shopId);
+  const deletedSups = await loadDeletedSupplierIds();
+  const supSeedDone = isSupplierSeedCompleted(shopId);
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(['products', 'suppliers'], 'readwrite');
@@ -416,17 +418,22 @@ export async function prefillMasterAmulCatalogWithZeroStock(
         }
       }
 
-      // Also ensure standard Amul suppliers are seeded for purchases
-      const supIndex = supStore.index('shopId');
-      const supReq = supIndex.getAll(shopId);
-      supReq.onsuccess = () => {
-        const existingSups = (supReq.result || []) as Supplier[];
-        if (existingSups.length === 0) {
-          for (const s of seedSuppliers) {
-            supStore.add(s);
+      // Ensure standard Amul suppliers are seeded only on initial setup and never resurrect deleted ones
+      if (!supSeedDone) {
+        const supIndex = supStore.index('shopId');
+        const supReq = supIndex.getAll(shopId);
+        supReq.onsuccess = () => {
+          const existingSups = (supReq.result || []) as Supplier[];
+          if (existingSups.length === 0) {
+            for (const s of seedSuppliers) {
+              if (!deletedSups.has(s.id)) {
+                supStore.add(s);
+              }
+            }
           }
-        }
-      };
+          markSupplierSeedCompleted(shopId);
+        };
+      }
     };
 
     tx.oncomplete = () => {
@@ -833,22 +840,200 @@ export async function cancelSaleBill(
 }
 
 // ==========================================
-// SUPPLIERS & PURCHASES OPERATIONS
+// SUPPLIERS & PURCHASES OPERATIONS & TOMBSTONES
 // ==========================================
 
+const DELETED_SUPPLIERS_KEY = 'amul_pos_deleted_suppliers';
+const DELETED_PURCHASES_KEY = 'amul_pos_deleted_purchases';
+const SUPPLIER_SEED_DONE_PREFIX = 'amul_pos_sup_seeded_';
+
+const deletedSupplierIdsMemory = new Set<string>();
+const deletedPurchaseIdsMemory = new Set<string>();
+const supplierSeedDoneMemory = new Set<string>();
+
+function readSetFromLocalStorage(key: string): string[] {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = window.localStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === 'string');
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return [];
+}
+
+function writeSetToLocalStorage(key: string, values: Set<string>): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(key, JSON.stringify(Array.from(values)));
+    }
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function isSupplierSeedCompleted(shopId: string): boolean {
+  if (supplierSeedDoneMemory.has(shopId)) return true;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      if (window.localStorage.getItem(`${SUPPLIER_SEED_DONE_PREFIX}${shopId}`) === '1') {
+        supplierSeedDoneMemory.add(shopId);
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+function markSupplierSeedCompleted(shopId: string): void {
+  if (!shopId) return;
+  supplierSeedDoneMemory.add(shopId);
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(`${SUPPLIER_SEED_DONE_PREFIX}${shopId}`, '1');
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export async function loadDeletedSupplierIds(): Promise<Set<string>> {
+  for (const id of readSetFromLocalStorage(DELETED_SUPPLIERS_KEY)) {
+    deletedSupplierIdsMemory.add(id);
+  }
+  try {
+    const db = await openAppDatabase();
+    if (db.objectStoreNames.contains('appSettings')) {
+      const stored = await new Promise<string[]>((resolve) => {
+        const tx = db.transaction('appSettings', 'readonly');
+        const req = tx.objectStore('appSettings').get(DELETED_SUPPLIERS_KEY);
+        req.onsuccess = () => {
+          resolve(Array.isArray(req.result?.value) ? req.result.value : []);
+        };
+        req.onerror = () => resolve([]);
+      });
+      for (const id of stored) {
+        deletedSupplierIdsMemory.add(id);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return deletedSupplierIdsMemory;
+}
+
+export function isSupplierDeleted(supplierId: string): boolean {
+  if (deletedSupplierIdsMemory.has(supplierId)) return true;
+  for (const id of readSetFromLocalStorage(DELETED_SUPPLIERS_KEY)) {
+    deletedSupplierIdsMemory.add(id);
+  }
+  return deletedSupplierIdsMemory.has(supplierId);
+}
+
+async function markSupplierDeleted(supplierId: string, shopId?: string): Promise<void> {
+  deletedSupplierIdsMemory.add(supplierId);
+  if (shopId) {
+    markSupplierSeedCompleted(shopId);
+  }
+  writeSetToLocalStorage(DELETED_SUPPLIERS_KEY, deletedSupplierIdsMemory);
+  try {
+    const db = await openAppDatabase();
+    if (db.objectStoreNames.contains('appSettings')) {
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction('appSettings', 'readwrite');
+        tx.objectStore('appSettings').put({
+          key: DELETED_SUPPLIERS_KEY,
+          value: Array.from(deletedSupplierIdsMemory)
+        });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    }
+  } catch {
+    // ignore
+  }
+}
+
+export async function loadDeletedPurchaseIds(): Promise<Set<string>> {
+  for (const id of readSetFromLocalStorage(DELETED_PURCHASES_KEY)) {
+    deletedPurchaseIdsMemory.add(id);
+  }
+  try {
+    const db = await openAppDatabase();
+    if (db.objectStoreNames.contains('appSettings')) {
+      const stored = await new Promise<string[]>((resolve) => {
+        const tx = db.transaction('appSettings', 'readonly');
+        const req = tx.objectStore('appSettings').get(DELETED_PURCHASES_KEY);
+        req.onsuccess = () => {
+          resolve(Array.isArray(req.result?.value) ? req.result.value : []);
+        };
+        req.onerror = () => resolve([]);
+      });
+      for (const id of stored) {
+        deletedPurchaseIdsMemory.add(id);
+      }
+    }
+  } catch {
+    // ignore
+  }
+  return deletedPurchaseIdsMemory;
+}
+
+export function isPurchaseDeleted(purchaseId: string): boolean {
+  if (deletedPurchaseIdsMemory.has(purchaseId)) return true;
+  for (const id of readSetFromLocalStorage(DELETED_PURCHASES_KEY)) {
+    deletedPurchaseIdsMemory.add(id);
+  }
+  return deletedPurchaseIdsMemory.has(purchaseId);
+}
+
+async function markPurchaseDeleted(purchaseId: string): Promise<void> {
+  deletedPurchaseIdsMemory.add(purchaseId);
+  writeSetToLocalStorage(DELETED_PURCHASES_KEY, deletedPurchaseIdsMemory);
+  try {
+    const db = await openAppDatabase();
+    if (db.objectStoreNames.contains('appSettings')) {
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction('appSettings', 'readwrite');
+        tx.objectStore('appSettings').put({
+          key: DELETED_PURCHASES_KEY,
+          value: Array.from(deletedPurchaseIdsMemory)
+        });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
+    }
+  } catch {
+    // ignore
+  }
+}
+
 export async function getSuppliersByShop(shopId: string): Promise<Supplier[]> {
+  const deletedIds = await loadDeletedSupplierIds();
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('suppliers', 'readonly');
     const store = tx.objectStore('suppliers');
     const index = store.index('shopId');
     const req = index.getAll(shopId);
-    req.onsuccess = () => resolve(req.result || []);
+    req.onsuccess = () => {
+      const list = ((req.result || []) as Supplier[]).filter(s => !deletedIds.has(s.id));
+      resolve(list);
+    };
     req.onerror = () => reject(req.error);
   });
 }
 
 export async function saveSupplier(supplier: Supplier): Promise<Supplier> {
+  if (isSupplierDeleted(supplier.id)) {
+    return supplier;
+  }
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('suppliers', 'readwrite');
@@ -860,18 +1045,35 @@ export async function saveSupplier(supplier: Supplier): Promise<Supplier> {
 }
 
 /**
- * Permanently deletes a supplier/agency account from the system.
+ * Permanently deletes a supplier/agency account from the system and records a tombstone
+ * so auto-seed or stale cloud listeners never resurrect the deleted supplier on refresh.
  * NOTE: Historical purchase records, invoices, and stock deliveries are safely preserved.
  */
-export async function deleteSupplier(supplierId: string): Promise<void> {
+export async function deleteSupplier(supplierId: string, shopId?: string): Promise<void> {
   const db = await openAppDatabase();
-  return new Promise((resolve, reject) => {
+  let resolvedShopId = shopId;
+
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction('suppliers', 'readwrite');
     const store = tx.objectStore('suppliers');
-    const req = store.delete(supplierId);
-    req.onsuccess = () => resolve();
-    req.onerror = () => reject(req.error);
+    const getReq = store.get(supplierId);
+    getReq.onsuccess = () => {
+      const existing = getReq.result as Supplier | undefined;
+      if (!resolvedShopId && existing?.shopId) {
+        resolvedShopId = existing.shopId;
+      }
+      const delReq = store.delete(supplierId);
+      delReq.onsuccess = () => resolve();
+      delReq.onerror = () => reject(delReq.error);
+    };
+    getReq.onerror = () => {
+      const delReq = store.delete(supplierId);
+      delReq.onsuccess = () => resolve();
+      delReq.onerror = () => reject(delReq.error);
+    };
   });
+
+  await markSupplierDeleted(supplierId, resolvedShopId);
 }
 
 /**
@@ -1012,6 +1214,7 @@ export async function createPurchaseBill(
 }
 
 export async function getPurchasesByShop(shopId: string, dateStr?: string): Promise<PurchaseBill[]> {
+  const deletedIds = await loadDeletedPurchaseIds();
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('purchases', 'readonly');
@@ -1020,7 +1223,7 @@ export async function getPurchasesByShop(shopId: string, dateStr?: string): Prom
     const req = index.getAll(shopId);
 
     req.onsuccess = () => {
-      let list = (req.result as PurchaseBill[]) || [];
+      let list = ((req.result as PurchaseBill[]) || []).filter(p => !deletedIds.has(p.id));
       if (dateStr) {
         list = list.filter(p => p.purchaseDate.startsWith(dateStr));
       }
@@ -1347,6 +1550,9 @@ export async function updatePurchaseBill(
  * Saves a purchase bill directly into local IndexedDB (used by Firestore real-time sync)
  */
 export async function savePurchaseBill(purchase: PurchaseBill): Promise<PurchaseBill> {
+  if (isPurchaseDeleted(purchase.id)) {
+    return purchase;
+  }
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('purchases', 'readwrite');
@@ -1355,6 +1561,54 @@ export async function savePurchaseBill(purchase: PurchaseBill): Promise<Purchase
     req.onsuccess = () => resolve(purchase);
     req.onerror = () => reject(req.error);
   });
+}
+
+/**
+ * Permanently deletes a CANCELLED purchase bill from IndexedDB.
+ * Active (CONFIRMED or DRAFT) bills MUST be cancelled first so stock is properly reversed.
+ */
+export async function deleteCancelledPurchaseBill(billId: string, shopId: string): Promise<void> {
+  const db = await openAppDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('purchases', 'readwrite');
+    const store = tx.objectStore('purchases');
+    const getReq = store.get(billId);
+
+    getReq.onsuccess = () => {
+      const bill = getReq.result as PurchaseBill | undefined;
+      if (!bill || bill.shopId !== shopId) {
+        return reject(new Error('Purchase bill not found or unauthorized'));
+      }
+      if (bill.status !== 'CANCELLED') {
+        return reject(
+          new Error('Active purchase bills must be cancelled first so stock is properly deducted before permanent deletion.')
+        );
+      }
+
+      const delReq = store.delete(billId);
+      delReq.onsuccess = () => resolve();
+      delReq.onerror = () => reject(delReq.error);
+    };
+
+    getReq.onerror = () => reject(getReq.error);
+  });
+
+  await markPurchaseDeleted(billId);
+}
+
+/**
+ * Raw purchase bill removal used when Cloud Firestore broadcasts a 'removed' snapshot change.
+ */
+export async function deletePurchaseBillRaw(billId: string): Promise<void> {
+  const db = await openAppDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('purchases', 'readwrite');
+    const store = tx.objectStore('purchases');
+    const req = store.delete(billId);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+  await markPurchaseDeleted(billId);
 }
 
 /**

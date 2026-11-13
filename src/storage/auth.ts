@@ -11,8 +11,8 @@
  * - Multi-tenant shop-level authorization for SHOP_USER and system-level for ADMIN.
  */
 
-import { openAppDatabase, getAllShops, saveShop, prefillMasterAmulCatalogWithZeroStock } from './db.ts';
-import { db, getAdminAuthConfig, updateAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from './firebase.ts';
+import { openAppDatabase, getAllShops, getShopById, saveShop, prefillMasterAmulCatalogWithZeroStock } from './db.ts';
+import { db, getAdminAuthConfig, updateAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig, ensureAnonymousAuth } from './firebase.ts';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
 import { syncShopToCloud } from './firestoreSync.ts';
 import { Shop } from '../types/index.ts';
@@ -355,6 +355,7 @@ export async function authenticateShopCounterFromFirestore(params: {
 
   // 1. Attempt lookup against live Cloud Firestore
   try {
+    await ensureAnonymousAuth();
     // A. Query directly by registered phone number if input is phone-like
     if (isLikelyPhone) {
       const qPhoneExact = query(collection(db, 'shops'), where('phone', '==', rawInput));
@@ -606,6 +607,68 @@ export async function authenticateShopCounterFromFirestore(params: {
 
   saveSession(session, false);
   return session;
+}
+
+/**
+ * Verifies an entered password against the current shop's stored login credentials
+ * (salted SHA-256 hash, legacy cashierPassword, local SHOP_USER record, or default initial password).
+ * Used for sensitive actions such as permanently deleting cancelled purchase bills.
+ */
+export async function verifyShopPassword(shop: Shop, password: string): Promise<boolean> {
+  if (!password) return false;
+
+  // Prefer the latest local shop record in case credentials were updated after login
+  let targetShop: Shop = shop;
+  try {
+    const latestLocal = await getShopById(shop.id);
+    if (latestLocal) {
+      targetShop = latestLocal;
+    }
+  } catch {
+    // Use passed shop object
+  }
+
+  // 1. Salted SHA-256 hash check
+  if (targetShop.passwordHash && targetShop.salt) {
+    const computedHash = await hashPasswordWithSalt(password, targetShop.salt);
+    if (computedHash === targetShop.passwordHash) {
+      return true;
+    }
+  }
+
+  // 2. Plaintext cashierPassword check (legacy pre-hash provisioning)
+  if (targetShop.cashierPassword && password === targetShop.cashierPassword) {
+    return true;
+  }
+
+  // 3. Default initial password fallback for newly provisioned shops without a set hash
+  if (!targetShop.passwordHash && !targetShop.cashierPassword) {
+    if (password === 'amul123' || password === 'admin123') {
+      return true;
+    }
+  }
+
+  // 4. Local SHOP_USER record fallback check
+  try {
+    const users = await getAllLocalUsers();
+    const matchingUsers = users.filter(
+      u =>
+        u.role === 'SHOP_USER' &&
+        (u.shopId === targetShop.id ||
+          (targetShop.shopCode && u.shopCode === targetShop.shopCode) ||
+          (targetShop.cashierUsername && u.username === targetShop.cashierUsername.toLowerCase()))
+    );
+    for (const userMatch of matchingUsers) {
+      const computedLocalHash = await hashPasswordWithSalt(password, userMatch.salt);
+      if (computedLocalHash === userMatch.passwordHash) {
+        return true;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  return false;
 }
 
 /**

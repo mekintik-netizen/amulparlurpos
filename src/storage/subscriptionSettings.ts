@@ -9,7 +9,7 @@
  */
 
 import { doc, getDoc, setDoc, onSnapshot, Unsubscribe } from 'firebase/firestore';
-import { db } from './firebase.ts';
+import { db, ensureAnonymousAuth } from './firebase.ts';
 import { SubscriptionSettingsConfig, DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG, Shop } from '../types/index.ts';
 
 const LOCAL_STORAGE_KEY = 'amul_pos_subscription_settings';
@@ -61,6 +61,7 @@ function cacheLocally(config: SubscriptionSettingsConfig): void {
  */
 export async function getSubscriptionSettingsConfig(): Promise<SubscriptionSettingsConfig> {
   try {
+    await ensureAnonymousAuth();
     const docRef = doc(db, 'adminSettings', 'subscriptionConfig');
     const snap = await getDoc(docRef);
 
@@ -108,6 +109,7 @@ export async function saveSubscriptionSettingsConfig(
   cacheLocally(updated);
 
   try {
+    await ensureAnonymousAuth();
     const docRef = doc(db, 'adminSettings', 'subscriptionConfig');
     await setDoc(docRef, updated, { merge: true });
   } catch (err) {
@@ -148,27 +150,38 @@ export function subscribeToSubscriptionSettings(
     window.addEventListener(CUSTOM_EVENT_KEY, localListener);
   }
 
-  // Subscribe to Cloud Firestore
-  const docRef = doc(db, 'adminSettings', 'subscriptionConfig');
-  const firestoreUnsub = onSnapshot(
-    docRef,
-    (snap) => {
-      if (snap.exists()) {
-        const remote = snap.data() as Partial<SubscriptionSettingsConfig>;
-        const merged: SubscriptionSettingsConfig = {
-          ...DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG,
-          ...remote
-        };
-        cacheLocally(merged);
-        callback(merged);
-      }
-    },
-    (err) => {
-      console.warn('[SubscriptionSettings] Firestore subscription listener notice:', err.message);
+  // Subscribe to Cloud Firestore once authenticated
+  let firestoreUnsub: Unsubscribe = () => {};
+  let isCancelled = false;
+
+  ensureAnonymousAuth().then(() => {
+    if (isCancelled) return;
+    try {
+      const docRef = doc(db, 'adminSettings', 'subscriptionConfig');
+      firestoreUnsub = onSnapshot(
+        docRef,
+        (snap) => {
+          if (snap.exists()) {
+            const remote = snap.data() as Partial<SubscriptionSettingsConfig>;
+            const merged: SubscriptionSettingsConfig = {
+              ...DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG,
+              ...remote
+            };
+            cacheLocally(merged);
+            callback(merged);
+          }
+        },
+        (err) => {
+          console.warn('[SubscriptionSettings] Firestore subscription listener notice:', err.message);
+        }
+      );
+    } catch (err) {
+      console.warn('[SubscriptionSettings] Realtime listener setup skipped:', err);
     }
-  );
+  });
 
   return () => {
+    isCancelled = true;
     if (typeof window !== 'undefined') {
       window.removeEventListener(CUSTOM_EVENT_KEY, localListener);
     }
