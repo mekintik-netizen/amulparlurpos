@@ -39,13 +39,16 @@ import {
   Upload,
   QrCode,
   LogOut,
-  Printer
+  Printer,
+  Download,
+  Monitor
 } from 'lucide-react';
 import { Shop, ShopApprovalStatus, SubscriptionPlanId, SubscriptionStatus, SUBSCRIPTION_PLANS } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShopCashierAccount, adminResetShopPassword, clearActiveSession, generateSalt, hashPasswordWithSalt } from '../../storage/auth.ts';
 import { isShopSubscriptionActive, activateOneMonthSubscription, renewShopSubscription } from '../../storage/subscription.ts';
 import { getAdminAuthConfig, updateAdminAuthConfig, subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/firebase.ts';
+import { convertImageToIco, downloadIcoFile, applyDynamicFavicon } from '../../utils/icoConverter.ts';
 import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
 import { MonthlyRevenueChart } from './MonthlyRevenueChart.tsx';
 import { PrintSettingsTab } from './PrintSettingsTab.tsx';
@@ -130,12 +133,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [resetShopPasswordSuccess, setResetShopPasswordSuccess] = useState<string | null>(null);
   const [resetShopPasswordError, setResetShopPasswordError] = useState<string | null>(null);
 
-  // Dynamic Master Admin Payment QR state
+  // Dynamic Master Admin Payment QR & Windows Desktop Icon (.ico) state
   const [adminAuthConfig, setAdminAuthConfig] = useState<AdminAuthConfig | null>(null);
   const [paymentQrUrl, setPaymentQrUrl] = useState<string>('');
   const [isSavingQr, setIsSavingQr] = useState(false);
   const [qrToast, setQrToast] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const brandLogoInputRef = useRef<HTMLInputElement>(null);
+  const [isConvertingIco, setIsConvertingIco] = useState(false);
+  const [icoToast, setIcoToast] = useState<string | null>(null);
 
   // Shop Deletion State & Confirmation
   const [shopToDelete, setShopToDelete] = useState<Shop | null>(null);
@@ -189,6 +195,43 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleBrandLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload a valid PNG, JPG, or WebP logo image.');
+      return;
+    }
+    try {
+      setIsConvertingIco(true);
+      const result = await convertImageToIco(file, [32, 64, 256]);
+      const updatedAt = new Date().toISOString();
+      await updateAdminAuthConfig({
+        desktopIconIcoBase64: result.icoDataUrl,
+        brandLogoPngBase64: result.brandLogoPngDataUrl,
+        desktopIconUpdatedAt: updatedAt
+      });
+      applyDynamicFavicon(result.icoDataUrl, result.brandLogoPngDataUrl);
+      setIcoToast('Converted PNG to multi-size Windows .ico (32×32, 64×64, 256×256) and synced to Cloud Firestore!');
+      setTimeout(() => setIcoToast(null), 5000);
+    } catch (err: any) {
+      alert(`Failed to convert and sync logo: ${err?.message || err}`);
+    } finally {
+      setIsConvertingIco(false);
+      e.target.value = '';
+    }
+  };
+
+  const handleDownloadDesktopIco = async () => {
+    try {
+      await downloadIcoFile(adminAuthConfig?.desktopIconIcoBase64, 'amul-parlour-pos.ico');
+      setIcoToast('Downloaded amul-parlour-pos.ico to your computer!');
+      setTimeout(() => setIcoToast(null), 3500);
+    } catch (err: any) {
+      alert(`Failed to download .ico file: ${err?.message || err}`);
+    }
   };
 
   const handleDeleteShopConfirm = async () => {
@@ -723,7 +766,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               }`}
             >
               <QrCode className="w-4 h-4" />
-              <span>Payment QR (યુપીઆઈ ક્યુઆર)</span>
+              <span>QR &amp; Desktop Icon (ક્યુઆર &amp; આઇકોન)</span>
             </button>
           </div>
 
@@ -743,66 +786,124 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             />
           )}
 
-          {/* Sub-Tab 2: Master Admin Dynamic Payment QR Upload Section (Synced with Firestore) */}
+          {/* Sub-Tab 2: Master Admin Dynamic Payment QR & Brand Desktop Icon Manager */}
           {adminSubTab === 'QR' && (
-            <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 animate-in fade-in">
-              <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
-                <div className="flex items-start gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#005A9C] flex items-center justify-center border border-blue-200 shrink-0">
-                    <QrCode className="w-5 h-5" />
+            <div className="space-y-4 animate-in fade-in">
+              <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80">
+                <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#005A9C] flex items-center justify-center border border-blue-200 shrink-0">
+                      <QrCode className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
+                        <span>Admin Master Subscription UPI QR Code</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
+                          Live Cloud Sync
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Upload your UPI / GPay / PhonePe QR code. When any parlour subscription expires, this QR is dynamically shown to the counter cashier with renewal contact info (<strong className="text-slate-800">+919173598234</strong>).
+                      </p>
+                      {qrToast && (
+                        <div className="mt-2 text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 p-2 rounded-lg border border-emerald-200 animate-in fade-in duration-200">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>{qrToast}</span>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-sm font-extrabold text-slate-900 flex items-center gap-2">
-                      <span>Admin Master Subscription UPI QR Code</span>
-                      <span className="text-[10px] font-bold uppercase tracking-wider bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200">
-                        Live Cloud Sync
-                      </span>
-                    </h3>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Upload your UPI / GPay / PhonePe QR code. When any parlour subscription expires, this QR is dynamically shown to the counter cashier with renewal contact info (<strong className="text-slate-800">+919173598234</strong>).
-                    </p>
-                    {qrToast && (
-                      <div className="mt-2 text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 p-2 rounded-lg border border-emerald-200 animate-in fade-in duration-200">
-                        <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                        <span>{qrToast}</span>
+
+                  <div className="flex items-center gap-4 shrink-0">
+                    {paymentQrUrl ? (
+                      <div className="relative group w-16 h-16 rounded-xl border-2 border-dashed border-blue-300 p-1 bg-white overflow-hidden shadow-2xs">
+                        <img 
+                          src={paymentQrUrl} 
+                          alt="Current Master Payment QR" 
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <div className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 bg-slate-50 text-[10px] text-center p-1">
+                        No QR Set
                       </div>
                     )}
+
+                    <div>
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleQrFileUpload}
+                        className="hidden"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={isSavingQr}
+                        className="bg-[#005A9C] hover:bg-blue-800 disabled:bg-slate-400 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>{isSavingQr ? 'Saving QR...' : (paymentQrUrl ? 'Change QR Image' : 'Upload QR Image')}</span>
+                      </button>
+                      <div className="text-[10px] text-slate-400 mt-1 font-mono text-center">PNG, JPG &lt; 2MB</div>
+                    </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="flex items-center gap-4 shrink-0">
-                  {paymentQrUrl ? (
-                    <div className="relative group w-16 h-16 rounded-xl border-2 border-dashed border-blue-300 p-1 bg-white overflow-hidden shadow-2xs">
-                      <img 
-                        src={paymentQrUrl} 
-                        alt="Current Master Payment QR" 
-                        className="w-full h-full object-contain"
-                      />
+              {/* Windows Desktop Icon (.ico) & Cloud Brand Logo Card */}
+              <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80">
+                <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-12 h-12 rounded-xl border border-blue-200 bg-blue-50 text-[#005A9C] shadow-2xs shrink-0 flex items-center justify-center">
+                      <Monitor className="w-6 h-6" />
                     </div>
-                  ) : (
-                    <div className="w-16 h-16 rounded-xl border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 bg-slate-50 text-[10px] text-center p-1">
-                      No QR Set
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900 flex flex-wrap items-center gap-2">
+                        <Monitor className="w-4 h-4 text-[#005A9C]" />
+                        <span>Windows Desktop Icon (.ico) &amp; Chrome App Logo</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider bg-blue-50 text-[#005A9C] px-2 py-0.5 rounded border border-blue-200">
+                          32×32 • 64×64 • 256×256
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-1 max-w-2xl">
+                        Download the multi-size Windows <code className="font-mono bg-slate-100 px-1 rounded">amul-parlour-pos.ico</code> file for shopkeeper desktop shortcuts, or upload a new PNG logo to auto-convert it to <code className="font-mono bg-slate-100 px-1 rounded">.ico</code> and persist it in Cloud Firestore across all terminals.
+                      </p>
+                      {icoToast && (
+                        <div className="mt-2 text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>{icoToast}</span>
+                        </div>
+                      )}
                     </div>
-                  )}
+                  </div>
 
-                  <div>
+                  <div className="flex flex-wrap items-center gap-2.5 shrink-0">
                     <input
-                      ref={fileInputRef}
+                      ref={brandLogoInputRef}
                       type="file"
-                      accept="image/*"
-                      onChange={handleQrFileUpload}
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={handleBrandLogoUpload}
                       className="hidden"
                     />
                     <button
                       type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={isSavingQr}
+                      onClick={handleDownloadDesktopIco}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Windows Desktop Icon (.ico)</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => brandLogoInputRef.current?.click()}
+                      disabled={isConvertingIco}
                       className="bg-[#005A9C] hover:bg-blue-800 disabled:bg-slate-400 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
                     >
                       <Upload className="w-3.5 h-3.5" />
-                      <span>{isSavingQr ? 'Saving QR...' : (paymentQrUrl ? 'Change QR Image' : 'Upload QR Image')}</span>
+                      <span>{isConvertingIco ? 'Converting to .ico...' : 'Upload PNG & Auto-Convert .ico'}</span>
                     </button>
-                    <div className="text-[10px] text-slate-400 mt-1 font-mono text-center">PNG, JPG &lt; 2MB</div>
                   </div>
                 </div>
               </div>

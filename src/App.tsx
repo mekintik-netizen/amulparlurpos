@@ -49,6 +49,8 @@ import { AppRepository } from './storage/repositories.ts';
 import { AuthSession, UserRole, getActiveSession, clearActiveSession, ensureDefaultAccountsSeeded } from './storage/auth.ts';
 import { isShopSubscriptionActive } from './storage/subscription.ts';
 import { startShopRealtimeSync, startAdminShopsRealtimeSync } from './storage/firestoreSync.ts';
+import { subscribeToAdminAuthConfig, updateAdminAuthConfig } from './storage/firebase.ts';
+import { applyDynamicFavicon, uint8ArrayToBase64 } from './utils/icoConverter.ts';
 import { Theme, getStoredTheme, applyTheme } from './storage/theme.ts';
 import { RefreshCw, AlertCircle, Store, Shield } from 'lucide-react';
 
@@ -126,6 +128,37 @@ export default function App() {
   useEffect(() => {
     applyTheme(theme);
   }, [theme]);
+
+  // Sync Cloud Brand Logo & Multi-Size Windows Desktop .ico from adminSettings/authConfig
+  useEffect(() => {
+    let seededOnce = false;
+    const unsub = subscribeToAdminAuthConfig(async (cfg) => {
+      if (cfg.desktopIconIcoBase64 || cfg.brandLogoPngBase64) {
+        applyDynamicFavicon(cfg.desktopIconIcoBase64, cfg.brandLogoPngBase64);
+        return;
+      }
+      if (seededOnce || (typeof navigator !== 'undefined' && !navigator.onLine)) return;
+      seededOnce = true;
+      try {
+        const [icoRes, pngRes] = await Promise.all([
+          fetch('./favicon.ico'),
+          fetch('./icon-192.png')
+        ]);
+        if (!icoRes.ok || !pngRes.ok) return;
+        const [icoBuf, pngBuf] = await Promise.all([icoRes.arrayBuffer(), pngRes.arrayBuffer()]);
+        const icoDataUrl = `data:image/x-icon;base64,${uint8ArrayToBase64(new Uint8Array(icoBuf))}`;
+        const pngDataUrl = `data:image/png;base64,${uint8ArrayToBase64(new Uint8Array(pngBuf))}`;
+        await updateAdminAuthConfig({
+          desktopIconIcoBase64: icoDataUrl,
+          brandLogoPngBase64: pngDataUrl,
+          desktopIconUpdatedAt: new Date().toISOString()
+        });
+      } catch {
+        // Non-blocking: static ./favicon.ico & ./icon-192.png remain active
+      }
+    });
+    return () => unsub();
+  }, []);
 
   const handleToggleTheme = () => {
     const nextTheme: Theme = theme === 'dark' ? 'light' : 'dark';

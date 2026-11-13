@@ -26,10 +26,14 @@ import {
   ShieldCheck,
   RefreshCw,
   Eye,
-  CreditCard
+  CreditCard,
+  Download,
+  Monitor
 } from 'lucide-react';
 import { Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
+import { subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/firebase.ts';
+import { downloadIcoFile } from '../../utils/icoConverter.ts';
 import amulLogo from '../../assets/logo.ts';
 
 interface ShopProfileManagementProps {
@@ -66,8 +70,27 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showStandeeModal, setShowStandeeModal] = useState(false);
+  const [adminAuthConfig, setAdminAuthConfig] = useState<AdminAuthConfig | null>(null);
+  const [icoDownloadMessage, setIcoDownloadMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const unsub = subscribeToAdminAuthConfig((cfg) => {
+      setAdminAuthConfig(cfg);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleDownloadDesktopIco = async () => {
+    try {
+      await downloadIcoFile(adminAuthConfig?.desktopIconIcoBase64, 'amul-parlour-pos.ico');
+      setIcoDownloadMessage('amul-parlour-pos.ico downloaded! Right-click your Chrome desktop shortcut -> Properties -> Change Icon to apply.');
+      setTimeout(() => setIcoDownloadMessage(null), 5000);
+    } catch (err: any) {
+      setErrorMessage(err?.message || 'Failed to download Windows desktop .ico icon.');
+    }
+  };
 
   // Sync state if shop changes
   useEffect(() => {
@@ -594,6 +617,47 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
                 તમારા બેંક અથવા પેમેન્ટ સ્ટેન્ડીનો ફોટો અપલોડ કરો (PNG, JPG)
               </span>
             </div>
+          </div>
+
+          {/* Windows Chrome Desktop Shortcut & Official .ico Download Card */}
+          <div className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2">
+                <Monitor className="w-4 h-4 text-[#005A9C]" />
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                  વિન્ડોઝ ડેસ્કટોપ આઇકોન (Desktop Shortcut .ico)
+                </h3>
+              </div>
+              <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded">
+                Chrome &amp; Windows
+              </span>
+            </div>
+
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 text-[#005A9C] dark:text-blue-400 shrink-0 shadow-2xs flex items-center justify-center">
+                <Monitor className="w-6 h-6" />
+              </div>
+              <div className="space-y-1.5 flex-1">
+                <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+                  Install directly from Chrome (<strong>Install Amul Parlour POS</strong>) or download the multi-size Windows <code className="font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-1 rounded">.ico</code> logo for your PC desktop shortcut.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleDownloadDesktopIco}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Windows Desktop Icon (.ico)</span>
+                </button>
+              </div>
+            </div>
+
+            {icoDownloadMessage && (
+              <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl p-2.5 flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <span>{icoDownloadMessage}</span>
+              </div>
+            )}
           </div>
         </div>
       </form>
