@@ -48,6 +48,7 @@ import { AppRepository } from '../../storage/repositories.ts';
 import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShopCashierAccount, adminResetShopPassword, clearActiveSession, generateSalt, hashPasswordWithSalt } from '../../storage/auth.ts';
 import { isShopSubscriptionActive, activateOneMonthSubscription, renewShopSubscription } from '../../storage/subscription.ts';
 import { getAdminAuthConfig, updateAdminAuthConfig, subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/firebase.ts';
+import { startAdminShopsRealtimeSync } from '../../storage/firestoreSync.ts';
 import { convertImageToIco, downloadIcoFile, applyDynamicFavicon } from '../../utils/icoConverter.ts';
 import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
 import { MonthlyRevenueChart } from './MonthlyRevenueChart.tsx';
@@ -273,7 +274,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   useEffect(() => {
     loadShops();
-  }, []);
+    const unsubShops = startAdminShopsRealtimeSync((syncedShops) => {
+      setShops(syncedShops);
+      setLoading(false);
+    });
+    return () => unsubShops();
+  }, [isAdminAuthenticated]);
 
   const handleAdminLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -564,12 +570,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   const filteredShops = shops.filter((s) => {
+    const queryLower = searchTerm.trim().toLowerCase();
     const matchesSearch =
-      s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.ownerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.shopCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      s.phone.includes(searchTerm);
-    const matchesStatus = statusFilter === 'ALL' || s.approvalStatus === statusFilter;
+      !queryLower ||
+      (s.name || '').toLowerCase().includes(queryLower) ||
+      (s.ownerName || '').toLowerCase().includes(queryLower) ||
+      (s.shopCode || '').toLowerCase().includes(queryLower) ||
+      (s.id || '').toLowerCase().includes(queryLower) ||
+      (s.phone || '').toLowerCase().includes(queryLower);
+    const resolvedStatus = s.approvalStatus || 'APPROVED';
+    const matchesStatus = statusFilter === 'ALL' || resolvedStatus === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
@@ -1001,9 +1011,11 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   {filteredShops.map((shop) => (
                     <tr key={shop.id} className="hover:bg-slate-50 transition">
                       <td className="py-3 px-3">
-                        <div className="font-mono font-bold text-blue-700">{shop.shopCode}</div>
-                        <div className="font-bold text-slate-900 mt-0.5">{shop.name}</div>
-                        <div className="text-[10px] text-slate-400">{shop.city}, {shop.state}</div>
+                        <div className="font-mono font-bold text-blue-700">{shop.shopCode || shop.id}</div>
+                        <div className="font-bold text-slate-900 mt-0.5">{shop.name || 'Amul Parlour'}</div>
+                        <div className="text-[10px] text-slate-400">
+                          {[shop.city, shop.state].filter(Boolean).join(', ') || 'Gujarat, India'}
+                        </div>
                         {shop.id === activeShopId && (
                           <span className="inline-block bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full mt-1">
                             Current Active Counter
@@ -1011,8 +1023,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         )}
                       </td>
                       <td className="py-3 px-2">
-                        <div className="font-semibold text-slate-800">{shop.ownerName}</div>
-                        <div className="text-[11px] text-slate-500 font-mono">{shop.phone}</div>
+                        <div className="font-semibold text-slate-800">{shop.ownerName || 'Franchisee Owner'}</div>
+                        <div className="text-[11px] text-slate-500 font-mono">{shop.phone || '—'}</div>
                         {shop.ownerIdentityNumber && (
                           <div className="text-[10px] text-slate-400 font-mono">
                             ID: {shop.ownerIdentityNumber}

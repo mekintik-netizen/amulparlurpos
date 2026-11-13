@@ -15,6 +15,7 @@ import {
   query, 
   where, 
   onSnapshot, 
+  getDoc,
   getDocs,
   Unsubscribe 
 } from 'firebase/firestore';
@@ -572,9 +573,120 @@ export function startShopRealtimeSync(
   };
 }
 
+const DEMO_SHOP_IDS = new Set(['shop-amul-001', 'shop-amul-002', 'shop-amul-003']);
+
 /**
- * Attaches real-time listener for Master Admin to watch all registered shops.
- * Delays attaching until anonymous auth promise resolves.
+ * Safely normalizes any Firestore or local shop record so missing optional fields
+ * never cause UI filter crashes or drop real registered shops from the Admin table.
+ */
+export function normalizeRemoteShop(raw: Record<string, any> | undefined, docId: string): Shop {
+  const data = raw || {};
+  const resolvedId = (data.id && String(data.id).trim()) || (data.shopId && String(data.shopId).trim()) || docId;
+  const resolvedCode = (data.shopCode && String(data.shopCode).trim()) || (data.code && String(data.code).trim()) || resolvedId;
+  const fallbackIso = new Date().toISOString();
+
+  return {
+    ...(data as Shop),
+    id: resolvedId,
+    shopCode: resolvedCode,
+    name: (data.name && String(data.name).trim()) || (data.shopName && String(data.shopName).trim()) || 'Amul Parlour',
+    ownerName: data.ownerName ? String(data.ownerName) : '',
+    phone: data.phone ? String(data.phone) : '',
+    email: data.email ? String(data.email) : '',
+    address: data.address ? String(data.address) : '',
+    city: data.city ? String(data.city) : '',
+    state: data.state ? String(data.state) : 'Gujarat',
+    pincode: data.pincode ? String(data.pincode) : '',
+    approvalStatus: data.approvalStatus || (data.status === 'suspended' ? 'SUSPENDED' : 'APPROVED'),
+    subscriptionPlanId: data.subscriptionPlanId || 'BASIC',
+    subscriptionStatus: data.subscriptionStatus || (data.status === 'expired' ? 'EXPIRED' : 'ACTIVE'),
+    createdAt: data.createdAt || data.updatedAt || fallbackIso,
+    updatedAt: data.updatedAt || data.createdAt || fallbackIso
+  };
+}
+
+/**
+ * Merges real Cloud Firestore shops with local IndexedDB shops so demo seeds
+ * (AP-2026-1001..1003) never overwrite or hide real registered shops.
+ * Real registered shops always take precedence and appear first.
+ */
+export function mergeCloudAndLocalShops(remoteShops: Shop[], localShops: Shop[]): Shop[] {
+  const byId = new Map<string, Shop>();
+  const seenCodes = new Set<string>();
+
+  for (const remote of remoteShops) {
+    const normalized = normalizeRemoteShop(remote as any, remote.id);
+    byId.set(normalized.id, normalized);
+    if (normalized.shopCode) {
+      seenCodes.add(normalized.shopCode.trim().toLowerCase());
+    }
+  }
+
+  for (const local of localShops) {
+    const normalized = normalizeRemoteShop(local as any, local.id);
+    const codeKey = (normalized.shopCode || '').trim().toLowerCase();
+    if (!byId.has(normalized.id) && (!codeKey || !seenCodes.has(codeKey))) {
+      byId.set(normalized.id, normalized);
+      if (codeKey) {
+        seenCodes.add(codeKey);
+      }
+    }
+  }
+
+  return Array.from(byId.values()).sort((a, b) => {
+    const aIsDemo = DEMO_SHOP_IDS.has(a.id) ? 1 : 0;
+    const bIsDemo = DEMO_SHOP_IDS.has(b.id) ? 1 : 0;
+    if (aIsDemo !== bIsDemo) return aIsDemo - bIsDemo;
+    return new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime();
+  });
+}
+
+/**
+ * Fetches all registered shops from Cloud Firestore root `shops` collection
+ * and persists each record into local IndexedDB without overwriting real shops with demo seeds.
+ */
+export async function fetchShopsFromCloud(): Promise<Shop[]> {
+  try {
+    await ensureAnonymousAuth();
+    const snapshot = await getDocs(collection(db, 'shops'));
+    const remoteShops: Shop[] = [];
+    snapshot.forEach((docSnap) => {
+      remoteShops.push(normalizeRemoteShop(docSnap.data() as Record<string, any>, docSnap.id));
+    });
+
+    if (remoteShops.length > 0 && typeof localDb.saveShop === 'function') {
+      await Promise.allSettled(remoteShops.map((shop) => localDb.saveShop(shop)));
+    }
+    return remoteShops;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch root shops collection:', err);
+    return [];
+  }
+}
+
+/**
+ * Fetches a single shop document by ID from Cloud Firestore and syncs it to IndexedDB.
+ */
+export async function fetchShopByIdFromCloud(shopId: string): Promise<Shop | null> {
+  try {
+    await ensureAnonymousAuth();
+    const snap = await getDoc(doc(db, 'shops', shopId));
+    if (!snap.exists()) return null;
+    const shop = normalizeRemoteShop(snap.data() as Record<string, any>, snap.id);
+    if (typeof localDb.saveShop === 'function') {
+      await localDb.saveShop(shop).catch(() => {});
+    }
+    return shop;
+  } catch (err) {
+    console.warn('[Firestore] Failed to fetch shop by ID from cloud:', err);
+    return null;
+  }
+}
+
+/**
+ * Attaches real-time listener for Master Admin to watch all registered shops
+ * in the Cloud Firestore root `shops` collection, sync them into local IndexedDB,
+ * and merge cleanly with any local shops without letting demo seeds overwrite real shops.
  */
 export function startAdminShopsRealtimeSync(onShopsUpdated: (shops: Shop[]) => void): Unsubscribe {
   let unsub: Unsubscribe | null = null;
@@ -584,13 +696,29 @@ export function startAdminShopsRealtimeSync(onShopsUpdated: (shops: Shop[]) => v
     if (isCancelled) return;
     try {
       const shopsCol = collection(db, 'shops');
-      unsub = onSnapshot(shopsCol, (snapshot) => {
+      unsub = onSnapshot(shopsCol, async (snapshot) => {
+        if (isCancelled) return;
         const remoteShops: Shop[] = [];
-        snapshot.forEach(docSnap => {
-          remoteShops.push(docSnap.data() as Shop);
+        snapshot.forEach((docSnap) => {
+          remoteShops.push(normalizeRemoteShop(docSnap.data() as Record<string, any>, docSnap.id));
         });
-        if (remoteShops.length > 0) {
-          onShopsUpdated(remoteShops);
+
+        if (remoteShops.length > 0 && typeof localDb.saveShop === 'function') {
+          await Promise.allSettled(remoteShops.map((shop) => localDb.saveShop(shop)));
+        }
+
+        let localShops: Shop[] = [];
+        if (typeof localDb.getAllShops === 'function') {
+          try {
+            localShops = await localDb.getAllShops();
+          } catch {
+            localShops = [];
+          }
+        }
+
+        const merged = mergeCloudAndLocalShops(remoteShops, localShops);
+        if (merged.length > 0 || remoteShops.length > 0) {
+          onShopsUpdated(merged);
         }
       }, (err) => {
         console.warn('[Firestore] Admin shops listener error:', err.message);

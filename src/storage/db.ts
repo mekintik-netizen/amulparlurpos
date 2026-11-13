@@ -299,13 +299,57 @@ export async function getShopById(id: string): Promise<Shop | null> {
 }
 
 export async function saveShop(shop: Shop): Promise<Shop> {
+  const normalizedShop: Shop = {
+    ...shop,
+    id: shop.id,
+    shopCode: (shop.shopCode && shop.shopCode.trim()) ? shop.shopCode.trim() : shop.id,
+    name: shop.name || 'Amul Parlour',
+    ownerName: shop.ownerName || '',
+    phone: shop.phone || '',
+    email: shop.email || '',
+    address: shop.address || '',
+    city: shop.city || '',
+    state: shop.state || 'Gujarat',
+    pincode: shop.pincode || '',
+    approvalStatus: shop.approvalStatus || 'APPROVED',
+    subscriptionPlanId: shop.subscriptionPlanId || 'BASIC',
+    subscriptionStatus: shop.subscriptionStatus || 'ACTIVE',
+    createdAt: shop.createdAt || new Date().toISOString(),
+    updatedAt: shop.updatedAt || new Date().toISOString()
+  };
+
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('shops', 'readwrite');
     const store = tx.objectStore('shops');
-    const req = store.put(shop);
-    req.onsuccess = () => resolve(shop);
-    req.onerror = () => reject(req.error);
+
+    const performPut = () => {
+      const req = store.put(normalizedShop);
+      req.onsuccess = () => resolve(normalizedShop);
+      req.onerror = () => reject(req.error);
+    };
+
+    try {
+      if (store.indexNames.contains('shopCode')) {
+        const codeIndex = store.index('shopCode');
+        const lookupReq = codeIndex.get(normalizedShop.shopCode);
+        lookupReq.onsuccess = () => {
+          const existing = lookupReq.result as Shop | undefined;
+          if (existing && existing.id !== normalizedShop.id) {
+            const delReq = store.delete(existing.id);
+            delReq.onsuccess = performPut;
+            delReq.onerror = performPut;
+          } else {
+            performPut();
+          }
+        };
+        lookupReq.onerror = performPut;
+      } else {
+        performPut();
+      }
+    } catch {
+      performPut();
+    }
   });
 }
 

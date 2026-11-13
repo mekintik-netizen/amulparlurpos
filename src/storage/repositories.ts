@@ -39,7 +39,10 @@ import {
   syncSupplierToCloud,
   deleteSupplierFromCloud,
   fetchPurchasesFromCloud,
-  fetchSuppliersFromCloud
+  fetchSuppliersFromCloud,
+  fetchShopsFromCloud,
+  fetchShopByIdFromCloud,
+  mergeCloudAndLocalShops
 } from './firestoreSync.ts';
 
 export const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -57,7 +60,11 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to fetch shops from backend');
         return res.json();
       }
-      return localDb.getAllShops();
+      const [localShops, remoteShops] = await Promise.all([
+        localDb.getAllShops(),
+        fetchShopsFromCloud().catch(() => [])
+      ]);
+      return mergeCloudAndLocalShops(remoteShops, localShops);
     },
     getById: async (id: string): Promise<Shop | null> => {
       if (isBackendConnected()) {
@@ -65,7 +72,9 @@ export const AppRepository = {
         if (!res.ok) return null;
         return res.json();
       }
-      return localDb.getShopById(id);
+      const local = await localDb.getShopById(id);
+      if (local) return local;
+      return fetchShopByIdFromCloud(id);
     },
     save: async (shop: Shop): Promise<Shop> => {
       if (isBackendConnected()) {
