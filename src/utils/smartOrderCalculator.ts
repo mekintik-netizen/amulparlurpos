@@ -23,6 +23,7 @@ export interface CalculateSmartOrderInput {
   sales: SaleBill[];
   cycleDays: SmartOrderCycleDays;
   bufferPercent: SmartOrderBufferPercent;
+  includeZeroSaleLowStock?: boolean;
   referenceDate?: Date;
 }
 
@@ -31,14 +32,17 @@ export function roundMoney3(val: number): number {
 }
 
 /**
- * Computes auto-order replenishment suggestions for every active product based on
- * POS billing history over the selected cycle window + safety buffer + low-stock alerts.
+ * Computes auto-order replenishment suggestions strictly from POS billing history
+ * over the selected cycle window (totalSoldQty > 0), with an optional toggle to include
+ * 0-sale low-stock items (CurrentStock <= minStockAlert).
+ * Only pre-selects items where Recommended Qty (suggestedQty) > 0.
  */
 export function calculateSmartOrderSuggestions({
   products,
   sales,
   cycleDays,
   bufferPercent,
+  includeZeroSaleLowStock = false,
   referenceDate = new Date()
 }: CalculateSmartOrderInput): SmartOrderSuggestion[] {
   const refMs = referenceDate.getTime();
@@ -67,72 +71,77 @@ export function calculateSmartOrderSuggestions({
     }
   }
 
-  const suggestions: SmartOrderSuggestion[] = products
-    .filter(p => p.isActive !== false)
-    .map(p => {
-      const soldById = soldByProductId.get(p.id);
-      const totalSoldInCycle =
-        soldById !== undefined
-          ? soldById
-          : p.barcode
-          ? soldByBarcode.get(p.barcode) || 0
-          : 0;
+  const suggestions: SmartOrderSuggestion[] = [];
 
-      const avgDailySales = Math.round((totalSoldInCycle / cycleDays) * 1000) / 1000;
-      const currentStock = Math.max(0, Number(p.currentStock) || 0);
-      const rawAlert = p.minStockAlert ?? 5;
-      const minStockAlert = Math.max(0, Number.isFinite(Number(rawAlert)) ? Number(rawAlert) : 5);
+  for (const p of products) {
+    if (p.isActive === false) continue;
 
-      const suggestedQty = Math.max(
-        0,
-        Math.ceil(avgDailySales * cycleDays * bufferMultiplier - currentStock)
-      );
+    const soldById = soldByProductId.get(p.id);
+    const totalSoldInCycle =
+      soldById !== undefined
+        ? soldById
+        : p.barcode
+        ? soldByBarcode.get(p.barcode) || 0
+        : 0;
 
-      const isLowStock = currentStock <= minStockAlert;
+    const currentStock = Math.max(0, Number(p.currentStock) || 0);
+    const rawAlert = p.minStockAlert ?? 5;
+    const minStockAlert = Math.max(0, Number.isFinite(Number(rawAlert)) ? Number(rawAlert) : 5);
+    const isLowStock = currentStock <= minStockAlert;
 
-      // Default orderQty equals suggestedQty; if suggestedQty is 0 for a low-stock item,
-      // prefill shortfall to bring stock above minStockAlert (minimum 1 unit) while keeping
-      // suggestedQty strictly faithful to the sales-velocity formula.
-      const defaultOrderQty =
-        suggestedQty > 0
-          ? suggestedQty
-          : isLowStock
-          ? Math.max(1, Math.ceil(minStockAlert - currentStock))
-          : 0;
+    // Strictly include only items with actual sales (totalSoldQty > 0), unless 0-sale low-stock toggle is enabled
+    if (totalSoldInCycle <= 0 && !(includeZeroSaleLowStock && isLowStock)) {
+      continue;
+    }
 
-      const purchaseRate = Math.max(0, Number(p.costPrice) || 0);
-      const mrp = Math.max(0, Number(p.mrp) || 0);
-      const estimatedTotal = roundMoney3(defaultOrderQty * purchaseRate);
-      const selected = suggestedQty > 0 || isLowStock;
+    const avgDailySales = Math.round((totalSoldInCycle / cycleDays) * 1000) / 1000;
+    const suggestedQty = Math.max(
+      0,
+      Math.ceil(avgDailySales * cycleDays * bufferMultiplier - currentStock)
+    );
 
-      return {
-        product: p,
-        productId: p.id,
-        productName: p.name,
-        regionalName: p.regionalName,
-        barcode: p.barcode || '',
-        category: p.category,
-        unit: p.unit,
-        currentStock,
-        minStockAlert,
-        totalSoldInCycle: roundMoney3(totalSoldInCycle),
-        avgDailySales,
-        suggestedQty,
-        orderQty: defaultOrderQty,
-        purchaseRate,
-        mrp,
-        estimatedTotal,
-        isLowStock,
-        selected
-      };
+    // Only pre-select (check) items where Recommended Qty > 0
+    const selected = suggestedQty > 0;
+    const defaultOrderQty =
+      suggestedQty > 0
+        ? suggestedQty
+        : totalSoldInCycle === 0 && isLowStock
+        ? Math.max(1, Math.ceil(minStockAlert - currentStock))
+        : 0;
+
+    const purchaseRate = Math.max(0, Number(p.costPrice) || 0);
+    const mrp = Math.max(0, Number(p.mrp) || 0);
+    const estimatedTotal = roundMoney3(defaultOrderQty * purchaseRate);
+
+    suggestions.push({
+      product: p,
+      productId: p.id,
+      productName: p.name,
+      regionalName: p.regionalName,
+      barcode: p.barcode || '',
+      category: p.category,
+      unit: p.unit,
+      currentStock,
+      minStockAlert,
+      totalSoldInCycle: roundMoney3(totalSoldInCycle),
+      avgDailySales,
+      suggestedQty,
+      orderQty: defaultOrderQty,
+      purchaseRate,
+      mrp,
+      estimatedTotal,
+      isLowStock,
+      selected
     });
+  }
 
-  // Sort: highest suggestedQty first, then low-stock items, then by name
+  // Sort: Recommended Qty > 0 first (descending), then totalSoldInCycle descending, then low stock, then name
   suggestions.sort((a, b) => {
-    const aNeedsOrder = a.suggestedQty > 0 || a.isLowStock ? 1 : 0;
-    const bNeedsOrder = b.suggestedQty > 0 || b.isLowStock ? 1 : 0;
-    if (bNeedsOrder !== aNeedsOrder) return bNeedsOrder - aNeedsOrder;
+    const aRec = a.suggestedQty > 0 ? 1 : 0;
+    const bRec = b.suggestedQty > 0 ? 1 : 0;
+    if (bRec !== aRec) return bRec - aRec;
     if (b.suggestedQty !== a.suggestedQty) return b.suggestedQty - a.suggestedQty;
+    if (b.totalSoldInCycle !== a.totalSoldInCycle) return b.totalSoldInCycle - a.totalSoldInCycle;
     if (a.isLowStock !== b.isLowStock) return a.isLowStock ? -1 : 1;
     return a.productName.localeCompare(b.productName);
   });

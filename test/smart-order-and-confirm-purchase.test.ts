@@ -218,27 +218,94 @@ describe('Smart Order Auto-Replenishment & Confirmation Workflow', () => {
     expect(gold0.suggestedQty).toBe(25);
   });
 
-  it('includes low-stock items (CurrentStock <= minStockAlert) even when recent sales are zero', () => {
+  it('filters strictly to products with actual sales (totalSoldQty > 0) by default and only pre-selects Recommended Qty > 0', () => {
+    const wellStockedProduct: Product = {
+      ...sampleProducts[2],
+      id: 'prod-lassi-200',
+      barcode: '8901262099999',
+      sku: 'LASSI-200',
+      name: 'Amul Lassi 200ml',
+      currentStock: 30 // Enough for 7 sold in 7d (avg 1/day => demand ~8.4)
+    };
+    const recentLassiSale: SaleBill = {
+      ...sampleSales[0],
+      id: 'sale-lassi',
+      billNumber: 'B-004',
+      items: [
+        {
+          productId: 'prod-lassi-200',
+          productName: 'Amul Lassi 200ml',
+          barcode: '8901262099999',
+          quantity: 7,
+          unit: 'Pack',
+          mrp: 20,
+          unitPrice: 20,
+          costPrice: 17,
+          total: 140
+        }
+      ],
+      itemCount: 7,
+      subtotal: 140,
+      finalAmount: 140
+    };
+
+    const suggestions = calculateSmartOrderSuggestions({
+      products: [...sampleProducts, wellStockedProduct],
+      sales: [...sampleSales, recentLassiSale],
+      cycleDays: 7,
+      bufferPercent: 10,
+      referenceDate: refNow
+    });
+
+    // Strictly only products with totalSoldInCycle > 0 are returned by default
+    expect(suggestions.map(s => s.productId)).toEqual(['prod-gold-500', 'prod-lassi-200']);
+    expect(suggestions.find(s => s.productId === 'prod-ghee-1l')).toBeUndefined();
+    expect(suggestions.find(s => s.productId === 'prod-butter-100')).toBeUndefined();
+
+    const lassi = suggestions.find(s => s.productId === 'prod-lassi-200')!;
+    expect(lassi.totalSoldInCycle).toBe(7);
+    expect(lassi.avgDailySales).toBe(1);
+    expect(lassi.suggestedQty).toBe(0);
+    // Current stock covers upcoming 7 days, so NOT pre-selected
+    expect(lassi.selected).toBe(false);
+  });
+
+  it('includes 0-sale low-stock items only when includeZeroSaleLowStock is enabled, keeping them unchecked by default', () => {
     const suggestions = calculateSmartOrderSuggestions({
       products: sampleProducts,
       sales: sampleSales,
       cycleDays: 15,
       bufferPercent: 20,
+      includeZeroSaleLowStock: true,
       referenceDate: refNow
     });
 
     const ghee = suggestions.find(s => s.productId === 'prod-ghee-1l')!;
+    expect(ghee).toBeDefined();
     expect(ghee.totalSoldInCycle).toBe(0);
     expect(ghee.suggestedQty).toBe(0);
     expect(ghee.isLowStock).toBe(true);
-    expect(ghee.selected).toBe(true);
-    // Shortfall to reach minStockAlert (5 - 2 = 3)
+    // Only Recommended Qty > 0 is pre-selected
+    expect(ghee.selected).toBe(false);
+    // Shortfall to reach minStockAlert (5 - 2 = 3) prefilled for manual check
     expect(ghee.orderQty).toBe(3);
 
-    const butter = suggestions.find(s => s.productId === 'prod-butter-100')!;
-    expect(butter.isLowStock).toBe(false);
-    expect(butter.suggestedQty).toBe(0);
-    expect(butter.selected).toBe(false);
+    // Non-low-stock 0-sale items remain excluded
+    expect(suggestions.find(s => s.productId === 'prod-butter-100')).toBeUndefined();
+  });
+
+  it('exposes the unchecked-by-default low-stock toggle and Gujarati empty-state copy in SmartOrderManagement', () => {
+    const uiSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/purchases/SmartOrderManagement.tsx'),
+      'utf8'
+    );
+    expect(uiSource).toContain('useState(false)');
+    expect(uiSource).toContain('Also show 0-sale low stock items (ઓછા સ્ટોક વાળી અન્ય આઈટમ બતાવો)');
+    expect(uiSource).toContain('પસંદ કરેલ દિવસોમાં કોઈ વેચાણ નોંધાયું નથી');
+    expect(uiSource).toContain('કુલ વેચાણ');
+    expect(uiSource).toContain('રોજનું વેચાણ');
+    expect(uiSource).toContain('હાલનો સ્ટોક');
+    expect(uiSource).toContain('મંગાવવાનો જથ્થો');
   });
 
   it('formats WhatsApp order summary cleanly and normalizes 10-digit Indian phone numbers', () => {

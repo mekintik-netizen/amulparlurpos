@@ -3,8 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  *
  * Smart Order (ઓટો ઓર્ડર & પર્ચેઝ લિસ્ટ) Module
- * - Computes replenishment suggestions from POS sales velocity (7 / 15 / 30 Days) + safety buffer (0% / +10% / +20%).
- * - Includes low-stock items (CurrentStock <= LowStockThreshold) even if recent sales were zero.
+ * - Strictly analyzes actual POS sales invoices (7 / 15 / 30 Days) and only includes products with totalSoldQty > 0 by default.
+ * - Optional unchecked-by-default toggle reveals 0-sale low-stock items (CurrentStock <= minStockAlert).
+ * - Pre-selects only items where Recommended Order Qty > 0.
  * - Supports WhatsApp order sharing, PDF order export, and 1-click conversion into a PENDING Purchase Bill
  *   (strictly without incrementing currentStock until the bill is physically received and confirmed).
  */
@@ -75,7 +76,7 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
   const [customAgencyName, setCustomAgencyName] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
-  const [showFullCatalog, setShowFullCatalog] = useState(false);
+  const [includeZeroSaleLowStock, setIncludeZeroSaleLowStock] = useState(false);
 
   const [rows, setRows] = useState<SmartOrderSuggestion[]>([]);
   const [isConverting, setIsConverting] = useState(false);
@@ -121,16 +122,31 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
     };
   }, [currentShop.id]);
 
-  // Recompute suggestions whenever catalog, sales history, cycle, or buffer changes
+  // Recompute suggestions whenever catalog, sales history, cycle, buffer, or low-stock toggle changes
   useEffect(() => {
     const computed = calculateSmartOrderSuggestions({
       products,
       sales,
       cycleDays,
-      bufferPercent
+      bufferPercent,
+      includeZeroSaleLowStock
     });
     setRows(computed);
-  }, [products, sales, cycleDays, bufferPercent]);
+  }, [products, sales, cycleDays, bufferPercent, includeZeroSaleLowStock]);
+
+  const zeroSaleLowStockCount = useMemo(() => {
+    if (includeZeroSaleLowStock) {
+      return rows.filter(r => r.totalSoldInCycle <= 0 && r.isLowStock).length;
+    }
+    const withLowStock = calculateSmartOrderSuggestions({
+      products,
+      sales,
+      cycleDays,
+      bufferPercent,
+      includeZeroSaleLowStock: true
+    });
+    return withLowStock.filter(r => r.totalSoldInCycle <= 0 && r.isLowStock).length;
+  }, [products, sales, cycleDays, bufferPercent, includeZeroSaleLowStock, rows]);
 
   const activeSupplier = useMemo(
     () => suppliers.find(s => s.id === selectedSupplierId) || null,
@@ -154,11 +170,6 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
   const filteredRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return rows.filter(row => {
-      if (!showFullCatalog && !q && selectedCategory === 'ALL') {
-        if (row.suggestedQty <= 0 && !row.isLowStock && !row.selected) {
-          return false;
-        }
-      }
       if (selectedCategory !== 'ALL' && row.category !== selectedCategory) {
         return false;
       }
@@ -170,7 +181,7 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
         row.category.toLowerCase().includes(q)
       );
     });
-  }, [rows, searchQuery, selectedCategory, showFullCatalog]);
+  }, [rows, searchQuery, selectedCategory]);
 
   const selectedItems = useMemo(
     () => rows.filter(r => r.selected && r.orderQty > 0),
@@ -178,14 +189,14 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
   );
 
   const summary = useMemo(() => {
-    const suggestedCount = rows.filter(r => r.suggestedQty > 0).length;
-    const lowStockCount = rows.filter(r => r.isLowStock).length;
+    const soldSkuCount = rows.filter(r => r.totalSoldInCycle > 0).length;
+    const needReorderCount = rows.filter(r => r.suggestedQty > 0).length;
     const selectedCount = selectedItems.length;
     const totalOrderUnits = selectedItems.reduce((sum, r) => sum + r.orderQty, 0);
     const estimatedValue = selectedItems.reduce((sum, r) => sum + r.orderQty * r.purchaseRate, 0);
     return {
-      suggestedCount,
-      lowStockCount,
+      soldSkuCount,
+      needReorderCount,
       selectedCount,
       totalOrderUnits: roundMoney3(totalOrderUnits),
       estimatedValue: roundMoney3(estimatedValue)
@@ -201,7 +212,7 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
           nextSelected && r.orderQty <= 0
             ? r.suggestedQty > 0
               ? r.suggestedQty
-              : Math.max(1, r.minStockAlert - r.currentStock || 5)
+              : Math.max(1, r.minStockAlert - r.currentStock)
             : r.orderQty;
         return {
           ...r,
@@ -251,7 +262,7 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
           checked && r.orderQty <= 0
             ? r.suggestedQty > 0
               ? r.suggestedQty
-              : Math.max(1, r.minStockAlert - r.currentStock || 5)
+              : Math.max(1, r.minStockAlert - r.currentStock)
             : r.orderQty;
         return {
           ...r,
@@ -414,7 +425,7 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
               </span>
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              POS વેચાણની ઝડપ અને લો-સ્ટોક એલર્ટ આધારે ઓટોમેટિક ખરીદી લિસ્ટ બનાવો — WhatsApp, PDF અથવા Pending Purchase Bill માં મોકલો.
+              છેલ્લા {cycleDays} દિવસના POS વેચાણ (રોજિંદા વેચાણ) મુજબ જ ઓટોમેટિક ખરીદી લિસ્ટ — WhatsApp, PDF અથવા Pending Purchase Bill માં મોકલો.
             </p>
           </div>
 
@@ -443,25 +454,25 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-4">
           <div className="bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl p-3">
             <div className="text-[11px] font-bold text-blue-700 dark:text-blue-300 uppercase flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" /> Sales Suggested SKUs
+              <TrendingUp className="w-3.5 h-3.5" /> Sold SKUs (Last {cycleDays}d)
             </div>
             <div className="text-lg font-black font-mono text-blue-900 dark:text-white mt-0.5">
-              {summary.suggestedCount} Items
+              {summary.soldSkuCount} Items
             </div>
             <div className="text-[10px] text-blue-600 dark:text-blue-400">
-              Based on {cycleDays}-day POS velocity
+              Actual POS sales recorded
             </div>
           </div>
 
           <div className="bg-amber-50/70 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl p-3">
             <div className="text-[11px] font-bold text-amber-700 dark:text-amber-300 uppercase flex items-center gap-1">
-              <AlertTriangle className="w-3.5 h-3.5" /> Low Stock Alerts
+              <AlertTriangle className="w-3.5 h-3.5" /> Need Reorder (Rec &gt; 0)
             </div>
             <div className="text-lg font-black font-mono text-amber-900 dark:text-white mt-0.5">
-              {summary.lowStockCount} Items
+              {summary.needReorderCount} Items
             </div>
             <div className="text-[10px] text-amber-700 dark:text-amber-400">
-              CurrentStock ≤ Threshold
+              Pre-checked for {cycleDays}-day demand
             </div>
           </div>
 
@@ -645,15 +656,35 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
               ))}
             </select>
 
-            <label className="inline-flex items-center gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={showFullCatalog}
-                onChange={e => setShowFullCatalog(e.target.checked)}
-                className="rounded border-slate-300 text-[#005A9C] focus:ring-blue-500"
-              />
-              <span>Show Full Catalog ({rows.length})</span>
-            </label>
+            <div className="inline-flex items-center gap-2.5 px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold select-none">
+              <button
+                id="toggle-zero-sale-low-stock"
+                type="button"
+                role="switch"
+                aria-checked={includeZeroSaleLowStock}
+                onClick={() => setIncludeZeroSaleLowStock(prev => !prev)}
+                className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors cursor-pointer ${
+                  includeZeroSaleLowStock ? 'bg-[#005A9C]' : 'bg-slate-300 dark:bg-slate-600'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                    includeZeroSaleLowStock ? 'translate-x-4.5' : 'translate-x-1'
+                  }`}
+                />
+              </button>
+              <label
+                htmlFor="toggle-zero-sale-low-stock"
+                className="text-slate-700 dark:text-slate-200 cursor-pointer"
+              >
+                Also show 0-sale low stock items (ઓછા સ્ટોક વાળી અન્ય આઈટમ બતાવો)
+                {zeroSaleLowStockCount > 0 ? (
+                  <span className="ml-1.5 text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                    {zeroSaleLowStockCount}
+                  </span>
+                ) : null}
+              </label>
+            </div>
           </div>
 
           <div className="flex items-center gap-2">
@@ -671,7 +702,7 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
       {/* Editable Order Table */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200/80 dark:border-slate-800 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs min-w-[820px]">
+          <table className="w-full text-left text-xs min-w-[920px]">
             <thead className="bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
               <tr>
                 <th className="py-3 px-3 w-10 text-center">
@@ -683,10 +714,23 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
                     className="rounded border-slate-300 text-[#005A9C] focus:ring-blue-500 cursor-pointer"
                   />
                 </th>
-                <th className="py-3 px-3">Product Name / આઈટમ</th>
-                <th className="py-3 px-2 text-right">Current Stock</th>
-                <th className="py-3 px-2 text-right">Avg Daily Sale</th>
-                <th className="py-3 px-2 text-right">Suggested Qty</th>
+                <th className="py-3 px-3">Product Name</th>
+                <th className="py-3 px-2 text-right">
+                  Last {cycleDays}d Sold Qty
+                  <div className="text-[9px] font-semibold text-slate-400 normal-case">કુલ વેચાણ</div>
+                </th>
+                <th className="py-3 px-2 text-right">
+                  Avg Daily Sale
+                  <div className="text-[9px] font-semibold text-slate-400 normal-case">રોજનું વેચાણ</div>
+                </th>
+                <th className="py-3 px-2 text-right">
+                  Current Stock
+                  <div className="text-[9px] font-semibold text-slate-400 normal-case">હાલનો સ્ટોક</div>
+                </th>
+                <th className="py-3 px-2 text-right">
+                  Recommended Order Qty
+                  <div className="text-[9px] font-semibold text-slate-400 normal-case">મંગાવવાનો જથ્થો</div>
+                </th>
                 <th className="py-3 px-2 text-right">Order Qty (Edit)</th>
                 <th className="py-3 px-2 text-right">Purchase Rate (₹)</th>
                 <th className="py-3 px-3 text-right">Estimated Total</th>
@@ -695,10 +739,19 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
               {filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-slate-500 font-sans">
-                    {rows.length === 0
-                      ? 'કોઈ પ્રોડક્ટ્સ મળ્યા નથી. પહેલા Catalog માં પ્રોડક્ટ્સ ઉમેરો.'
-                      : 'બધા પ્રોડક્ટ્સ પૂરતા સ્ટોકમાં છે! બધી પ્રોડક્ટ્સ જોવા માટે "Show Full Catalog" ચાલુ કરો.'}
+                  <td colSpan={9} className="py-12 px-4 text-center text-slate-500 font-sans">
+                    {rows.length === 0 ? (
+                      <div className="max-w-md mx-auto space-y-1.5">
+                        <div className="text-sm font-extrabold text-slate-800 dark:text-slate-200">
+                          પસંદ કરેલ દિવસોમાં કોઈ વેચાણ નોંધાયું નથી
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          No POS sales were recorded in the last {cycleDays} days. Try selecting 15 or 30 days, or enable &ldquo;Also show 0-sale low stock items&rdquo; above.
+                        </div>
+                      </div>
+                    ) : (
+                      <span>શોધ અથવા કેટેગરી મુજબ કોઈ આઈટમ મળી નથી.</span>
+                    )}
                   </td>
                 </tr>
               ) : (
@@ -736,11 +789,32 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
                               LOW STOCK
                             </span>
                           ) : null}
+                          {row.totalSoldInCycle === 0 ? (
+                            <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 border border-slate-200">
+                              0 SALE
+                            </span>
+                          ) : null}
                         </div>
                         <div className="text-[10px] text-slate-500 flex flex-wrap items-center gap-2 mt-0.5">
                           {row.regionalName && <span>{row.regionalName}</span>}
                           <span className="text-blue-700 dark:text-blue-400 font-semibold">{row.category}</span>
                           {row.barcode && <span className="font-mono">• {row.barcode}</span>}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        <div className="font-bold text-slate-900 dark:text-white">
+                          {row.totalSoldInCycle}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-sans">
+                          in {cycleDays} days
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-2 text-right">
+                        <div className="font-bold text-slate-800 dark:text-slate-200">
+                          {row.avgDailySales.toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-sans">
+                          per day
                         </div>
                       </td>
                       <td className="py-2.5 px-2 text-right">
@@ -758,14 +832,6 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
                         <span className="text-[10px] text-slate-400 font-sans">{row.unit}</span>
                         <div className="text-[9px] text-slate-400 font-sans">
                           Min: {row.minStockAlert}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-2 text-right">
-                        <div className="font-bold text-slate-800 dark:text-slate-200">
-                          {row.avgDailySales.toFixed(2)} / day
-                        </div>
-                        <div className="text-[10px] text-slate-400 font-sans">
-                          {row.totalSoldInCycle} sold / {cycleDays}d
                         </div>
                       </td>
                       <td className="py-2.5 px-2 text-right">
