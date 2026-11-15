@@ -163,14 +163,23 @@ export async function syncPurchaseBillToCloud(purchase: PurchaseBill): Promise<v
   try {
     if (!purchase.shopId) return;
     await ensureAnonymousAuth();
-    const purRef = doc(db, 'purchases', purchase.id);
-    await setDoc(purRef, sanitizeForFirestore({
+    const payload = sanitizeForFirestore({
       ...purchase,
       shopId: purchase.shopId,
       agencyName: purchase.agencyName || purchase.supplierName,
       billNumber: purchase.billNumber || purchase.purchaseInvoiceNumber,
       syncedAt: new Date().toISOString()
-    }), { merge: true });
+    });
+    const purRef = doc(db, 'purchases', purchase.id);
+    const shopPurRef = doc(db, 'shops', purchase.shopId, 'purchases', purchase.id);
+    const results = await Promise.allSettled([
+      setDoc(purRef, payload, { merge: true }),
+      setDoc(shopPurRef, payload, { merge: true })
+    ]);
+    const failed = results.find(r => r.status === 'rejected');
+    if (failed && failed.status === 'rejected') {
+      console.warn('[Firestore] Partial notice syncing purchase bill to cloud:', failed.reason);
+    }
   } catch (err) {
     console.warn('[Firestore] Failed to sync purchase bill to cloud:', err);
   }
@@ -234,22 +243,41 @@ export async function fetchPurchasesFromCloud(shopId: string): Promise<PurchaseB
   try {
     await ensureAnonymousAuth();
     const deletedIds = await localDb.loadDeletedPurchaseIds();
-    const q = query(collection(db, 'purchases'), where('shopId', '==', shopId));
-    const snapshot = await getDocs(q);
-    const list: PurchaseBill[] = [];
-    snapshot.forEach(docSnap => {
-      const data = docSnap.data() as PurchaseBill;
-      if (deletedIds.has(data.id) || deletedIds.has(docSnap.id)) {
-        deletePurchaseBillFromCloud(docSnap.id, shopId).catch(() => {});
-        return;
-      }
-      list.push({
-        ...data,
-        agencyName: data.agencyName || data.supplierName,
-        billNumber: data.billNumber || data.purchaseInvoiceNumber
+    const rootQuery = query(collection(db, 'purchases'), where('shopId', '==', shopId));
+    const subCol = collection(db, 'shops', shopId, 'purchases');
+    const [rootRes, subRes] = await Promise.allSettled([getDocs(rootQuery), getDocs(subCol)]);
+
+    const byId = new Map<string, PurchaseBill>();
+    const collectSnapshot = (snap: Awaited<ReturnType<typeof getDocs>>) => {
+      snap.forEach(docSnap => {
+        const data = docSnap.data() as PurchaseBill;
+        const resolvedId = data.id || docSnap.id;
+        if (deletedIds.has(resolvedId) || deletedIds.has(docSnap.id)) {
+          deletePurchaseBillFromCloud(docSnap.id, shopId).catch(() => {});
+          return;
+        }
+        const normalized: PurchaseBill = {
+          ...data,
+          id: resolvedId,
+          shopId: data.shopId || shopId,
+          agencyName: data.agencyName || data.supplierName,
+          billNumber: data.billNumber || data.purchaseInvoiceNumber
+        };
+        const existing = byId.get(resolvedId);
+        if (
+          !existing ||
+          (normalized.updatedAt &&
+            (!existing.updatedAt || new Date(normalized.updatedAt).getTime() >= new Date(existing.updatedAt).getTime()))
+        ) {
+          byId.set(resolvedId, normalized);
+        }
       });
-    });
-    return list;
+    };
+
+    if (rootRes.status === 'fulfilled') collectSnapshot(rootRes.value);
+    if (subRes.status === 'fulfilled') collectSnapshot(subRes.value);
+
+    return Array.from(byId.values());
   } catch (err) {
     console.warn('[Firestore] Failed to fetch purchases from cloud:', err);
     return [];
@@ -488,31 +516,39 @@ export function startShopRealtimeSync(
       }, (err) => console.warn('[Firestore] Bank entries listener error:', err.message));
       unsubscribers.push(unsubBank);
 
-      // 6. Listen for Purchases & Agency Bills (Strictly where shopId == currentShopId)
+      // 6. Listen for Purchases & Agency Bills (Both root purchases and shops/{shopId}/purchases)
+      const handleRemotePurchaseUpsert = async (pur: PurchaseBill, docId: string): Promise<boolean> => {
+        const resolvedId = pur.id || docId;
+        if (localDb.isPurchaseDeleted(resolvedId) || localDb.isPurchaseDeleted(docId)) {
+          return false;
+        }
+        try {
+          await localDb.savePurchaseBill({
+            ...pur,
+            id: resolvedId,
+            shopId: pur.shopId || shopId,
+            agencyName: pur.agencyName || pur.supplierName,
+            billNumber: pur.billNumber || pur.purchaseInvoiceNumber
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      };
+
       const purchasesQuery = query(collection(db, 'purchases'), where('shopId', '==', shopId));
       const unsubPurchases = onSnapshot(purchasesQuery, async (snapshot) => {
         let changed = false;
         for (const change of snapshot.docChanges()) {
           if (change.type === 'added' || change.type === 'modified') {
-            const pur = change.doc.data() as PurchaseBill;
-            if (localDb.isPurchaseDeleted(pur.id) || localDb.isPurchaseDeleted(change.doc.id)) {
-              continue;
-            }
-            try {
-              await localDb.savePurchaseBill({
-                ...pur,
-                agencyName: pur.agencyName || pur.supplierName,
-                billNumber: pur.billNumber || pur.purchaseInvoiceNumber
-              });
+            if (await handleRemotePurchaseUpsert(change.doc.data() as PurchaseBill, change.doc.id)) {
               changed = true;
-            } catch (e) {
-              // ignore
             }
           } else if (change.type === 'removed') {
             try {
               await localDb.deletePurchaseBillRaw(change.doc.id);
               changed = true;
-            } catch (e) {
+            } catch {
               // ignore
             }
           }
@@ -522,6 +558,29 @@ export function startShopRealtimeSync(
         }
       }, (err) => console.warn('[Firestore] Purchases listener error:', err.message));
       unsubscribers.push(unsubPurchases);
+
+      const shopPurchasesCol = collection(db, 'shops', shopId, 'purchases');
+      const unsubShopPurchases = onSnapshot(shopPurchasesCol, async (snapshot) => {
+        let changed = false;
+        for (const change of snapshot.docChanges()) {
+          if (change.type === 'added' || change.type === 'modified') {
+            if (await handleRemotePurchaseUpsert(change.doc.data() as PurchaseBill, change.doc.id)) {
+              changed = true;
+            }
+          } else if (change.type === 'removed') {
+            try {
+              await localDb.deletePurchaseBillRaw(change.doc.id);
+              changed = true;
+            } catch {
+              // ignore
+            }
+          }
+        }
+        if (changed && onRemoteChange) {
+          onRemoteChange();
+        }
+      }, (err) => console.warn('[Firestore] Shop purchases listener error:', err.message));
+      unsubscribers.push(unsubShopPurchases);
 
       // 7. Listen for Suppliers & Agencies (Strictly where shopId == currentShopId)
       const suppliersQuery = query(collection(db, 'suppliers'), where('shopId', '==', shopId));

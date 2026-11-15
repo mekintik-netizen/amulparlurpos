@@ -1636,10 +1636,11 @@ export async function updatePurchaseBill(
 ): Promise<PurchaseBill> {
   const db = await openAppDatabase();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(
-      ['purchases', 'products', 'stockMovements', 'suppliers'],
-      'readwrite'
-    );
+    const storeNames = ['purchases', 'products', 'stockMovements', 'suppliers'];
+    if (db.objectStoreNames.contains('bankEntries')) {
+      storeNames.push('bankEntries');
+    }
+    const tx = db.transaction(storeNames, 'readwrite');
     const purStore = tx.objectStore('purchases');
     const prodStore = tx.objectStore('products');
     const movStore = tx.objectStore('stockMovements');
@@ -1657,11 +1658,20 @@ export async function updatePurchaseBill(
       }
 
       const nowIso = new Date().toISOString();
-      const newItems = updatedData.items;
-      const subtotal = newItems.reduce(
-        (acc, it) => acc + (it.total !== undefined ? it.total : it.quantity * it.purchaseRate),
-        0
-      );
+      const newItems = updatedData.items.map(it => {
+        const qty = Number(it.quantity) || 0;
+        const rate = Number(it.purchaseRate) || 0;
+        const lineTotal = it.total !== undefined ? Number(it.total) : Math.round(qty * rate * 1000) / 1000;
+        return {
+          ...it,
+          quantity: qty,
+          purchaseRate: rate,
+          mrp: Number(it.mrp) || 0,
+          total: lineTotal
+        };
+      });
+      const subtotalRaw = newItems.reduce((acc, it) => acc + it.total, 0);
+      const subtotal = Math.round(subtotalRaw * 1000) / 1000;
       const totalAmount = subtotal;
       const paidAmount = updatedData.paidAmount !== undefined ? updatedData.paidAmount : existingBill.paidAmount;
       const dueAmount = paidAmount >= totalAmount - 0.0001
@@ -1669,6 +1679,18 @@ export async function updatePurchaseBill(
         : Math.max(0, Math.round((totalAmount - paidAmount) * 1000) / 1000);
       const newStatus = updatedData.status || existingBill.status;
       const shouldPostStock = newStatus === 'CONFIRMED';
+      const resolvedBillNo =
+        updatedData.billNumber ||
+        updatedData.purchaseInvoiceNumber ||
+        existingBill.billNumber ||
+        existingBill.purchaseInvoiceNumber;
+      const resolvedAgencyName =
+        updatedData.agencyName ||
+        updatedData.supplierName ||
+        existingBill.agencyName ||
+        existingBill.supplierName;
+      const resolvedPaymentMode = updatedData.paymentMode || existingBill.paymentMode;
+      const resolvedPurchaseDate = updatedData.purchaseDate || existingBill.purchaseDate;
 
       // 1. If previously posted and still confirmed: reconcile stock differences
       if (existingBill.stockPosted && shouldPostStock) {
@@ -1687,10 +1709,13 @@ export async function updatePurchaseBill(
             const prod = prodReq.result as Product | undefined;
             if (prod) {
               if (qtyDelta !== 0) {
-                prod.currentStock = Math.max(0, (prod.currentStock || 0) + qtyDelta);
+                prod.currentStock = Math.max(0, Math.round(((prod.currentStock || 0) + qtyDelta) * 1000) / 1000);
               }
               prod.costPrice = newItem.purchaseRate;
-              if (newItem.mrp) {
+              if (newItem.mrp && newItem.mrp > 0) {
+                if (prod.sellingPrice === prod.mrp || prod.sellingPrice <= 0) {
+                  prod.sellingPrice = newItem.mrp;
+                }
                 prod.mrp = newItem.mrp;
               }
               prod.updatedAt = nowIso;
@@ -1706,8 +1731,8 @@ export async function updatePurchaseBill(
                   movementType: qtyDelta > 0 ? 'PURCHASE' : 'OUT',
                   quantity: Math.abs(qtyDelta),
                   unitPrice: newItem.purchaseRate,
-                  reason: `Purchase #${existingBill.purchaseInvoiceNumber} Item Adjusted (${qtyDelta > 0 ? '+' : ''}${qtyDelta})`,
-                  referenceNumber: existingBill.purchaseInvoiceNumber,
+                  reason: `Purchase #${resolvedBillNo} Item Adjusted (${qtyDelta > 0 ? '+' : ''}${qtyDelta})`,
+                  referenceNumber: resolvedBillNo,
                   timestamp: nowIso,
                   createdBy: 'Purchase Manager'
                 };
@@ -1724,7 +1749,7 @@ export async function updatePurchaseBill(
           prodReq.onsuccess = () => {
             const prod = prodReq.result as Product | undefined;
             if (prod) {
-              prod.currentStock = Math.max(0, (prod.currentStock || 0) - removedItem.quantity);
+              prod.currentStock = Math.max(0, Math.round(((prod.currentStock || 0) - removedItem.quantity) * 1000) / 1000);
               prod.updatedAt = nowIso;
               prodStore.put(prod);
 
@@ -1737,8 +1762,8 @@ export async function updatePurchaseBill(
                 movementType: 'OUT',
                 quantity: removedItem.quantity,
                 unitPrice: removedItem.purchaseRate,
-                reason: `Purchase #${existingBill.purchaseInvoiceNumber} Item Removed`,
-                referenceNumber: existingBill.purchaseInvoiceNumber,
+                reason: `Purchase #${resolvedBillNo} Item Removed`,
+                referenceNumber: resolvedBillNo,
                 timestamp: nowIso,
                 createdBy: 'Purchase Manager'
               };
@@ -1747,20 +1772,25 @@ export async function updatePurchaseBill(
           };
         }
       } else if (!existingBill.stockPosted && shouldPostStock) {
-        // Transition from DRAFT to CONFIRMED
+        // Transition from PENDING / DRAFT -> CONFIRMED: post stock once & sync pricing
         for (const item of newItems) {
           const prodReq = prodStore.get(item.productId);
           prodReq.onsuccess = () => {
             const prod = prodReq.result as Product | undefined;
             if (prod) {
-              prod.currentStock = (prod.currentStock || 0) + item.quantity;
+              prod.currentStock = Math.round(((prod.currentStock || 0) + item.quantity) * 1000) / 1000;
               prod.costPrice = item.purchaseRate;
-              if (item.mrp) prod.mrp = item.mrp;
+              if (item.mrp && item.mrp > 0) {
+                if (prod.sellingPrice === prod.mrp || prod.sellingPrice <= 0) {
+                  prod.sellingPrice = item.mrp;
+                }
+                prod.mrp = item.mrp;
+              }
               prod.updatedAt = nowIso;
               prodStore.put(prod);
 
               const mov: StockMovement = {
-                id: `mov-pur-conf-${Date.now()}-${item.productId}`,
+                id: `mov-pur-conf-${Date.now()}-${item.productId}-${Math.random().toString(36).substring(2, 5)}`,
                 shopId,
                 productId: item.productId,
                 productName: item.productName,
@@ -1768,8 +1798,8 @@ export async function updatePurchaseBill(
                 movementType: 'PURCHASE',
                 quantity: item.quantity,
                 unitPrice: item.purchaseRate,
-                reason: `Purchase #${existingBill.purchaseInvoiceNumber} Confirmed`,
-                referenceNumber: existingBill.purchaseInvoiceNumber,
+                reason: `Purchase #${resolvedBillNo} Received & Confirmed (${resolvedAgencyName})`,
+                referenceNumber: resolvedBillNo,
                 timestamp: nowIso,
                 createdBy: 'Purchase Manager'
               };
@@ -1777,34 +1807,86 @@ export async function updatePurchaseBill(
             }
           };
         }
+
+        // Auto-record Bank DEBIT on confirmation if paid via Bank or UPI
+        if (
+          (resolvedPaymentMode === 'BANK_TRANSFER' || resolvedPaymentMode === 'UPI') &&
+          paidAmount > 0 &&
+          db.objectStoreNames.contains('bankEntries')
+        ) {
+          const bankStore = tx.objectStore('bankEntries');
+          const bankEntry: BankEntry = {
+            id: `bank-pur-${existingBill.id}`,
+            shopId,
+            date: resolvedPurchaseDate || nowIso.split('T')[0],
+            type: 'DEBIT',
+            category: 'SUPPLIER_PAYMENT',
+            amount: paidAmount,
+            referenceNumber: resolvedBillNo,
+            description: `Supplier payment for Purchase #${resolvedBillNo} (${resolvedAgencyName})`,
+            partyName: resolvedAgencyName,
+            paymentMode: resolvedPaymentMode === 'UPI' ? 'UPI' : 'NEFT_RTGS',
+            sourceId: existingBill.id,
+            createdAt: nowIso
+          };
+          bankStore.put(bankEntry);
+        }
       }
 
-      // 2. Reconcile supplier balance difference
-      const dueDelta = dueAmount - existingBill.dueAmount;
+      // 2. Reconcile supplier balance difference (only CONFIRMED bills affect payable balance)
+      const oldPostedDue = existingBill.stockPosted ? (existingBill.dueAmount || 0) : 0;
+      const newPostedDue = shouldPostStock ? dueAmount : 0;
       const targetSupplierId = updatedData.supplierId || existingBill.supplierId;
-      if (targetSupplierId && Math.abs(dueDelta) > 0.0001) {
-        const supReq = supStore.get(targetSupplierId);
-        supReq.onsuccess = () => {
-          const sup = supReq.result as Supplier | undefined;
-          if (sup) {
-            sup.currentBalance = Math.max(0, Math.round(((sup.currentBalance || 0) + dueDelta) * 1000) / 1000);
-            if (sup.currentBalance <= 0.0001) {
-              sup.currentBalance = 0;
+
+      if (existingBill.stockPosted && updatedData.supplierId && updatedData.supplierId !== existingBill.supplierId) {
+        if (existingBill.supplierId && oldPostedDue > 0.0001) {
+          const oldSupReq = supStore.get(existingBill.supplierId);
+          oldSupReq.onsuccess = () => {
+            const oldSup = oldSupReq.result as Supplier | undefined;
+            if (oldSup) {
+              oldSup.currentBalance = Math.max(0, Math.round(((oldSup.currentBalance || 0) - oldPostedDue) * 1000) / 1000);
+              oldSup.updatedAt = nowIso;
+              supStore.put(oldSup);
             }
-            sup.updatedAt = nowIso;
-            supStore.put(sup);
-          }
-        };
+          };
+        }
+        if (targetSupplierId && newPostedDue > 0.0001) {
+          const newSupReq = supStore.get(targetSupplierId);
+          newSupReq.onsuccess = () => {
+            const newSup = newSupReq.result as Supplier | undefined;
+            if (newSup) {
+              newSup.currentBalance = Math.round(((newSup.currentBalance || 0) + newPostedDue) * 1000) / 1000;
+              newSup.updatedAt = nowIso;
+              supStore.put(newSup);
+            }
+          };
+        }
+      } else {
+        const dueDelta = newPostedDue - oldPostedDue;
+        if (targetSupplierId && Math.abs(dueDelta) > 0.0001) {
+          const supReq = supStore.get(targetSupplierId);
+          supReq.onsuccess = () => {
+            const sup = supReq.result as Supplier | undefined;
+            if (sup) {
+              sup.currentBalance = Math.max(0, Math.round(((sup.currentBalance || 0) + dueDelta) * 1000) / 1000);
+              if (sup.currentBalance <= 0.0001) {
+                sup.currentBalance = 0;
+              }
+              sup.updatedAt = nowIso;
+              supStore.put(sup);
+            }
+          };
+        }
       }
 
       const updatedBill: PurchaseBill = {
         ...existingBill,
         purchaseInvoiceNumber: updatedData.purchaseInvoiceNumber || existingBill.purchaseInvoiceNumber,
-        billNumber: updatedData.billNumber || updatedData.purchaseInvoiceNumber || existingBill.billNumber || existingBill.purchaseInvoiceNumber,
-        agencyName: updatedData.agencyName || updatedData.supplierName || existingBill.agencyName || existingBill.supplierName,
+        billNumber: resolvedBillNo,
+        agencyName: resolvedAgencyName,
         supplierId: targetSupplierId,
-        supplierName: updatedData.supplierName || existingBill.supplierName,
-        purchaseDate: updatedData.purchaseDate || existingBill.purchaseDate,
+        supplierName: updatedData.supplierName || resolvedAgencyName,
+        purchaseDate: resolvedPurchaseDate,
         items: newItems,
         itemCount: newItems.reduce((sum, it) => sum + it.quantity, 0),
         subtotal,
@@ -1812,7 +1894,7 @@ export async function updatePurchaseBill(
         paidAmount,
         dueAmount,
         status: newStatus,
-        paymentMode: updatedData.paymentMode || existingBill.paymentMode,
+        paymentMode: resolvedPaymentMode,
         notes: updatedData.notes !== undefined ? updatedData.notes : existingBill.notes,
         stockPosted: shouldPostStock,
         updatedAt: nowIso

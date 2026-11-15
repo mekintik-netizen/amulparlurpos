@@ -28,7 +28,8 @@ import {
   Landmark,
   QrCode,
   Wifi,
-  WifiOff
+  WifiOff,
+  ClipboardList
 } from 'lucide-react';
 import { Shop } from '../../types/index.ts';
 import { AuthSession } from '../../storage/auth.ts';
@@ -39,6 +40,7 @@ import amulLogo from '../../assets/logo.ts';
 export type ActiveTab = 
   | 'POS' 
   | 'PURCHASES'
+  | 'SMART_ORDER'
   | 'STOCK' 
   | 'SALES' 
   | 'REPORTS'
@@ -132,6 +134,19 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Truck className="w-4 h-4" />
               <span>Purchases</span>
+            </button>
+
+            <button
+              onClick={() => onTabChange('SMART_ORDER')}
+              className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer ${
+                activeTab === 'SMART_ORDER'
+                  ? 'bg-white text-[#005A9C] shadow-sm'
+                  : 'text-blue-100 hover:bg-blue-800/60'
+              }`}
+              title="Smart Order (ઓટો ઓર્ડર & પર્ચેઝ લિસ્ટ)"
+            >
+              <ClipboardList className="w-4 h-4" />
+              <span>Smart Order</span>
             </button>
 
             <button

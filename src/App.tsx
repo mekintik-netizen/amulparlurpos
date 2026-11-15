@@ -26,6 +26,7 @@ import { AmulLaunchAnimation } from './components/common/AmulLaunchAnimation.tsx
 import { LoginPage } from './components/auth/LoginPage.tsx';
 import { BarcodePOS } from './components/pos/BarcodePOS.tsx';
 import { PurchaseManagement } from './components/purchases/PurchaseManagement.tsx';
+import { SmartOrderManagement } from './components/purchases/SmartOrderManagement.tsx';
 import { DailyStockReport } from './components/reports/DailyStockReport.tsx';
 import { DailySalesReport } from './components/reports/DailySalesReport.tsx';
 import { ExpenseManagement } from './components/expenses/ExpenseManagement.tsx';
@@ -371,6 +372,13 @@ export default function App() {
                 <PurchaseManagement
                   currentShop={currentShop}
                   onStockUpdated={loadShops}
+                />
+              )}
+
+              {activeTab === 'SMART_ORDER' && (
+                <SmartOrderManagement
+                  currentShop={currentShop}
+                  onOpenPurchases={() => setActiveTab('PURCHASES')}
                 />
               )}
 

@@ -305,7 +305,24 @@ export const AppRepository = {
         return res.json();
       }
       const created = await localDb.createPurchaseBill(billData);
-      syncPurchaseBillToCloud(created).catch(() => {});
+      await syncPurchaseBillToCloud(created).catch(() => {});
+      if (created.stockPosted) {
+        const productIds = Array.from(new Set(created.items.map(i => i.productId).filter(Boolean)));
+        await Promise.allSettled([
+          ...productIds.map(async pid => {
+            const prod = await localDb.getProductById(pid);
+            if (prod) await syncProductToCloud(prod);
+          }),
+          ...(created.supplierId
+            ? [
+                localDb.getSuppliersByShop(created.shopId).then(async sups => {
+                  const sup = sups.find(s => s.id === created.supplierId);
+                  if (sup) await syncSupplierToCloud(sup);
+                })
+              ]
+            : [])
+        ]);
+      }
       return created;
     },
     updateBill: async (
@@ -335,7 +352,24 @@ export const AppRepository = {
         return res.json();
       }
       const updated = await localDb.updatePurchaseBill(billId, shopId, updatedData);
-      syncPurchaseBillToCloud(updated).catch(() => {});
+      await syncPurchaseBillToCloud(updated).catch(() => {});
+      if (updated.stockPosted || updated.status === 'CONFIRMED') {
+        const productIds = Array.from(new Set(updated.items.map(i => i.productId).filter(Boolean)));
+        await Promise.allSettled([
+          ...productIds.map(async pid => {
+            const prod = await localDb.getProductById(pid);
+            if (prod) await syncProductToCloud(prod);
+          }),
+          ...(updated.supplierId
+            ? [
+                localDb.getSuppliersByShop(shopId).then(async sups => {
+                  const sup = sups.find(s => s.id === updated.supplierId);
+                  if (sup) await syncSupplierToCloud(sup);
+                })
+              ]
+            : [])
+        ]);
+      }
       return updated;
     },
     getByShop: async (shopId: string, dateStr?: string): Promise<PurchaseBill[]> => {
@@ -372,7 +406,22 @@ export const AppRepository = {
         return res.json();
       }
       const cancelled = await localDb.cancelPurchaseBill(billId, shopId, reason);
-      syncPurchaseBillToCloud(cancelled).catch(() => {});
+      await syncPurchaseBillToCloud(cancelled).catch(() => {});
+      const productIds = Array.from(new Set(cancelled.items.map(i => i.productId).filter(Boolean)));
+      await Promise.allSettled([
+        ...productIds.map(async pid => {
+          const prod = await localDb.getProductById(pid);
+          if (prod) await syncProductToCloud(prod);
+        }),
+        ...(cancelled.supplierId
+          ? [
+              localDb.getSuppliersByShop(shopId).then(async sups => {
+                const sup = sups.find(s => s.id === cancelled.supplierId);
+                if (sup) await syncSupplierToCloud(sup);
+              })
+            ]
+          : [])
+      ]);
       return cancelled;
     },
     deleteCancelledBill: async (billId: string, shopId: string): Promise<void> => {

@@ -35,13 +35,15 @@ import {
   X,
   Lock,
   EyeOff,
-  ShieldAlert
+  ShieldAlert,
+  PackageCheck
 } from 'lucide-react';
 import { Product, PurchaseBill, PurchaseItem, PurchaseBillStatus, PaymentMode, Shop, Supplier } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { verifyShopPassword } from '../../storage/auth.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
 import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
+import { ReceiveConfirmPurchaseModal } from './ReceiveConfirmPurchaseModal.tsx';
 
 interface PurchaseManagementProps {
   currentShop: Shop;
@@ -114,6 +116,10 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   const [showDeletePassword, setShowDeletePassword] = useState(false);
   const [deleteBillError, setDeleteBillError] = useState('');
   const [isDeletingBill, setIsDeletingBill] = useState(false);
+
+  // Receive & Confirm PENDING / DRAFT Purchase Bill modal state
+  const [confirmingPurchase, setConfirmingPurchase] = useState<PurchaseBill | null>(null);
+  const [confirmSuccessMsg, setConfirmSuccessMsg] = useState('');
 
   const loadData = async () => {
     try {
@@ -444,10 +450,10 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     }
   };
 
-  // Dynamic Supplier Due Balance Calculation (returns 0.00 when all bills are paid)
+  // Dynamic Supplier Due Balance Calculation (returns 0.00 when all CONFIRMED bills are paid; PENDING/DRAFT orders excluded)
   const getSupplierDueBalance = (supplier: Supplier, allPurchases: PurchaseBill[]): number => {
     const supplierPurchases = allPurchases.filter(p =>
-      p.status !== 'CANCELLED' && (
+      p.status === 'CONFIRMED' && (
         p.supplierId === supplier.id ||
         (supplier.companyName && (p.agencyName === supplier.companyName || p.supplierName === supplier.companyName)) ||
         (supplier.name && (p.agencyName === supplier.name || p.supplierName === supplier.name))
@@ -632,6 +638,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   const totalPurchasesAmount = purchases
     .filter(p => p.status === 'CONFIRMED')
     .reduce((sum, p) => sum + p.totalAmount, 0);
+  const pendingOrdersCount = purchases.filter(p => p.status === 'PENDING' || p.status === 'DRAFT').length;
 
   return (
     <div className="space-y-6">
@@ -746,6 +753,37 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
           </button>
         </div>
 
+        {confirmSuccessMsg && (
+          <div
+            role="status"
+            className="mb-4 p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl text-xs font-bold text-emerald-900 flex items-center justify-between gap-3"
+          >
+            <span className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+              {confirmSuccessMsg}
+            </span>
+            <button
+              type="button"
+              onClick={() => setConfirmSuccessMsg('')}
+              className="text-emerald-700 hover:text-emerald-900 p-1 cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
+        {activeSubTab === 'PURCHASES' && pendingOrdersCount > 0 && (
+          <div className="mb-4 p-3.5 bg-amber-50 border border-amber-300 rounded-xl text-xs text-amber-900 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 font-bold">
+              <Clock className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                {pendingOrdersCount} Pending Order / બિલ માલ આવવાની રાહમાં છે — માલ આવે ત્યારે{' '}
+                <strong>"Receive &amp; Confirm Bill / બિલ જમા લો"</strong> પર ક્લિક કરો.
+              </span>
+            </div>
+          </div>
+        )}
+
         {activeSubTab === 'PURCHASES' ? (
           <div className="overflow-x-auto relative">
             <table className="w-full text-left text-xs min-w-[780px]">
@@ -770,8 +808,17 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                     </td>
                   </tr>
                 ) : (
-                  purchases.map(p => (
-                    <tr key={p.id} className="hover:bg-slate-50/80 transition group">
+                  purchases.map(p => {
+                    const isPendingOrDraft = p.status === 'PENDING' || p.status === 'DRAFT';
+                    return (
+                    <tr
+                      key={p.id}
+                      className={`transition group ${
+                        isPendingOrDraft
+                          ? 'bg-amber-50/50 hover:bg-amber-50/90'
+                          : 'hover:bg-slate-50/80'
+                      }`}
+                    >
                       <td className="py-2.5 px-3">
                         <div className="font-bold text-slate-900">{p.billNumber || p.purchaseInvoiceNumber}</div>
                         <div className="text-[10px] text-slate-400 font-sans">{p.purchaseDate}</div>
@@ -788,7 +835,11 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                       </td>
                       <td className="py-2.5 px-2 text-right font-sans">
                         <div className="text-emerald-700 font-mono font-bold">₹{p.paidAmount.toFixed(2)}</div>
-                        {(p.paidAmount >= p.totalAmount - 0.001 || (p.dueAmount !== undefined && p.dueAmount <= 0.001)) ? (
+                        {isPendingOrDraft ? (
+                          <div className="text-[10px] text-amber-700 font-sans font-semibold">
+                            Pending Confirmation
+                          </div>
+                        ) : (p.paidAmount >= p.totalAmount - 0.001 || (p.dueAmount !== undefined && p.dueAmount <= 0.001)) ? (
                           <div className="text-[10px] text-emerald-600 font-sans font-semibold">
                             સરભર / Paid in Full
                           </div>
@@ -803,22 +854,36 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                           className={`text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1 ${
                             p.status === 'CONFIRMED'
                               ? 'bg-emerald-100 text-emerald-800'
-                              : p.status === 'DRAFT'
-                              ? 'bg-amber-100 text-amber-800'
+                              : isPendingOrDraft
+                              ? 'bg-amber-100 text-amber-800 border border-amber-300'
                               : 'bg-rose-100 text-rose-800 line-through'
                           }`}
                         >
                           {p.status === 'CONFIRMED' && <CheckCircle2 className="w-3 h-3" />}
-                          {p.status === 'DRAFT' && <Clock className="w-3 h-3" />}
+                          {isPendingOrDraft && <Clock className="w-3 h-3" />}
                           {p.status === 'CANCELLED' && <XCircle className="w-3 h-3" />}
                           {p.status}
                         </span>
-                        {p.stockPosted && (
+                        {p.stockPosted ? (
                           <div className="text-[9px] text-emerald-600 font-semibold mt-0.5">Stock Added</div>
-                        )}
+                        ) : isPendingOrDraft ? (
+                          <div className="text-[9px] text-amber-700 font-semibold mt-0.5">Stock Not Added</div>
+                        ) : null}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-sans sticky right-0 bg-white group-hover:bg-slate-50/90 z-10 shadow-[-6px_0_10px_-2px_rgba(0,0,0,0.07)] border-l border-slate-100">
+                      <td className={`py-2.5 px-3 text-right font-sans sticky right-0 z-10 shadow-[-6px_0_10px_-2px_rgba(0,0,0,0.07)] border-l border-slate-100 ${
+                        isPendingOrDraft ? 'bg-amber-50/95 group-hover:bg-amber-100/80' : 'bg-white group-hover:bg-slate-50/90'
+                      }`}>
                         <div className="flex items-center justify-end gap-1.5">
+                          {isPendingOrDraft && (
+                            <button
+                              onClick={() => setConfirmingPurchase(p)}
+                              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-extrabold transition flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
+                              title="Receive Stock & Confirm Purchase Bill"
+                            >
+                              <PackageCheck className="w-3.5 h-3.5" />
+                              <span>Receive &amp; Confirm Bill / બિલ જમા લો</span>
+                            </button>
+                          )}
                           <button
                             onClick={() => setPrintingBill(p)}
                             className="px-3 py-1.5 bg-[#005A9C] hover:bg-blue-800 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer shrink-0"
@@ -847,7 +912,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                             <button
                               onClick={() => handleCancelPurchase(p.id)}
                               className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 rounded-lg transition cursor-pointer"
-                              title={p.status === 'CONFIRMED' ? 'Cancel & Deduct Stock' : 'Cancel Draft Bill'}
+                              title={p.status === 'CONFIRMED' ? 'Cancel & Deduct Stock' : 'Cancel Pending Order'}
                             >
                               <XCircle className="w-3.5 h-3.5" />
                             </button>
@@ -870,7 +935,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                         </div>
                       </td>
                     </tr>
-                  ))
+                  );})
                 )}
               </tbody>
             </table>
@@ -1056,20 +1121,20 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                   </button>
                   <button
                     type="button"
-                    onClick={() => setPurchaseStatus('DRAFT')}
+                    onClick={() => setPurchaseStatus(editingPurchase?.status === 'PENDING' ? 'PENDING' : 'DRAFT')}
                     className={`py-2 rounded-lg transition ${
-                      purchaseStatus === 'DRAFT'
+                      purchaseStatus === 'DRAFT' || purchaseStatus === 'PENDING'
                         ? 'bg-amber-600 text-white shadow-xs'
                         : 'bg-white border border-slate-300 text-slate-700'
                     }`}
                   >
-                    ⏳ DRAFT (No stock change)
+                    ⏳ PENDING / DRAFT (No stock change)
                   </button>
                 </div>
                 <div className="text-[11px] text-slate-500 mt-2">
                   {purchaseStatus === 'CONFIRMED'
                     ? '• Stock will be automatically incremented in product inventory once saved.'
-                    : '• Draft bills are saved without modifying current inventory until confirmed.'}
+                    : '• Pending/Draft orders are saved without modifying current inventory until confirmed.'}
                 </div>
               </div>
 
@@ -1831,8 +1896,21 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
               </div>
             </div>
 
-            <div className="p-4 pt-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-2 shrink-0 sticky bottom-0">
-              <div className="flex items-center gap-2">
+            <div className="p-4 pt-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2 shrink-0 sticky bottom-0">
+              <div className="flex flex-wrap items-center gap-2">
+                {(viewingPurchase.status === 'PENDING' || viewingPurchase.status === 'DRAFT') && (
+                  <button
+                    onClick={() => {
+                      const target = viewingPurchase;
+                      setViewingPurchase(null);
+                      setConfirmingPurchase(target);
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-extrabold transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+                  >
+                    <PackageCheck className="w-3.5 h-3.5" />
+                    <span>Receive &amp; Confirm / બિલ જમા લો</span>
+                  </button>
+                )}
                 <button
                   onClick={() => {
                     const target = viewingPurchase;
@@ -2207,6 +2285,28 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
             </div>
           </div>
         </div>
+      )}
+
+      {/* Receive & Confirm Pending Purchase Bill Modal */}
+      {confirmingPurchase && (
+        <ReceiveConfirmPurchaseModal
+          bill={confirmingPurchase}
+          shop={currentShop}
+          suppliers={suppliers}
+          products={products}
+          onClose={() => setConfirmingPurchase(null)}
+          onProductCreated={(newProd) => {
+            setProducts(prev => [newProd, ...prev]);
+          }}
+          onConfirmed={async (updatedBill) => {
+            setConfirmingPurchase(null);
+            setConfirmSuccessMsg(
+              `Purchase Bill #${updatedBill.billNumber || updatedBill.purchaseInvoiceNumber} confirmed! Stock (${updatedBill.itemCount} units) added & Supplier Khata updated.`
+            );
+            await loadData();
+            onStockUpdated?.();
+          }}
+        />
       )}
     </div>
   );

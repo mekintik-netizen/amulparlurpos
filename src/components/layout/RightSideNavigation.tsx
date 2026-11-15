@@ -27,7 +27,8 @@ import {
   LogIn, 
   Store,
   Sparkles,
-  Landmark
+  Landmark,
+  ClipboardList
 } from 'lucide-react';
 import { ActiveTab } from './Header.tsx';
 import { Shop } from '../../types/index.ts';
@@ -78,6 +79,13 @@ export const RightSideNavigation: React.FC<RightSideNavigationProps> = ({
       label: 'Purchases Khata',
       sub: 'Depot delivery bills',
       icon: Truck
+    },
+    {
+      key: 'SMART_ORDER' as ActiveTab,
+      label: 'Smart Order',
+      sub: 'ઓટો ઓર્ડર & પર્ચેઝ લિસ્ટ',
+      icon: ClipboardList,
+      badge: 'Auto'
     },
     {
       key: 'STOCK' as ActiveTab,

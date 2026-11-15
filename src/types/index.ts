@@ -210,7 +210,31 @@ export interface Supplier {
   updatedAt: string;
 }
 
-export type PurchaseBillStatus = 'CONFIRMED' | 'DRAFT' | 'CANCELLED';
+export type PurchaseBillStatus = 'CONFIRMED' | 'PENDING' | 'DRAFT' | 'CANCELLED';
+
+export type SmartOrderCycleDays = 7 | 15 | 30;
+export type SmartOrderBufferPercent = 0 | 10 | 20;
+
+export interface SmartOrderSuggestion {
+  product: Product;
+  productId: string;
+  productName: string;
+  regionalName?: string;
+  barcode: string;
+  category: ProductCategory;
+  unit: Product['unit'];
+  currentStock: number;
+  minStockAlert: number;
+  totalSoldInCycle: number;
+  avgDailySales: number;
+  suggestedQty: number;
+  orderQty: number;
+  purchaseRate: number;
+  mrp: number;
+  estimatedTotal: number;
+  isLowStock: boolean;
+  selected: boolean;
+}
 
 export interface PurchaseItem {
   productId: string;
