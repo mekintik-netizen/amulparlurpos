@@ -1,41 +1,42 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * 
- * Master Admin Credentials Recovery Modal (2-Factor Verification)
+ *
+ * Master Admin Credentials Recovery Modal (Real Gmail 6-Digit OTP Verification)
  * Security Workflow:
- * 1. Step A (Phone OTP): Firebase Phone Auth SMS OTP to registered phone (+919173598234).
- * 2. Step B (Google Auth): OAuth authentication with whitelisted Google Account (superAdminEmail).
- * 3. Step C (Reset Screen): Display current Admin Username, set and confirm new password,
- *    and instantly update Firestore 'adminSettings/authConfig' and IndexedDB.
+ * 1. Step 1 (GMAIL_OTP): Generates CSPRNG 6-digit OTP (5-min expiry, single-use, max 3 wrong attempts),
+ *    stores only salted SHA-256 hash, and delivers real email to Admin Gmail (`mekintik@gmail.com`
+ *    or configured `adminSettings/security`). Masked password input with eye toggle; ZERO visible OTP hints.
+ * 2. Step 2 (RESET_PASSWORD): Only unlocked with a single-use cryptographic `verificationToken` from Step 1.
+ *    Reveals current Admin Username and updates password in Firestore `adminSettings/authConfig` & IndexedDB.
  */
 
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  ShieldCheck, 
-  Phone, 
-  KeyRound, 
-  AlertCircle, 
-  RefreshCw, 
-  CheckCircle2, 
-  X, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  ArrowRight, 
-  Copy, 
-  Check, 
-  Smartphone,
-  Sparkles
+import React, { useEffect, useState } from 'react';
+import {
+  AlertCircle,
+  ArrowRight,
+  Check,
+  CheckCircle2,
+  Clock,
+  Copy,
+  Eye,
+  EyeOff,
+  KeyRound,
+  Lock,
+  Mail,
+  RefreshCw,
+  Sparkles,
+  X
 } from 'lucide-react';
-import { 
-  RecaptchaVerifier, 
-  signInWithPhoneNumber, 
-  ConfirmationResult, 
-  GoogleAuthProvider, 
-  signInWithPopup 
-} from 'firebase/auth';
-import { auth, getAdminAuthConfig, AdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG } from '../../storage/firebase.ts';
+import {
+  completeFirebaseEmailLinkOtp,
+  DEFAULT_ADMIN_SECURITY_EMAIL,
+  inspectPendingFirebaseEmailLink,
+  maskGmailAddress,
+  OTP_RESEND_COOLDOWN_SECONDS,
+  sendAdminGmailOtp,
+  verifyAdminGmailOtp
+} from '../../storage/adminEmailOtp.ts';
 import { getMasterAdminProfile, resetAdminPasswordViaTwoFactor } from '../../storage/auth.ts';
 
 interface AdminCredentialsRecoveryModalProps {
@@ -44,256 +45,207 @@ interface AdminCredentialsRecoveryModalProps {
   onSuccess: (adminUsername: string, message: string) => void;
 }
 
-type RecoveryStep = 'PHONE_OTP' | 'GOOGLE_AUTH' | 'RESET_PASSWORD' | 'COMPLETED';
+type RecoveryStep = 'GMAIL_OTP' | 'RESET_PASSWORD' | 'COMPLETED';
+
+function formatCountdown(secondsLeft: number): string {
+  const safe = Math.max(0, Math.floor(secondsLeft));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
 
 export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryModalProps> = ({
   isOpen,
   onClose,
   onSuccess
 }) => {
-  const [currentStep, setCurrentStep] = useState<RecoveryStep>('PHONE_OTP');
-  const [adminConfig, setAdminConfig] = useState<AdminAuthConfig>(DEFAULT_ADMIN_AUTH_CONFIG);
+  const [currentStep, setCurrentStep] = useState<RecoveryStep>('GMAIL_OTP');
   const [adminUsername, setAdminUsername] = useState('admin');
+  const [targetAdminEmail, setTargetAdminEmail] = useState(DEFAULT_ADMIN_SECURITY_EMAIL);
   const [loading, setLoading] = useState(false);
+  const [sendingOtp, setSendingOtp] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
 
-  // Step A: Phone Auth state
+  // Step 1: Gmail OTP state
   const [otpCode, setOtpCode] = useState('');
-  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
-  const [resendCooldown, setResendCooldown] = useState(30);
-  const [phoneVerified, setPhoneVerified] = useState(false);
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const [showOtp, setShowOtp] = useState(false);
+  const [deliveryChannel, setDeliveryChannel] = useState<'emailjs' | 'firebase_email_link'>('emailjs');
+  const [resendCooldown, setResendCooldown] = useState(OTP_RESEND_COOLDOWN_SECONDS);
+  const [expiresAt, setExpiresAt] = useState(0);
+  const [secondsRemaining, setSecondsRemaining] = useState(300);
+  const [remainingAttempts, setRemainingAttempts] = useState(3);
+  const [gmailVerified, setGmailVerified] = useState(false);
+  const [verificationToken, setVerificationToken] = useState<string | null>(null);
 
-  // Step B: Google Auth state
-  const [googleVerified, setGoogleVerified] = useState(false);
-  const [verifiedGoogleEmail, setVerifiedGoogleEmail] = useState<string | null>(null);
-
-  // Step C: Password reset state
+  // Step 2: Password reset state
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [copiedUsername, setCopiedUsername] = useState(false);
 
-  // Load Admin Config and Profile on Open
-  useEffect(() => {
-    if (!isOpen) return;
-
-    let isMounted = true;
-    const fetchConfigAndProfile = async () => {
-      try {
-        const [config, profile] = await Promise.all([
-          getAdminAuthConfig(),
-          getMasterAdminProfile()
-        ]);
-        if (isMounted) {
-          setAdminConfig(config);
-          setAdminUsername(profile.username || config.adminUsername || 'admin');
-        }
-      } catch (err) {
-        console.warn('[Recovery] Could not fetch remote config, using defaults:', err);
-      }
-    };
-
-    fetchConfigAndProfile();
-    return () => { isMounted = false; };
-  }, [isOpen]);
-
-  // Step A: Trigger SMS OTP on open
+  // Reset state & dispatch real 6-digit Gmail OTP on open
   useEffect(() => {
     if (!isOpen) {
-      setCurrentStep('PHONE_OTP');
+      setCurrentStep('GMAIL_OTP');
       setOtpCode('');
+      setShowOtp(false);
       setError(null);
       setSuccessNotice(null);
-      setConfirmationResult(null);
-      setPhoneVerified(false);
-      setGoogleVerified(false);
+      setGmailVerified(false);
+      setVerificationToken(null);
       setNewPassword('');
       setConfirmPassword('');
+      setExpiresAt(0);
+      setSecondsRemaining(300);
+      setRemainingAttempts(3);
       return;
     }
 
     let isMounted = true;
-    const triggerPhoneSms = async () => {
-      setLoading(true);
+
+    const initializeRecovery = async () => {
+      try {
+        const profile = await getMasterAdminProfile();
+        if (isMounted) {
+          setAdminUsername(profile.username || 'admin');
+          setTargetAdminEmail(profile.email || DEFAULT_ADMIN_SECURITY_EMAIL);
+        }
+      } catch {
+        // use defaults
+      }
+
+      // Check if user returned via Firebase Email Link callback in Gmail
+      const linkInfo = inspectPendingFirebaseEmailLink();
+      if (linkInfo.isLink && linkInfo.purpose === 'ADMIN_PASSWORD_RESET') {
+        setLoading(true);
+        try {
+          const verified = await completeFirebaseEmailLinkOtp({ purpose: 'ADMIN_PASSWORD_RESET' });
+          if (isMounted) {
+            setGmailVerified(true);
+            setVerificationToken(verified.verificationToken);
+            setSuccessNotice(`Verified Admin Gmail (${maskGmailAddress(verified.targetEmail)}). Set your new password below.`);
+            setCurrentStep('RESET_PASSWORD');
+          }
+          return;
+        } catch (err: unknown) {
+          if (isMounted) {
+            setError(err instanceof Error ? err.message : 'Firebase email link verification failed.');
+          }
+        } finally {
+          if (isMounted) setLoading(false);
+        }
+      }
+
+      setSendingOtp(true);
       setError(null);
       try {
-        if (recaptchaVerifierRef.current) {
-          try {
-            recaptchaVerifierRef.current.clear();
-          } catch (e) {}
-          recaptchaVerifierRef.current = null;
-        }
-
-        const verifier = new RecaptchaVerifier(auth, 'recaptcha-recovery-container', {
-          size: 'invisible',
-          'expired-callback': () => {
-            setError('reCAPTCHA expired. Please resend the SMS verification code.');
-          }
-        });
-        recaptchaVerifierRef.current = verifier;
-
-        const phone = adminConfig.superAdminPhone || '+919173598234';
-        const confirmation = await signInWithPhoneNumber(auth, phone, verifier);
-        if (isMounted) {
-          setConfirmationResult(confirmation);
-          setSuccessNotice(`6-digit SMS OTP sent to registered phone ${phone}`);
-        }
-      } catch (err: any) {
-        console.warn('[Recovery 2FA] Carrier SMS notice:', err?.code, err?.message);
-        if (isMounted) {
-          setSuccessNotice(`SMS service connected for ${adminConfig.superAdminPhone || '+919173598234'}. Enter 6-digit verification code:`);
-        }
+        const res = await sendAdminGmailOtp({ purpose: 'ADMIN_PASSWORD_RESET' });
+        if (!isMounted) return;
+        setDeliveryChannel(res.channel);
+        setTargetAdminEmail(res.targetEmail);
+        setExpiresAt(res.expiresAt);
+        setSecondsRemaining(res.expiresInSeconds);
+        setRemainingAttempts(res.maxAttempts);
+        setResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
+        setSuccessNotice(res.message);
+      } catch (err: unknown) {
+        if (!isMounted) return;
+        setResendCooldown(0);
+        setError(
+          err instanceof Error
+            ? err.message
+            : 'Unable to dispatch Gmail OTP. Please check EmailJS settings.'
+        );
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) setSendingOtp(false);
       }
     };
 
-    triggerPhoneSms();
+    initializeRecovery();
 
-    // Cooldown timer
     const timer = setInterval(() => {
       setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+      setExpiresAt((currentExp) => {
+        if (currentExp > 0) {
+          setSecondsRemaining(Math.max(0, Math.ceil((currentExp - Date.now()) / 1000)));
+        }
+        return currentExp;
+      });
     }, 1000);
 
     return () => {
       isMounted = false;
       clearInterval(timer);
-      if (recaptchaVerifierRef.current) {
-        try {
-          recaptchaVerifierRef.current.clear();
-        } catch (e) {}
-      }
     };
-  }, [isOpen, adminConfig.superAdminPhone]);
+  }, [isOpen]);
 
-  // Handle Verify SMS OTP
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
 
     const cleanCode = otpCode.trim();
-    if (cleanCode.length !== 6 || !/^\d{6}$/.test(cleanCode)) {
+    if (!/^\d{6}$/.test(cleanCode)) {
       setError('Please enter a valid 6-digit numeric OTP code.');
       return;
     }
 
     setLoading(true);
     try {
-      if (confirmationResult) {
-        await confirmationResult.confirm(cleanCode);
-      } else {
-        // Fallback test verification code
-        if (cleanCode !== '917359' && cleanCode !== '123456' && cleanCode.length !== 6) {
-          throw new Error('Invalid SMS verification code. Please check your phone message.');
-        }
-      }
+      const result = await verifyAdminGmailOtp({
+        code: cleanCode,
+        purpose: 'ADMIN_PASSWORD_RESET'
+      });
 
-      setPhoneVerified(true);
-      setSuccessNotice('Phone OTP verified successfully! Proceed to Google verification.');
-      setTimeout(() => {
-        setSuccessNotice(null);
-        setCurrentStep('GOOGLE_AUTH');
-      }, 700);
-    } catch (err: any) {
-      console.warn('[Recovery] OTP verification fallback check:', err);
-      if (cleanCode === '917359' || cleanCode === '123456') {
-        setPhoneVerified(true);
-        setCurrentStep('GOOGLE_AUTH');
-      } else {
-        setError(err?.message || 'Invalid SMS verification code. Please check your phone message.');
-      }
+      setOtpCode('');
+      setGmailVerified(true);
+      setVerificationToken(result.verificationToken);
+      setSuccessNotice('Gmail OTP verified! Set a new Master Admin password below.');
+      setCurrentStep('RESET_PASSWORD');
+    } catch (err: unknown) {
+      setOtpCode('');
+      const msg = err instanceof Error ? err.message : 'Invalid Gmail OTP verification code.';
+      if (msg.includes('2 attempts remaining')) setRemainingAttempts(2);
+      else if (msg.includes('1 attempt remaining')) setRemainingAttempts(1);
+      else if (msg.includes('Maximum 3 wrong') || msg.includes('Maximum wrong')) setRemainingAttempts(0);
+      setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
-  // Handle Resend SMS OTP
   const handleResendOtp = async () => {
-    if (resendCooldown > 0) return;
+    if (resendCooldown > 0 || sendingOtp) return;
     setOtpCode('');
     setError(null);
-    setResendCooldown(30);
-    setLoading(true);
+    setSendingOtp(true);
 
     try {
-      if (recaptchaVerifierRef.current) {
-        try {
-          recaptchaVerifierRef.current.clear();
-        } catch (e) {}
-        recaptchaVerifierRef.current = null;
-      }
-
-      const verifier = new RecaptchaVerifier(auth, 'recaptcha-recovery-container', {
-        size: 'invisible'
-      });
-      recaptchaVerifierRef.current = verifier;
-
-      const phone = adminConfig.superAdminPhone || '+919173598234';
-      const confirmation = await signInWithPhoneNumber(auth, phone, verifier);
-      setConfirmationResult(confirmation);
-      setSuccessNotice(`New 6-digit verification code sent to ${phone}`);
-    } catch (err: any) {
-      setSuccessNotice(`SMS service refreshed. Enter verification code:`);
+      const res = await sendAdminGmailOtp({ purpose: 'ADMIN_PASSWORD_RESET' });
+      setDeliveryChannel(res.channel);
+      setTargetAdminEmail(res.targetEmail);
+      setExpiresAt(res.expiresAt);
+      setSecondsRemaining(res.expiresInSeconds);
+      setRemainingAttempts(res.maxAttempts);
+      setResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
+      setSuccessNotice(res.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to resend Gmail OTP.');
     } finally {
-      setLoading(false);
+      setSendingOtp(false);
     }
   };
 
-  // Handle Step B: Whitelisted Google Account Sign-In
-  const handleGoogleSignIn = async () => {
-    setError(null);
-    setLoading(true);
-
-    const authorizedEmail = (adminConfig.superAdminEmail || DEFAULT_ADMIN_AUTH_CONFIG.superAdminEmail).toLowerCase();
-
-    try {
-      const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
-      
-      const result = await signInWithPopup(auth, provider);
-      const userEmail = (result.user.email || '').toLowerCase();
-
-      if (userEmail !== authorizedEmail) {
-        throw new Error(
-          `Unauthorized Google Account (${userEmail}). Only the whitelisted Master Admin email "${authorizedEmail}" is authorized for credentials recovery.`
-        );
-      }
-
-      setGoogleVerified(true);
-      setVerifiedGoogleEmail(userEmail);
-      setSuccessNotice(`Verified ownership for ${userEmail}!`);
-      setTimeout(() => {
-        setSuccessNotice(null);
-        setCurrentStep('RESET_PASSWORD');
-      }, 700);
-    } catch (err: any) {
-      console.error('[Recovery Google Auth Error]:', err);
-      // In restricted preview or iframe environments where popup is blocked
-      if (err?.code === 'auth/popup-blocked' || err?.code === 'auth/cancelled-popup-request' || err?.message?.includes('popup')) {
-        setError(`Popup blocked by browser. Please allow popups or use preview verification for ${authorizedEmail}.`);
-      } else {
-        setError(err?.message || 'Google authentication failed. Please try again.');
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Quick fallback Google verification for preview/iframe environments
-  const handlePreviewGoogleBypass = () => {
-    const authorizedEmail = (adminConfig.superAdminEmail || DEFAULT_ADMIN_AUTH_CONFIG.superAdminEmail).toLowerCase();
-    setGoogleVerified(true);
-    setVerifiedGoogleEmail(authorizedEmail);
-    setCurrentStep('RESET_PASSWORD');
-  };
-
-  // Handle Step C: Save New Admin Password & Update Firestore
   const handleSaveNewPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!gmailVerified || !verificationToken) {
+      setCurrentStep('GMAIL_OTP');
+      setError('Valid Gmail OTP verification is required before changing the Admin password.');
+      return;
+    }
 
     if (!newPassword || newPassword.length < 6) {
       setError('New password must be at least 6 characters long.');
@@ -307,7 +259,9 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
 
     setLoading(true);
     try {
-      const result = await resetAdminPasswordViaTwoFactor(newPassword);
+      const result = await resetAdminPasswordViaTwoFactor(newPassword, verificationToken);
+      setVerificationToken(null);
+      setGmailVerified(false);
       setCurrentStep('COMPLETED');
       setTimeout(() => {
         onSuccess(
@@ -316,8 +270,14 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
         );
         onClose();
       }, 1500);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to update admin password.');
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to update admin password.';
+      if (msg.toLowerCase().includes('expired') || msg.toLowerCase().includes('already been used')) {
+        setVerificationToken(null);
+        setGmailVerified(false);
+        setCurrentStep('GMAIL_OTP');
+      }
+      setError(msg);
     } finally {
       setLoading(false);
     }
@@ -331,13 +291,11 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
 
   if (!isOpen) return null;
 
+  const maskedEmail = maskGmailAddress(targetAdminEmail);
+
   return (
     <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 font-sans select-none animate-in fade-in duration-200">
-      {/* Invisible reCAPTCHA container */}
-      <div id="recaptcha-recovery-container"></div>
-
       <div className="bg-white dark:bg-neutral-950 border border-slate-300 dark:border-neutral-800 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden relative">
-        
         {/* Header Bar */}
         <div className="bg-[#003870] text-white p-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -350,7 +308,7 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                   Admin Credentials Recovery
                 </h3>
                 <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-400 text-slate-900 px-1.5 py-0.5 rounded-sm">
-                  2FA Secure
+                  Gmail OTP
                 </span>
               </div>
               <p className="text-[11px] text-blue-200">
@@ -364,6 +322,7 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
             onClick={onClose}
             className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition cursor-pointer"
             title="Cancel and close recovery modal"
+            aria-label="Close recovery modal"
           >
             <X className="w-4 h-4" />
           </button>
@@ -371,46 +330,37 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
 
         {/* Stepper Progress Bar */}
         <div className="bg-slate-100 dark:bg-neutral-900 px-5 py-3 border-b border-slate-200 dark:border-neutral-800">
-          <div className="grid grid-cols-3 gap-2 text-center text-[10px] font-bold">
+          <div className="grid grid-cols-2 gap-2 text-center text-[11px] font-bold">
             {/* Step 1 */}
-            <div className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg transition ${
-              currentStep === 'PHONE_OTP' 
-                ? 'bg-blue-600 text-white shadow-xs' 
-                : phoneVerified 
-                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300' 
-                  : 'text-slate-400'
-            }`}>
-              {phoneVerified ? <Check className="w-3 h-3 text-emerald-600" /> : <Smartphone className="w-3 h-3" />}
-              <span>1. Phone OTP</span>
+            <div
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg transition ${
+                currentStep === 'GMAIL_OTP'
+                  ? 'bg-blue-600 text-white shadow-xs'
+                  : gmailVerified
+                    ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+                    : 'text-slate-400'
+              }`}
+            >
+              {gmailVerified ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Mail className="w-3.5 h-3.5" />}
+              <span>1. Gmail 6-Digit OTP</span>
             </div>
 
             {/* Step 2 */}
-            <div className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg transition ${
-              currentStep === 'GOOGLE_AUTH' 
-                ? 'bg-blue-600 text-white shadow-xs' 
-                : googleVerified 
-                  ? 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300' 
+            <div
+              className={`flex items-center justify-center gap-1.5 py-1.5 px-2 rounded-lg transition ${
+                currentStep === 'RESET_PASSWORD' || currentStep === 'COMPLETED'
+                  ? 'bg-blue-600 text-white shadow-xs'
                   : 'text-slate-400'
-            }`}>
-              {googleVerified ? <Check className="w-3 h-3 text-emerald-600" /> : <ShieldCheck className="w-3 h-3" />}
-              <span>2. Google Auth</span>
-            </div>
-
-            {/* Step 3 */}
-            <div className={`flex items-center justify-center gap-1.5 py-1 px-2 rounded-lg transition ${
-              currentStep === 'RESET_PASSWORD' || currentStep === 'COMPLETED'
-                ? 'bg-blue-600 text-white shadow-xs' 
-                : 'text-slate-400'
-            }`}>
-              <Lock className="w-3 h-3" />
-              <span>3. Reset Pass</span>
+              }`}
+            >
+              <Lock className="w-3.5 h-3.5" />
+              <span>2. Reset Password</span>
             </div>
           </div>
         </div>
 
         {/* Modal Body */}
         <div className="p-6">
-          {/* Notification Messages */}
           {error && (
             <div className="mb-4 p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl flex items-start gap-2.5 text-xs text-rose-700 dark:text-rose-300 animate-in fade-in duration-150">
               <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
@@ -425,143 +375,134 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
             </div>
           )}
 
-          {/* STEP 1: PHONE OTP VERIFICATION */}
-          {currentStep === 'PHONE_OTP' && (
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
+          {/* STEP 1: GMAIL OTP VERIFICATION */}
+          {currentStep === 'GMAIL_OTP' && (
+            <form onSubmit={handleVerifyOtp} className="space-y-4" autoComplete="off">
               <div className="text-center space-y-1">
                 <div className="w-12 h-12 bg-blue-50 dark:bg-neutral-900 border border-blue-200 dark:border-neutral-800 text-[#005A9C] dark:text-blue-400 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                  <Phone className="w-6 h-6" />
+                  <Mail className="w-6 h-6" />
                 </div>
                 <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  Step 1: Phone SMS OTP Verification
+                  Step 1: Admin Gmail OTP Verification
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-neutral-400">
-                  Sending verification SMS to registered Master Admin phone:
+                  {sendingOtp ? 'Sending 6-digit OTP to registered Admin Gmail:' : 'Verification sent to registered Master Admin Gmail:'}
                   <br />
-                  <strong className="text-slate-900 dark:text-white font-mono text-sm tracking-wider">
-                    {adminConfig.superAdminPhone || '+919173598234'}
+                  <strong className="text-slate-900 dark:text-white font-mono text-sm tracking-wide">
+                    {maskedEmail}
                   </strong>
                 </p>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5 text-center">
-                  Enter 6-Digit SMS Code
-                </label>
-                <input
-                  type="text"
-                  maxLength={6}
-                  value={otpCode}
-                  onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
-                  placeholder="• • • • • •"
-                  className="w-full text-center tracking-[0.4em] text-xl font-mono px-4 py-3 bg-slate-50 dark:bg-black text-slate-900 dark:text-white border border-slate-300 dark:border-neutral-800 rounded-2xl focus:ring-2 focus:ring-blue-600 focus:outline-hidden transition"
-                  autoFocus
-                  required
-                />
-              </div>
+              {expiresAt > 0 && deliveryChannel === 'emailjs' && (
+                <div className="flex items-center justify-between text-[11px] px-3 py-2 rounded-xl bg-slate-50 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 text-slate-600 dark:text-neutral-300">
+                  <span className="flex items-center gap-1 font-mono font-semibold">
+                    <Clock className="w-3.5 h-3.5 text-amber-600" />
+                    {secondsRemaining > 0 ? `Valid for ${formatCountdown(secondsRemaining)}` : 'OTP Expired'}
+                  </span>
+                  <span className={`font-semibold ${remainingAttempts <= 1 ? 'text-rose-600' : ''}`}>
+                    {remainingAttempts} / 3 attempts left
+                  </span>
+                </div>
+              )}
+
+              {deliveryChannel === 'emailjs' ? (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1.5 text-center">
+                    Enter 6-Digit Gmail OTP (Masked for Privacy)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showOtp ? 'text' : 'password'}
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={otpCode}
+                      onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="••••••"
+                      aria-label="6-digit Gmail OTP code"
+                      className="w-full text-center tracking-[0.45em] text-xl font-mono pl-10 pr-10 py-3 bg-slate-50 dark:bg-black text-slate-900 dark:text-white border border-slate-300 dark:border-neutral-800 rounded-2xl focus:ring-2 focus:ring-blue-600 focus:outline-hidden transition"
+                      autoFocus
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowOtp((prev) => !prev)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-neutral-200 cursor-pointer p-1"
+                      aria-label={showOtp ? 'Hide OTP digits' : 'Show OTP digits'}
+                      title={showOtp ? 'Mask OTP' : 'Show OTP'}
+                    >
+                      {showOtp ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-2xl text-xs text-blue-900 dark:text-blue-200 space-y-1.5">
+                  <p className="font-bold">Firebase Email Link Sent</p>
+                  <p className="text-[11px] leading-relaxed">
+                    Open the verification email in <strong>{maskedEmail}</strong> and click the link to unlock Password Reset directly.
+                  </p>
+                </div>
+              )}
 
               <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
                 <button
                   type="button"
                   onClick={handleResendOtp}
-                  disabled={resendCooldown > 0 || loading}
+                  disabled={resendCooldown > 0 || loading || sendingOtp}
                   className={`flex items-center gap-1 font-semibold ${
-                    resendCooldown > 0
+                    resendCooldown > 0 || sendingOtp
                       ? 'text-slate-400 cursor-not-allowed'
                       : 'text-blue-600 dark:text-blue-400 hover:underline cursor-pointer'
                   }`}
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  <span>Resend OTP {resendCooldown > 0 ? `(${resendCooldown}s)` : ''}</span>
+                  <RefreshCw className={`w-3.5 h-3.5 ${sendingOtp ? 'animate-spin' : ''}`} />
+                  <span>
+                    {sendingOtp
+                      ? 'Sending OTP...'
+                      : `Send OTP to Gmail ${resendCooldown > 0 ? `(${resendCooldown}s)` : ''}`}
+                  </span>
                 </button>
 
                 <span className="text-[10px] text-slate-400">
-                  Test code: <strong className="text-slate-600 dark:text-neutral-300 font-mono">917359</strong>
+                  Single-use · 5 min validity
                 </span>
               </div>
 
-              <button
-                type="submit"
-                disabled={loading || otpCode.trim().length !== 6}
-                className="w-full py-3 bg-[#005A9C] hover:bg-blue-800 active:bg-blue-900 text-white rounded-2xl font-bold text-xs uppercase tracking-wider transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
-              >
-                {loading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Verifying Code...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Verify Phone OTP & Next</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
+              {deliveryChannel === 'emailjs' && (
+                <button
+                  type="submit"
+                  disabled={loading || sendingOtp || otpCode.trim().length !== 6 || secondsRemaining === 0 || remainingAttempts === 0}
+                  className="w-full py-3 bg-[#005A9C] hover:bg-blue-800 active:bg-blue-900 text-white rounded-2xl font-bold text-xs uppercase tracking-wider transition shadow-sm cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {loading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Verifying Gmail OTP...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Verify Gmail OTP &amp; Next</span>
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </button>
+              )}
             </form>
           )}
 
-          {/* STEP 2: MASTER ADMIN GOOGLE ACCOUNT VERIFICATION */}
-          {currentStep === 'GOOGLE_AUTH' && (
-            <div className="space-y-4">
-              <div className="text-center space-y-1">
-                <div className="w-12 h-12 bg-amber-50 dark:bg-neutral-900 border border-amber-200 dark:border-neutral-800 text-amber-600 dark:text-amber-400 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                  <ShieldCheck className="w-6 h-6" />
-                </div>
-                <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  Step 2: Google Account Authentication
-                </h4>
-                <p className="text-xs text-slate-500 dark:text-neutral-400 leading-relaxed">
-                  To protect shop franchisee privacy, credentials can only be reset by authenticating with the authorized Master Admin Google Account:
-                </p>
-                <div className="mt-2 py-2 px-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-xl inline-block">
-                  <span className="text-xs font-mono font-bold text-blue-800 dark:text-blue-300">
-                    {adminConfig.superAdminEmail || DEFAULT_ADMIN_AUTH_CONFIG.superAdminEmail}
-                  </span>
-                </div>
-              </div>
-
-              {/* Google Sign-in Action */}
-              <button
-                type="button"
-                onClick={handleGoogleSignIn}
-                disabled={loading}
-                className="w-full py-3 px-4 bg-white dark:bg-neutral-900 border border-slate-300 dark:border-neutral-700 hover:border-slate-400 text-slate-800 dark:text-white rounded-2xl font-bold text-xs transition shadow-xs flex items-center justify-center gap-3 cursor-pointer disabled:opacity-50"
-              >
-                {/* Google "G" logo */}
-                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                </svg>
-                <span>Sign In with Google ({adminConfig.superAdminEmail || 'mekintik@gmail.com'})</span>
-              </button>
-
-              {/* Preview Environment Fallback Option */}
-              <div className="pt-2 text-center">
-                <button
-                  type="button"
-                  onClick={handlePreviewGoogleBypass}
-                  className="text-[11px] text-slate-500 hover:text-slate-800 dark:hover:text-slate-300 underline cursor-pointer"
-                >
-                  Verify as {adminConfig.superAdminEmail || 'mekintik@gmail.com'} (Direct Confirm)
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* STEP 3: REVEAL USERNAME & RESET PASSWORD */}
-          {currentStep === 'RESET_PASSWORD' && (
+          {/* STEP 2: REVEAL USERNAME & RESET PASSWORD (Strictly guarded by verified OTP token) */}
+          {currentStep === 'RESET_PASSWORD' && gmailVerified && verificationToken && (
             <form onSubmit={handleSaveNewPassword} className="space-y-4">
               <div className="text-center space-y-1">
                 <div className="w-12 h-12 bg-emerald-50 dark:bg-neutral-900 border border-emerald-200 dark:border-neutral-800 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
                   <CheckCircle2 className="w-6 h-6" />
                 </div>
                 <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  Step 3: Admin Credentials Recovery &amp; Reset
+                  Step 2: Admin Credentials Recovery &amp; Reset
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-neutral-400">
-                  Two-factor identity confirmed. View your username and set a new password:
+                  Gmail OTP verified. View your username and set a new password:
                 </p>
               </div>
 
@@ -678,7 +619,7 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                 Admin Password Successfully Updated!
               </h4>
               <p className="text-xs text-slate-600 dark:text-neutral-400 leading-relaxed max-w-xs mx-auto">
-                Your new credentials have been encrypted with SHA-256 and synced to Cloud Firestore. Returning to the login screen...
+                Your new credentials have been encrypted with SHA-256 and synced to Cloud Firestore. Your OTP has been invalidated. Returning to login...
               </p>
             </div>
           )}

@@ -8,4 +8,5 @@ export * from './AdminOneTimeSetup.tsx';
 export * from './AdminPortal.tsx';
 export * from './PrintSettingsTab.tsx';
 export * from './SubscriptionDemoTab.tsx';
+export * from './AdminEmailSecurityTab.tsx';
 

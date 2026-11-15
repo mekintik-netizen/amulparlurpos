@@ -1,15 +1,32 @@
 /**
  * @license
  * SPDX-License-Identifier: Apache-2.0
- * 
- * Admin Password Reset Modal via Security Question
- * Enables the Master Admin to recover access by answering their secret question
- * configured during one-time system setup.
+ *
+ * Admin Password Reset Modal (Security Question + Mandatory Gmail 6-Digit OTP)
+ * Requires BOTH valid secret answer AND valid single-use Gmail OTP verification
+ * before allowing any Admin password update.
  */
 
 import React, { useState } from 'react';
-import { Shield, Key, Eye, EyeOff, CheckCircle2, AlertCircle, X, ArrowRight, ArrowLeft } from 'lucide-react';
-import { getAdminSecurityQuestion, resetAdminPasswordWithSecurityAnswer } from '../../storage/auth.ts';
+import {
+  AlertCircle,
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Key,
+  Mail,
+  X
+} from 'lucide-react';
+import {
+  sendAdminGmailOtp,
+  verifyAdminGmailOtp
+} from '../../storage/adminEmailOtp.ts';
+import {
+  getAdminSecurityQuestion,
+  resetAdminPasswordWithSecurityAnswer
+} from '../../storage/auth.ts';
 
 interface AdminPasswordResetModalProps {
   isOpen: boolean;
@@ -22,10 +39,14 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
   onClose,
   onSuccess
 }) => {
-  const [step, setStep] = useState<'ENTER_USER' | 'ANSWER_QUESTION' | 'DONE'>('ENTER_USER');
+  const [step, setStep] = useState<'ENTER_USER' | 'VERIFY_OTP_AND_ANSWER' | 'DONE'>('ENTER_USER');
   const [username, setUsername] = useState('');
   const [securityQuestion, setSecurityQuestion] = useState('');
   const [securityAnswer, setSecurityAnswer] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [showOtp, setShowOtp] = useState(false);
+  const [maskedEmail, setMaskedEmail] = useState('');
+  const [otpSent, setOtpSent] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -34,7 +55,7 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
 
   if (!isOpen) return null;
 
-  // Step 1: Lookup Admin Username & Fetch Security Question
+  // Step 1: Lookup Admin Username, Fetch Security Question & Dispatch Gmail OTP
   const handleLookupUsername = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -50,19 +71,27 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
         setError(res.message || 'No security recovery question found for this username.');
         return;
       }
+      const otpRes = await sendAdminGmailOtp({ purpose: 'ADMIN_PASSWORD_RESET' });
       setSecurityQuestion(res.question);
-      setStep('ANSWER_QUESTION');
-    } catch (err: any) {
-      setError(err?.message || 'Failed to verify admin account.');
+      setMaskedEmail(otpRes.maskedEmail);
+      setOtpSent(true);
+      setStep('VERIFY_OTP_AND_ANSWER');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to initiate Gmail OTP verification.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Step 2: Validate Answer & Set New Password
+  // Step 2: Verify Gmail OTP -> Validate Security Answer & Set New Password
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+
+    if (!/^\d{6}$/.test(otpCode.trim())) {
+      setError('Please enter the valid 6-digit OTP sent to Admin Gmail.');
+      return;
+    }
 
     if (!securityAnswer.trim()) {
       setError('Please provide your secret security answer.');
@@ -81,19 +110,27 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
 
     setLoading(true);
     try {
+      const otpResult = await verifyAdminGmailOtp({
+        code: otpCode.trim(),
+        purpose: 'ADMIN_PASSWORD_RESET'
+      });
+
       await resetAdminPasswordWithSecurityAnswer({
         username,
         securityAnswer,
-        newPassword
+        newPassword,
+        verificationToken: otpResult.verificationToken
       });
 
+      setOtpCode('');
       setStep('DONE');
       setTimeout(() => {
         onSuccess(username.trim().toLowerCase());
         onClose();
       }, 2000);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to reset admin password.');
+    } catch (err: unknown) {
+      setOtpCode('');
+      setError(err instanceof Error ? err.message : 'Failed to reset admin password.');
     } finally {
       setLoading(false);
     }
@@ -104,6 +141,9 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
     setUsername('');
     setSecurityQuestion('');
     setSecurityAnswer('');
+    setOtpCode('');
+    setShowOtp(false);
+    setOtpSent(false);
     setNewPassword('');
     setConfirmPassword('');
     setError(null);
@@ -113,7 +153,6 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 font-sans select-none">
       <div className="bg-white dark:bg-neutral-950 border border-slate-300 dark:border-neutral-800 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden relative">
-        
         {/* Header */}
         <div className="bg-[#003870] text-white p-5 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -125,7 +164,7 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
                 Admin Password Recovery
               </h3>
               <p className="text-[11px] text-blue-200">
-                Security Question Verification
+                Gmail OTP + Security Question Verification
               </p>
             </div>
           </div>
@@ -150,7 +189,7 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
           {step === 'ENTER_USER' && (
             <form onSubmit={handleLookupUsername} className="space-y-4">
               <p className="text-xs text-slate-600 dark:text-neutral-400 leading-relaxed">
-                Enter your registered administrator username. We will retrieve the secret question you configured during setup.
+                Enter your registered administrator username. We will dispatch a 6-digit verification OTP to the registered Master Admin Gmail and retrieve your secret question.
               </p>
 
               <div>
@@ -181,22 +220,60 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
                   disabled={loading}
                   className="flex-1 py-2.5 px-4 rounded-xl bg-[#003870] hover:bg-blue-900 text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
-                  {loading ? 'Verifying...' : 'Next: View Security Question'}
+                  {loading ? 'Sending Gmail OTP...' : 'Send OTP to Gmail'}
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>
             </form>
           )}
 
-          {step === 'ANSWER_QUESTION' && (
-            <form onSubmit={handleResetPassword} className="space-y-4">
+          {step === 'VERIFY_OTP_AND_ANSWER' && (
+            <form onSubmit={handleResetPassword} className="space-y-4" autoComplete="off">
+              {otpSent && (
+                <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl flex items-center gap-2 text-xs text-blue-900 dark:text-blue-200">
+                  <Mail className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span>
+                    6-digit OTP sent to <strong className="font-mono">{maskedEmail}</strong> (valid 5 mins).
+                  </span>
+                </div>
+              )}
+
+              {/* Masked Gmail OTP Input */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1">
+                  6-Digit Gmail OTP <span className="text-rose-500">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showOtp ? 'text' : 'password'}
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="••••••"
+                    className="w-full text-center tracking-[0.4em] text-base font-mono pl-10 pr-10 py-2.5 bg-slate-50 dark:bg-neutral-900 border border-slate-300 dark:border-neutral-800 rounded-xl text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-[#003870]"
+                    required
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowOtp((prev) => !prev)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-600 dark:text-neutral-500 cursor-pointer"
+                    aria-label={showOtp ? 'Hide OTP digits' : 'Show OTP digits'}
+                  >
+                    {showOtp ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
               {/* Question Banner */}
               <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/60 rounded-xl">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700 dark:text-amber-400 block mb-1">
                   Your Security Question
                 </span>
                 <p className="text-xs font-semibold text-slate-900 dark:text-white">
-                  "{securityQuestion}"
+                  &quot;{securityQuestion}&quot;
                 </p>
               </div>
 
@@ -206,13 +283,12 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
                   Your Secret Answer <span className="text-rose-500">*</span>
                 </label>
                 <input
-                  type="text"
+                  type="password"
                   value={securityAnswer}
                   onChange={(e) => setSecurityAnswer(e.target.value)}
                   placeholder="Enter your registered answer"
                   className="w-full text-xs px-3.5 py-2.5 bg-slate-50 dark:bg-neutral-900 border border-slate-300 dark:border-neutral-800 rounded-xl text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-[#003870]"
                   required
-                  autoFocus
                 />
               </div>
 
@@ -269,7 +345,7 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
                   disabled={loading}
                   className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                 >
-                  {loading ? 'Updating Password...' : 'Verify & Change Password'}
+                  {loading ? 'Updating Password...' : 'Verify OTP & Change Password'}
                 </button>
               </div>
             </form>
@@ -289,7 +365,6 @@ export const AdminPasswordResetModal: React.FC<AdminPasswordResetModalProps> = (
             </div>
           )}
         </div>
-
       </div>
     </div>
   );

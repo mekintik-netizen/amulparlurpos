@@ -23,6 +23,30 @@ import { db, ensureAnonymousAuth } from './firebase.ts';
 import { Product, SaleBill, Shop, Expense, BankEntry, PurchaseBill, Supplier } from '../types/index.ts';
 import * as localDb from './db.ts';
 
+function isFirebasePermissionError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: string; message?: string; status?: number };
+  const code = String(e.code || '').toLowerCase();
+  const msg = String(e.message || '').toLowerCase();
+  return (
+    code === 'permission-denied' ||
+    code.includes('permission') ||
+    e.status === 403 ||
+    msg.includes('missing or insufficient permissions') ||
+    msg.includes('permission_denied') ||
+    msg.includes('403')
+  );
+}
+
+function handleFirestoreListenerError(label: string, err: unknown): void {
+  if (isFirebasePermissionError(err)) {
+    // Gracefully fall back to local IndexedDB when auth/rules reject remote listener
+    return;
+  }
+  const msg = err instanceof Error ? err.message : String(err);
+  console.warn(`[Firestore] ${label} listener notice:`, msg);
+}
+
 // Clean object helper to ensure Firestore doesn't reject undefined values
 function sanitizeForFirestore<T extends Record<string, any>>(obj: T): Record<string, any> {
   const result: Record<string, any> = {};
@@ -241,7 +265,8 @@ export async function deleteSupplierFromCloud(supplierId: string, shopId?: strin
 
 export async function fetchPurchasesFromCloud(shopId: string): Promise<PurchaseBill[]> {
   try {
-    await ensureAnonymousAuth();
+    const authOk = await ensureAnonymousAuth();
+    if (authOk === false) return [];
     const deletedIds = await localDb.loadDeletedPurchaseIds();
     const rootQuery = query(collection(db, 'purchases'), where('shopId', '==', shopId));
     const subCol = collection(db, 'shops', shopId, 'purchases');
@@ -286,7 +311,8 @@ export async function fetchPurchasesFromCloud(shopId: string): Promise<PurchaseB
 
 export async function fetchSuppliersFromCloud(shopId: string): Promise<Supplier[]> {
   try {
-    await ensureAnonymousAuth();
+    const authOk = await ensureAnonymousAuth();
+    if (authOk === false) return [];
     const deletedIds = await localDb.loadDeletedSupplierIds();
     const q = query(collection(db, 'suppliers'), where('shopId', '==', shopId));
     const snapshot = await getDocs(q);
@@ -328,7 +354,7 @@ export function startShopRealtimeSync(
   let isCancelled = false;
 
   // Await silent anonymous auth and load deletion tombstones before mounting Firestore snapshot listeners
-  ensureAnonymousAuth().then(async () => {
+  ensureAnonymousAuth().then(async (authOk) => {
     if (isCancelled) return;
     await Promise.all([
       localDb.loadDeletedProductIds(),
@@ -373,8 +399,13 @@ export function startShopRealtimeSync(
             console.warn('[Firestore Sync] Failed to update local shop:', e);
           }
         }
-      }, (err) => console.warn('[Firestore] Shop listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Shop', err));
       unsubscribers.push(unsubShop);
+
+      // Delay authenticated-only multi-tenant listeners if Firebase Auth session is not active
+      if (authOk === false) {
+        return;
+      }
 
       // 2. Listen for Product Updates (Strictly where shopId == currentShopId)
       const productsQuery = query(collection(db, 'products'), where('shopId', '==', shopId));
@@ -398,7 +429,7 @@ export function startShopRealtimeSync(
         if (changed && onRemoteChange) {
           onRemoteChange();
         }
-      }, (err) => console.warn('[Firestore] Products listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Products', err));
       unsubscribers.push(unsubProducts);
 
       // 2b. Listen for Inventory Collection Updates (Strictly where shopId == currentShopId)
@@ -423,7 +454,7 @@ export function startShopRealtimeSync(
         if (changed && onRemoteChange) {
           onRemoteChange();
         }
-      }, (err) => console.warn('[Firestore] Inventory listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Inventory', err));
       unsubscribers.push(unsubInventory);
 
       // 2c. Listen for Shop Subcollection Products (shops/{shopId}/products)
@@ -448,7 +479,7 @@ export function startShopRealtimeSync(
         if (changed && onRemoteChange) {
           onRemoteChange();
         }
-      }, (err) => console.warn('[Firestore] Shop products listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Shop products', err));
       unsubscribers.push(unsubShopProducts);
 
       // 3. Listen for Sales/Bills Updates (Strictly where shopId == currentShopId)
@@ -471,7 +502,7 @@ export function startShopRealtimeSync(
         if (changed && onRemoteChange) {
           onRemoteChange();
         }
-      }, (err) => console.warn('[Firestore] Sales listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Sales', err));
       unsubscribers.push(unsubSales);
 
       // 4. Listen for Expenses Updates (Strictly where shopId == currentShopId)
@@ -492,7 +523,7 @@ export function startShopRealtimeSync(
         if (changed && onRemoteChange) {
           onRemoteChange();
         }
-      }, (err) => console.warn('[Firestore] Expenses listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Expenses', err));
       unsubscribers.push(unsubExpenses);
 
       // 5. Listen for Bank Statement Entries (Strictly where shopId == currentShopId)
@@ -513,7 +544,7 @@ export function startShopRealtimeSync(
         if (changed && onRemoteChange) {
           onRemoteChange();
         }
-      }, (err) => console.warn('[Firestore] Bank entries listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Bank entries', err));
       unsubscribers.push(unsubBank);
 
       // 6. Listen for Purchases & Agency Bills (Both root purchases and shops/{shopId}/purchases)
@@ -556,7 +587,7 @@ export function startShopRealtimeSync(
         if (changed && onRemoteChange) {
           onRemoteChange();
         }
-      }, (err) => console.warn('[Firestore] Purchases listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Purchases', err));
       unsubscribers.push(unsubPurchases);
 
       const shopPurchasesCol = collection(db, 'shops', shopId, 'purchases');
@@ -579,7 +610,7 @@ export function startShopRealtimeSync(
         if (changed && onRemoteChange) {
           onRemoteChange();
         }
-      }, (err) => console.warn('[Firestore] Shop purchases listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Shop purchases', err));
       unsubscribers.push(unsubShopPurchases);
 
       // 7. Listen for Suppliers & Agencies (Strictly where shopId == currentShopId)
@@ -610,11 +641,13 @@ export function startShopRealtimeSync(
         if (changed && onRemoteChange) {
           onRemoteChange();
         }
-      }, (err) => console.warn('[Firestore] Suppliers listener error:', err.message));
+      }, (err) => handleFirestoreListenerError('Suppliers', err));
       unsubscribers.push(unsubSuppliers);
 
     } catch (err) {
-      console.warn('[Firestore] Could not start real-time sync (running offline-first):', err);
+      if (!isFirebasePermissionError(err)) {
+        console.warn('[Firestore] Could not start real-time sync (running offline-first):', err);
+      }
     }
   });
 
@@ -779,11 +812,11 @@ export function startAdminShopsRealtimeSync(onShopsUpdated: (shops: Shop[]) => v
         if (merged.length > 0 || remoteShops.length > 0) {
           onShopsUpdated(merged);
         }
-      }, (err) => {
-        console.warn('[Firestore] Admin shops listener error:', err.message);
-      });
+      }, (err) => handleFirestoreListenerError('Admin shops', err));
     } catch (err) {
-      console.warn('[Firestore] Could not start admin shops listener:', err);
+      if (!isFirebasePermissionError(err)) {
+        console.warn('[Firestore] Could not start admin shops listener:', err);
+      }
     }
   });
 

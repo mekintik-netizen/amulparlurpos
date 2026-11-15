@@ -25,10 +25,15 @@ import {
 } from '../../storage/auth.ts';
 import { AdminPasswordResetModal } from './AdminPasswordResetModal.tsx';
 import { AdminCredentialsRecoveryModal } from './AdminCredentialsRecoveryModal.tsx';
-import { AdminPhone2FAModal } from './AdminPhone2FAModal.tsx';
+import { AdminGmail2FAModal } from './AdminGmail2FAModal.tsx';
 import amulLogo from '../../assets/logo.ts';
 import { AmulBrandLogoMotion, AmulLoginSuccessTransition } from '../common/AmulBrandMotion.tsx';
 import { getAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from '../../storage/firebase.ts';
+import {
+  DEFAULT_ADMIN_SECURITY_EMAIL,
+  getAdminSecurityConfig,
+  inspectPendingFirebaseEmailLink
+} from '../../storage/adminEmailOtp.ts';
 import { saveSession } from '../../storage/auth.ts';
 import { checkRateLimit, recordFailedAttempt, clearRateLimit, sanitizeErrorMessage } from '../../utils/sanitizer.ts';
 import { 
@@ -44,7 +49,7 @@ import {
   CheckCircle2, 
   KeyRound,
   Sparkles,
-  Smartphone
+  Mail
 } from 'lucide-react';
 
 export type LoginTab = 'SHOP_USER' | 'ADMIN' | 'ADMIN_REGISTER';
@@ -87,9 +92,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isTrustedDevice, setIsTrustedDevice] = useState(false);
 
-  // 2FA Phone Auth States
+  // 2FA Gmail OTP States
   const [is2FAModalOpen, setIs2FAModalOpen] = useState(false);
   const [pendingAdminSession, setPendingAdminSession] = useState<AuthSession | null>(null);
+  const [adminSecurityEmail, setAdminSecurityEmail] = useState<string>(DEFAULT_ADMIN_SECURITY_EMAIL);
+  const [requireGmailOtpOnLogin, setRequireGmailOtpOnLogin] = useState<boolean>(true);
 
   // Admin Registration Tab Form States
   const [regUsername, setRegUsername] = useState('admin');
@@ -121,15 +128,26 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   // Forgot Password Modal State
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
 
-  // Check initialization on mount
+  // Check initialization & admin security config on mount
   useEffect(() => {
     const checkInitialization = async () => {
       try {
         await ensureDefaultAccountsSeeded();
         const hasAdmin = await isMasterAdminInitialized();
         setHasMasterAdmin(hasAdmin);
-        const config = await getAdminAuthConfig();
+        const [config, secConfig] = await Promise.all([
+          getAdminAuthConfig(),
+          getAdminSecurityConfig()
+        ]);
         setAdminConfig(config);
+        setAdminSecurityEmail(secConfig.adminEmail || DEFAULT_ADMIN_SECURITY_EMAIL);
+        setRequireGmailOtpOnLogin(secConfig.requireGmailOtpOnLogin !== false);
+
+        const emailLink = inspectPendingFirebaseEmailLink();
+        if (emailLink.isLink && emailLink.purpose === 'ADMIN_PASSWORD_RESET') {
+          setActiveTab('ADMIN');
+          setIsForgotModalOpen(true);
+        }
       } catch (err) {
         console.error('Error verifying master admin status:', err);
       }
@@ -186,9 +204,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
       clearRateLimit(rateLimitKey);
 
       if (activeTab === 'ADMIN') {
-        // Trigger Real-time SMS Phone OTP 2FA for Master Admin
-        setPendingAdminSession(session);
-        setIs2FAModalOpen(true);
+        if (requireGmailOtpOnLogin) {
+          // Trigger Real-time Gmail 6-Digit OTP 2FA for Master Admin
+          setPendingAdminSession(session);
+          setIs2FAModalOpen(true);
+        } else {
+          triggerSuccessfulLoginTransition(session, isTrustedDevice);
+        }
       } else {
         triggerSuccessfulLoginTransition(session, false);
       }
@@ -625,8 +647,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   <span>Logging In...</span>
                 ) : activeTab === 'ADMIN' ? (
                   <>
-                    <Smartphone className="w-4 h-4 text-amber-200" />
-                    <span>Verify Credentials &amp; Send SMS OTP</span>
+                    <Mail className="w-4 h-4 text-amber-200" />
+                    <span>Verify Credentials &amp; Send Gmail OTP</span>
                   </>
                 ) : (
                   <span>Log In to Counter</span>
@@ -658,10 +680,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         }}
       />
 
-      {/* Real-time SMS Phone OTP 2FA Modal */}
-      <AdminPhone2FAModal
+      {/* Real-time Gmail 6-Digit OTP 2FA Modal */}
+      <AdminGmail2FAModal
         isOpen={is2FAModalOpen}
-        phoneNumber={adminConfig.superAdminPhone || '+919173598234'}
+        adminEmail={adminSecurityEmail || adminConfig.superAdminEmail || DEFAULT_ADMIN_SECURITY_EMAIL}
         onVerified={handle2FAVerified}
         onCancel={() => {
           setIs2FAModalOpen(false);

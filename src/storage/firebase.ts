@@ -17,7 +17,6 @@ import {
   doc,
   setDoc,
   getDoc,
-  getDocFromServer,
   onSnapshot,
   Unsubscribe
 } from 'firebase/firestore';
@@ -69,10 +68,34 @@ export const db: Firestore = initFirestoreInstance(app);
 export const auth: Auth = getAuth(app);
 
 let networkEnabled = typeof navigator === 'undefined' ? true : navigator.onLine;
+let authAuthenticated = false;
+
+export function isFirebasePermissionError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: string; message?: string; status?: number };
+  const code = String(e.code || '').toLowerCase();
+  const msg = String(e.message || '').toLowerCase();
+  return (
+    code === 'permission-denied' ||
+    code.includes('permission') ||
+    e.status === 403 ||
+    msg.includes('missing or insufficient permissions') ||
+    msg.includes('permission_denied') ||
+    msg.includes('403')
+  );
+}
+
+export function hasAuthenticatedFirebaseUser(): boolean {
+  try {
+    return authAuthenticated || Boolean(auth?.currentUser);
+  } catch {
+    return false;
+  }
+}
 
 /**
- * Fast pre-flight reachability probe against Firestore REST endpoint with strict timeout.
- * Prevents Firestore's internal 10-second watch stream timeout when offline or behind blocking proxies.
+ * Fast, non-intrusive reachability check using same-origin manifest HEAD probe.
+ * Avoids hitting Cloud Firestore REST endpoints anonymously before Auth completes (which causes HTTP 403).
  */
 export async function probeFirestoreReachability(timeoutMs: number = 3500): Promise<boolean> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -82,17 +105,11 @@ export async function probeFirestoreReachability(timeoutMs: number = 3500): Prom
     return true;
   }
 
-  const dbName = firebaseConfig.firestoreDatabaseId || '(default)';
-  const probeUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${encodeURIComponent(
-    dbName
-  )}/documents/adminSettings/connectionCheck`;
-
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    // Any HTTP response (including 403/404) confirms HTTPS connectivity to Cloud Firestore backend
-    await fetch(probeUrl, {
-      method: 'GET',
+    await fetch('./manifest.json', {
+      method: 'HEAD',
       cache: 'no-store',
       signal: controller.signal
     });
@@ -175,6 +192,7 @@ export const authReady: Promise<void> = new Promise<void>((resolve) => {
           unsub = undefined;
         }
         if (user) {
+          authAuthenticated = true;
           clearTimeout(timeoutId);
           console.log('[Firebase] Secure anonymous session active');
           finish();
@@ -182,8 +200,10 @@ export const authReady: Promise<void> = new Promise<void>((resolve) => {
         }
         try {
           await signInAnonymously(auth);
+          authAuthenticated = true;
           console.log('[Firebase] Secure anonymous session active');
         } catch (error: any) {
+          authAuthenticated = false;
           console.warn('[Firebase] Anonymous auth deferred (offline/local mode):', error?.code || error?.message);
           await setFirestoreOfflineCleanly();
         } finally {
@@ -192,25 +212,26 @@ export const authReady: Promise<void> = new Promise<void>((resolve) => {
         }
       },
       () => {
+        authAuthenticated = false;
         clearTimeout(timeoutId);
         setFirestoreOfflineCleanly().catch(() => {});
         finish();
       }
     );
   } catch {
+    authAuthenticated = false;
     clearTimeout(timeoutId);
     finish();
   }
 });
 
-export function ensureAnonymousAuth(): Promise<void> {
-  return authReady;
+export function ensureAnonymousAuth(): Promise<boolean> {
+  return authReady.then(() => authAuthenticated || Boolean(auth?.currentUser));
 }
 
 /**
- * Validates Cloud Firestore connectivity after authentication without stalling for 10s.
- * If the backend is unreachable or does not respond within 5s, cleanly switches Firestore
- * into offline mode so IndexedDB operates uninterrupted.
+ * Validates Cloud Firestore connectivity after authentication completes without issuing
+ * synthetic unauthenticated document reads that can emit 403 console errors.
  */
 export async function validateFirestoreConnection(): Promise<boolean> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
@@ -220,28 +241,7 @@ export async function validateFirestoreConnection(): Promise<boolean> {
   await authReady;
   const reachable = await syncNetworkStateWithConnectivity();
   if (!reachable) return false;
-
-  try {
-    const serverCheck = getDocFromServer(doc(db, 'adminSettings', 'connectionCheck'));
-    const timedOut = await Promise.race([
-      serverCheck.then(() => false),
-      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 5000))
-    ]);
-    if (timedOut) {
-      await setFirestoreOfflineCleanly();
-      return false;
-    }
-    return true;
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      await setFirestoreOfflineCleanly();
-    }
-    return false;
-  }
-}
-
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  validateFirestoreConnection().catch(() => {});
+  return networkEnabled;
 }
 
 export interface AdminAuthConfig {
@@ -335,10 +335,14 @@ export function subscribeToAdminAuthConfig(callback: (config: AdminAuthConfig) =
           callback(DEFAULT_ADMIN_AUTH_CONFIG);
         }
       }, (err) => {
-        console.warn('[Firebase] Realtime admin config listener notice:', err.message);
+        if (!isFirebasePermissionError(err)) {
+          console.warn('[Firebase] Realtime admin config listener notice:', err.message);
+        }
       });
     } catch (err) {
-      console.warn('[Firebase] Admin config realtime listener skipped:', err);
+      if (!isFirebasePermissionError(err)) {
+        console.warn('[Firebase] Admin config realtime listener skipped:', err);
+      }
     }
   });
 

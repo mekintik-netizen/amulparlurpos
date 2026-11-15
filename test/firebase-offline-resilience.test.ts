@@ -60,7 +60,8 @@ describe('Firebase Offline Resilience & 10s Timeout Prevention', () => {
     expect(firebaseSrc).toContain('experimentalAutoDetectLongPolling: true');
     expect(firebaseSrc).toContain("setLogLevel('silent')");
     expect(firebaseSrc).toContain('probeFirestoreReachability');
-    expect(firebaseSrc).toContain('connectionCheck');
+    expect(firebaseSrc).toContain('isFirebasePermissionError');
+    expect(firebaseSrc).not.toContain('documents/adminSettings/connectionCheck');
   });
 
   it('disables Firestore network cleanly when reachability probe fails without throwing', async () => {

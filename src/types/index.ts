@@ -718,3 +718,43 @@ export interface ShopAiContextSummary {
   };
 }
 
+// ==========================================
+// MASTER ADMIN GMAIL OTP & EMAILJS CONFIG
+// ==========================================
+
+export type AdminOtpPurpose = 'ADMIN_LOGIN_2FA' | 'ADMIN_PASSWORD_RESET';
+
+export interface AdminSecurityConfig {
+  adminEmail: string;
+  otpExpiryMinutes: number;
+  maxAttempts: number;
+  requireGmailOtpOnLogin: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface AdminEmailJsConfig {
+  serviceId: string;
+  templateId: string;
+  publicKey: string;
+  adminEmail?: string;
+  senderName?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface AdminOtpChallengeRecord {
+  challengeId: string;
+  purpose: AdminOtpPurpose;
+  targetEmail: string;
+  otpSalt: string;
+  otpHash: string; // Salted SHA-256 hash ONLY — never plain-text OTP
+  expiresAt: number;
+  attemptsUsed: number;
+  maxAttempts: number;
+  consumed: boolean;
+  deliveryChannel: 'emailjs' | 'firebase_email_link';
+  createdAt: string;
+}
+
+

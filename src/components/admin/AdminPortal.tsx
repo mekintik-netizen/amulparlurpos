@@ -42,7 +42,8 @@ import {
   Printer,
   Download,
   Monitor,
-  FlaskConical
+  FlaskConical,
+  Mail
 } from 'lucide-react';
 import { Shop, ShopApprovalStatus, SubscriptionPlanId, SubscriptionStatus, SUBSCRIPTION_PLANS } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
@@ -60,6 +61,7 @@ import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
 import { MonthlyRevenueChart } from './MonthlyRevenueChart.tsx';
 import { PrintSettingsTab } from './PrintSettingsTab.tsx';
 import { SubscriptionDemoTab } from './SubscriptionDemoTab.tsx';
+import { AdminEmailSecurityTab } from './AdminEmailSecurityTab.tsx';
 import amulLogo from '../../assets/logo.ts';
 
 interface AdminPortalProps {
@@ -91,7 +93,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [adminError, setAdminError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'ALL' | ShopApprovalStatus>('ALL');
-  const [adminSubTab, setAdminSubTab] = useState<'SHOPS' | 'PRINT_SETTINGS' | 'SUBSCRIPTION_DEMO' | 'REVENUE' | 'QR'>('SHOPS');
+  const [adminSubTab, setAdminSubTab] = useState<'SHOPS' | 'PRINT_SETTINGS' | 'SUBSCRIPTION_DEMO' | 'REVENUE' | 'QR' | 'SECURITY'>('SHOPS');
 
   // Modal State for New/Edit Shop
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -879,7 +881,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               <QrCode className="w-4 h-4" />
               <span>QR &amp; Desktop Icon (ક્યુઆર &amp; આઇકોન)</span>
             </button>
+
+            <button
+              type="button"
+              onClick={() => setAdminSubTab('SECURITY')}
+              className={`px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                adminSubTab === 'SECURITY'
+                  ? 'bg-[#E31837] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+              }`}
+            >
+              <Mail className="w-4 h-4" />
+              <span>Security &amp; Gmail OTP (સુરક્ષા સેટિંગ્સ)</span>
+            </button>
           </div>
+
+          {/* Security & Gmail OTP Configuration Sub-Tab */}
+          {adminSubTab === 'SECURITY' && (
+            <AdminEmailSecurityTab
+              adminUsername={currentUser?.username || 'Master Admin'}
+            />
+          )}
 
           {/* Sub-Tab 1: Dedicated Print Settings Tab & Customizer */}
           {adminSubTab === 'PRINT_SETTINGS' && (

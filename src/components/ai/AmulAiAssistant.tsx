@@ -42,9 +42,100 @@ import {
   saveAdminAiConfig
 } from '../../storage/aiConfig.ts';
 import { AppRepository } from '../../storage/repositories.ts';
-import { encodeAiApiKey, maskApiKey } from '../../utils/aiKeyCodec.ts';
+import { decodeAiApiKey, encodeAiApiKey, maskApiKey } from '../../utils/aiKeyCodec.ts';
 import { buildShopAiContext, computeShopAiContextFromData } from '../../utils/shopAiContext.ts';
 import { generateLocalGujaratiBusinessAnswer } from '../../utils/localAiFallback.ts';
+
+function isStaticHostingEnvironment(): boolean {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname.toLowerCase();
+  return (
+    window.location.protocol === 'file:' ||
+    host.endsWith('.github.io') ||
+    host.endsWith('.pages.dev') ||
+    host.endsWith('.netlify.app') ||
+    host.endsWith('.vercel.app') ||
+    host.endsWith('.web.app') ||
+    host.endsWith('.firebaseapp.com')
+  );
+}
+
+async function callGeminiRestDirectly(params: {
+  apiKey: string;
+  question: string;
+  shopContext: ShopAiContextSummary;
+  history: Array<{ role: 'user' | 'assistant'; text: string }>;
+  preferredLanguage: 'gu' | 'en';
+  attachmentImage?: { mimeType: string; data: string };
+  signal: AbortSignal;
+}): Promise<string> {
+  const compactContext = JSON.stringify(params.shopContext || {});
+  const langRule =
+    params.preferredLanguage === 'en'
+      ? 'Respond in clear, polite English with exact ₹ currency figures and concise bullet points (•).'
+      : 'Respond primarily in polite, clear Gujarati (ગુજરાતી) with exact ₹ currency figures and concise bullet points (•). Include English product names where helpful.';
+
+  const systemText = [
+    'You are "Amul AI (અમૂલ બિઝનેસ સહાયક)", a retail Amul Parlour business advisor.',
+    'Answer STRICTLY from the LIVE SHOP DATA JSON below. Never fabricate sales numbers, stock quantities, or dues.',
+    langRule,
+    '',
+    'LIVE SHOP DATA JSON:',
+    compactContext
+  ].join('\n');
+
+  const userParts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [];
+  if (params.attachmentImage?.data && params.attachmentImage?.mimeType?.startsWith('image/')) {
+    userParts.push({
+      inlineData: {
+        mimeType: params.attachmentImage.mimeType,
+        data: params.attachmentImage.data
+      }
+    });
+  }
+  userParts.push({ text: params.question });
+
+  const contents = [
+    ...params.history
+      .filter((m) => m.text && m.text.trim())
+      .map((m) => ({
+        role: m.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: m.text.trim() }]
+      })),
+    { role: 'user', parts: userParts }
+  ];
+
+  const models = ['gemini-2.5-flash', 'gemini-3.8-flash', 'gemini-4-hydrogen'];
+  for (const model of models) {
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(
+      params.apiKey
+    )}`;
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: params.signal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemText }] },
+        contents
+      })
+    });
+    if (res.status === 404 || res.status === 503) {
+      continue;
+    }
+    const json = (await res.json().catch(() => ({}))) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    if (res.ok) {
+      const text = (json.candidates?.[0]?.content?.parts || [])
+        .map((p) => p.text || '')
+        .join('')
+        .trim();
+      if (text) return text;
+    }
+    break;
+  }
+  return '';
+}
 
 export interface QuickQuestionChip {
   id: string;
@@ -211,7 +302,6 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
   const [isLoadingContext, setIsLoadingContext] = useState(true);
   const [contextSummary, setContextSummary] = useState<ShopAiContextSummary | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [serverKeyAvailable, setServerKeyAvailable] = useState<boolean | null>(null);
 
   // Inline API Key Setup State
   const [showKeyPanel, setShowKeyPanel] = useState(false);
@@ -227,7 +317,7 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
   const accessAllowed = isAiAccessAllowedForSession(currentUser, currentShop);
   const sessionStatus = getSessionAiStatus(currentShop);
   const resolvedKeys = resolveClientEncodedKeys(currentShop);
-  const canUseCloudGemini = resolvedKeys.hasAnyKey || serverKeyAvailable === true;
+  const canUseCloudGemini = resolvedKeys.hasAnyKey || !isStaticHostingEnvironment();
 
   const refreshContext = async (): Promise<ShopAiContextSummary | null> => {
     try {
@@ -246,14 +336,6 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
   useEffect(() => {
     if (accessAllowed && currentShop?.id) {
       refreshContext();
-      fetch('/api/ai/status')
-        .then((res) => (res.ok ? res.json() : null))
-        .then((data: { serverKeyAvailable?: boolean } | null) => {
-          setServerKeyAvailable(Boolean(data?.serverKeyAvailable));
-        })
-        .catch(() => {
-          setServerKeyAvailable(false);
-        });
     }
   }, [currentShop?.id, accessAllowed]);
 
@@ -396,60 +478,96 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
         });
 
       const currentKeys = resolveClientEncodedKeys(currentShop);
+      const isStaticHost = isStaticHostingEnvironment();
+      const decodedClientKey = decodeAiApiKey(
+        currentKeys.encodedAdminKey || currentKeys.encodedEnvKey || currentKeys.encodedShopKey
+      );
       const shouldTryCloudGemini =
         sessionStatus.aiGlobalEnabled !== false &&
-        (currentKeys.hasAnyKey || serverKeyAvailable !== false);
+        (Boolean(decodedClientKey) || !isStaticHost);
 
       if (shouldTryCloudGemini) {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 10000);
         try {
-          const response = await fetch('/api/ai/assistant', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: JSON.stringify({
+          let geminiAnswer = '';
+
+          if (isStaticHost && decodedClientKey) {
+            geminiAnswer = await callGeminiRestDirectly({
+              apiKey: decodedClientKey,
               question,
               shopContext: latestContext,
               history: messages.slice(-6).map((m) => ({ role: m.role, text: m.text })),
-              shopId: currentShop.id,
-              userRole: currentUser?.role,
-              shopAiEnabled: currentShop.aiEnabled !== false,
               preferredLanguage: language,
               attachmentImage: photoSnap
                 ? { mimeType: photoSnap.mimeType, data: photoSnap.base64Data }
                 : undefined,
-              encodedAdminKey: currentKeys.encodedAdminKey,
-              encodedEnvKey: currentKeys.encodedEnvKey,
-              encodedShopKey: currentKeys.encodedShopKey
-            })
-          });
+              signal: controller.signal
+            });
+          } else if (!isStaticHost) {
+            const response = await fetch('/api/ai/assistant', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              signal: controller.signal,
+              body: JSON.stringify({
+                question,
+                shopContext: latestContext,
+                history: messages.slice(-6).map((m) => ({ role: m.role, text: m.text })),
+                shopId: currentShop.id,
+                userRole: currentUser?.role,
+                shopAiEnabled: currentShop.aiEnabled !== false,
+                preferredLanguage: language,
+                attachmentImage: photoSnap
+                  ? { mimeType: photoSnap.mimeType, data: photoSnap.base64Data }
+                  : undefined,
+                encodedAdminKey: currentKeys.encodedAdminKey,
+                encodedEnvKey: currentKeys.encodedEnvKey,
+                encodedShopKey: currentKeys.encodedShopKey
+              })
+            });
 
-          const data = (await response.json().catch(() => ({}))) as {
-            answer?: string;
-            code?: string;
-            error?: string;
-            details?: string;
-          };
+            const data = (await response.json().catch(() => ({}))) as {
+              answer?: string;
+              code?: string;
+              error?: string;
+              details?: string;
+            };
 
-          if (response.ok && data.answer && data.answer.trim()) {
+            if (response.ok && data.answer && data.answer.trim()) {
+              geminiAnswer = data.answer.trim();
+            } else if ((response.status === 404 || response.status === 405) && decodedClientKey) {
+              geminiAnswer = await callGeminiRestDirectly({
+                apiKey: decodedClientKey,
+                question,
+                shopContext: latestContext,
+                history: messages.slice(-6).map((m) => ({ role: m.role, text: m.text })),
+                preferredLanguage: language,
+                attachmentImage: photoSnap
+                  ? { mimeType: photoSnap.mimeType, data: photoSnap.base64Data }
+                  : undefined,
+                signal: controller.signal
+              });
+            } else {
+              console.warn('[Amul AI] Cloud Gemini fallback triggered:', {
+                status: response.status,
+                code: data.code,
+                error: data.error,
+                details: data.details
+              });
+            }
+          }
+
+          if (geminiAnswer) {
             const aiMsg: AiChatMessage = {
               id: `a-${Date.now()}`,
               role: 'assistant',
-              text: data.answer.trim(),
+              text: geminiAnswer,
               timestamp: new Date().toISOString(),
               sourceMode: 'gemini'
             };
             setMessages((prev) => [...prev, aiMsg]);
             return;
           }
-
-          console.warn('[Amul AI] Cloud Gemini fallback triggered:', {
-            status: response.status,
-            code: data.code,
-            error: data.error,
-            details: data.details
-          });
         } catch (fetchErr) {
           console.warn('[Amul AI] Cloud Gemini request failed/timed out, switching to Local BI:', fetchErr);
         } finally {
@@ -644,8 +762,8 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
             <span className="text-[11px] font-mono text-sky-100">
               {sessionStatus.maskedKey
                 ? `Active: ${sessionStatus.maskedKey}`
-                : serverKeyAvailable
-                ? 'Server Env Active'
+                : resolvedKeys.hasAnyKey
+                ? 'Gemini Key Active'
                 : 'Local BI Mode Active'}
             </span>
           </div>

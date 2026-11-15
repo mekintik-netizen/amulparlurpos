@@ -109,21 +109,24 @@ describe('Master Admin Security Question & Shop Credential Management', () => {
     expect(content).toContain('adminResetShopPassword');
   });
 
-  it('verifies AdminCredentialsRecoveryModal exports correctly and LoginPage connects to 2FA recovery', () => {
+  it('verifies AdminCredentialsRecoveryModal exports correctly and LoginPage connects to Gmail OTP 2FA recovery', () => {
     const modalPath = path.resolve(process.cwd(), 'src/components/auth/AdminCredentialsRecoveryModal.tsx');
     expect(fs.existsSync(modalPath)).toBe(true);
 
     const modalContent = fs.readFileSync(modalPath, 'utf8');
     expect(modalContent).toContain('AdminCredentialsRecoveryModal');
-    expect(modalContent).toContain('PHONE_OTP');
-    expect(modalContent).toContain('GOOGLE_AUTH');
+    expect(modalContent).toContain('GMAIL_OTP');
     expect(modalContent).toContain('RESET_PASSWORD');
-    expect(modalContent).toContain('superAdminPhone');
-    expect(modalContent).toContain('superAdminEmail');
+    expect(modalContent).toContain('sendAdminGmailOtp');
+    expect(modalContent).toContain('verifyAdminGmailOtp');
+    expect(modalContent).not.toContain('917359');
+    expect(modalContent).not.toContain('Test code');
+    expect(modalContent).not.toContain('handlePreviewGoogleBypass');
 
     const loginPath = path.resolve(process.cwd(), 'src/components/auth/LoginPage.tsx');
     const loginContent = fs.readFileSync(loginPath, 'utf8');
     expect(loginContent).toContain('Forgot Username / Password?');
     expect(loginContent).toContain('AdminCredentialsRecoveryModal');
+    expect(loginContent).toContain('AdminGmail2FAModal');
   });
 });

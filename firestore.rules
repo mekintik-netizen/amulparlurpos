@@ -234,8 +234,8 @@ service cloud.firestore {
       allow write: if isAdmin() || (
         // Allow initialization if not yet set
         !exists(/databases/$(database)/documents/adminSettings/$(settingId)) ||
-        // Print, Subscription, Auth, and AI settings can be managed by Admin
-        settingId in ['printSettings', 'printConfig', 'subscriptionSettings', 'subscriptionConfig', 'authConfig', 'aiConfig']
+        // Print, Subscription, Auth, AI, Security, EmailJS, and Salted OTP Challenge docs
+        settingId in ['printSettings', 'printConfig', 'subscriptionSettings', 'subscriptionConfig', 'authConfig', 'aiConfig', 'security', 'emailConfig', 'adminOtpChallenge']
       );
     }
 

@@ -417,6 +417,11 @@ describe('Amul AI Business Assistant - Security, Context & UI Integration', () =
     expect(assistantContent).toContain('Clear / નવો પ્રશ્ન');
     expect(assistantContent).toContain('generateLocalGujaratiBusinessAnswer');
     expect(assistantContent).toContain('AbortController');
+    expect(assistantContent).not.toContain('/api/ai/status');
+
+    const indexContent = fs.readFileSync(path.join(rootDir, 'index.html'), 'utf-8');
+    expect(indexContent).toContain('name="mobile-web-app-capable"');
+    expect(indexContent).toContain('name="apple-mobile-web-app-capable"');
 
     const profileContent = fs.readFileSync(path.join(rootDir, 'src/components/profile/ShopProfileManagement.tsx'), 'utf-8');
     expect(profileContent).toContain('Amul AI — Gemini API Key');
