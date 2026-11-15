@@ -33,16 +33,19 @@ import {
   DEFAULT_ADMIN_SECURITY_EMAIL,
   inspectPendingFirebaseEmailLink,
   maskGmailAddress,
+  MONTHLY_RESET_REQUIRED_NOTICE,
   OTP_RESEND_COOLDOWN_SECONDS,
   sendAdminGmailOtp,
   verifyAdminGmailOtp
 } from '../../storage/adminEmailOtp.ts';
-import { getMasterAdminProfile, resetAdminPasswordViaTwoFactor } from '../../storage/auth.ts';
+import { getMasterAdminProfile, resetAdminCredentialsViaGmailOtp } from '../../storage/auth.ts';
 
 interface AdminCredentialsRecoveryModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (adminUsername: string, message: string) => void;
+  mode?: 'FORGOT_RECOVERY' | 'MONTHLY_RESET';
+  reasonBanner?: string | null;
 }
 
 type RecoveryStep = 'GMAIL_OTP' | 'RESET_PASSWORD' | 'COMPLETED';
@@ -57,8 +60,11 @@ function formatCountdown(secondsLeft: number): string {
 export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryModalProps> = ({
   isOpen,
   onClose,
-  onSuccess
+  onSuccess,
+  mode = 'FORGOT_RECOVERY',
+  reasonBanner = null
 }) => {
+  const isMonthlyReset = mode === 'MONTHLY_RESET';
   const [currentStep, setCurrentStep] = useState<RecoveryStep>('GMAIL_OTP');
   const [adminUsername, setAdminUsername] = useState('admin');
   const [targetAdminEmail, setTargetAdminEmail] = useState(DEFAULT_ADMIN_SECURITY_EMAIL);
@@ -71,21 +77,25 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
   const [otpCode, setOtpCode] = useState('');
   const [showOtp, setShowOtp] = useState(false);
   const [deliveryChannel, setDeliveryChannel] = useState<'emailjs' | 'firebase_email_link'>('emailjs');
-  const [resendCooldown, setResendCooldown] = useState(OTP_RESEND_COOLDOWN_SECONDS);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [expiresAt, setExpiresAt] = useState(0);
   const [secondsRemaining, setSecondsRemaining] = useState(300);
   const [remainingAttempts, setRemainingAttempts] = useState(3);
   const [gmailVerified, setGmailVerified] = useState(false);
   const [verificationToken, setVerificationToken] = useState<string | null>(null);
 
-  // Step 2: Password reset state
+  // Step 2: New Password + New 6-Digit Security PIN state
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [newSecurityPin, setNewSecurityPin] = useState('');
+  const [confirmSecurityPin, setConfirmSecurityPin] = useState('');
+  const [showNewPin, setShowNewPin] = useState(false);
+  const [showConfirmPin, setShowConfirmPin] = useState(false);
   const [copiedUsername, setCopiedUsername] = useState(false);
 
-  // Reset state & dispatch real 6-digit Gmail OTP on open
+  // Reset state on open (ZERO auto-sending of OTP to save quota)
   useEffect(() => {
     if (!isOpen) {
       setCurrentStep('GMAIL_OTP');
@@ -97,6 +107,11 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
       setVerificationToken(null);
       setNewPassword('');
       setConfirmPassword('');
+      setNewSecurityPin('');
+      setConfirmSecurityPin('');
+      setShowNewPin(false);
+      setShowConfirmPin(false);
+      setResendCooldown(0);
       setExpiresAt(0);
       setSecondsRemaining(300);
       setRemainingAttempts(3);
@@ -116,7 +131,7 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
         // use defaults
       }
 
-      // Check if user returned via Firebase Email Link callback in Gmail
+      // Only complete returning Firebase Email Link callback in Gmail if user clicked it
       const linkInfo = inspectPendingFirebaseEmailLink();
       if (linkInfo.isLink && linkInfo.purpose === 'ADMIN_PASSWORD_RESET') {
         setLoading(true);
@@ -125,7 +140,9 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
           if (isMounted) {
             setGmailVerified(true);
             setVerificationToken(verified.verificationToken);
-            setSuccessNotice(`Verified Admin Gmail (${maskGmailAddress(verified.targetEmail)}). Set your new password below.`);
+            setSuccessNotice(
+              `Verified Admin Gmail (${maskGmailAddress(verified.targetEmail)}). Set your new Admin Password and 6-Digit Security PIN below.`
+            );
             setCurrentStep('RESET_PASSWORD');
           }
           return;
@@ -136,30 +153,6 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
         } finally {
           if (isMounted) setLoading(false);
         }
-      }
-
-      setSendingOtp(true);
-      setError(null);
-      try {
-        const res = await sendAdminGmailOtp({ purpose: 'ADMIN_PASSWORD_RESET' });
-        if (!isMounted) return;
-        setDeliveryChannel(res.channel);
-        setTargetAdminEmail(res.targetEmail);
-        setExpiresAt(res.expiresAt);
-        setSecondsRemaining(res.expiresInSeconds);
-        setRemainingAttempts(res.maxAttempts);
-        setResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
-        setSuccessNotice(res.message);
-      } catch (err: unknown) {
-        if (!isMounted) return;
-        setResendCooldown(0);
-        setError(
-          err instanceof Error
-            ? err.message
-            : 'Unable to dispatch Gmail OTP. Please check EmailJS settings.'
-        );
-      } finally {
-        if (isMounted) setSendingOtp(false);
       }
     };
 
@@ -201,7 +194,7 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
       setOtpCode('');
       setGmailVerified(true);
       setVerificationToken(result.verificationToken);
-      setSuccessNotice('Gmail OTP verified! Set a new Master Admin password below.');
+      setSuccessNotice('Gmail OTP verified! Set a new Admin Password and new 6-Digit Security PIN below.');
       setCurrentStep('RESET_PASSWORD');
     } catch (err: unknown) {
       setOtpCode('');
@@ -223,7 +216,7 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
 
     try {
       const res = await sendAdminGmailOtp({ purpose: 'ADMIN_PASSWORD_RESET' });
-      setDeliveryChannel(res.channel);
+      setDeliveryChannel(res.channel === 'firebase_email_link' ? 'firebase_email_link' : 'emailjs');
       setTargetAdminEmail(res.targetEmail);
       setExpiresAt(res.expiresAt);
       setSecondsRemaining(res.expiresInSeconds);
@@ -243,35 +236,57 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
 
     if (!gmailVerified || !verificationToken) {
       setCurrentStep('GMAIL_OTP');
-      setError('Valid Gmail OTP verification is required before changing the Admin password.');
+      setError('Valid Gmail OTP verification is required before changing Admin credentials.');
       return;
     }
 
     if (!newPassword || newPassword.length < 6) {
-      setError('New password must be at least 6 characters long.');
+      setError('New Admin password must be at least 6 characters long.');
       return;
     }
 
     if (newPassword !== confirmPassword) {
-      setError('Passwords do not match. Please verify both fields.');
+      setError('Admin passwords do not match. Please verify both fields.');
+      return;
+    }
+
+    const cleanPin = newSecurityPin.trim();
+    const cleanConfirmPin = confirmSecurityPin.trim();
+    if (!/^\d{6}$/.test(cleanPin)) {
+      setError('New 6-Digit Security PIN must be exactly 6 numeric digits.');
+      return;
+    }
+
+    if (cleanPin !== cleanConfirmPin) {
+      setError('6-Digit Security PIN entries do not match. Please verify both PIN fields.');
       return;
     }
 
     setLoading(true);
     try {
-      const result = await resetAdminPasswordViaTwoFactor(newPassword, verificationToken);
+      const result = await resetAdminCredentialsViaGmailOtp({
+        newPassword,
+        newSecurityPin: cleanPin,
+        verificationToken
+      });
       setVerificationToken(null);
       setGmailVerified(false);
+      setNewPassword('');
+      setConfirmPassword('');
+      setNewSecurityPin('');
+      setConfirmSecurityPin('');
       setCurrentStep('COMPLETED');
       setTimeout(() => {
         onSuccess(
           result.username,
-          'Admin credentials successfully updated! You can now log in with your new password.'
+          isMonthlyReset
+            ? `Monthly security reset completed (${result.resetMonth})! Log in with your new Admin Password and 6-Digit Security PIN.`
+            : 'Admin Password & 6-Digit Security PIN successfully updated! Log in with your new credentials.'
         );
         onClose();
       }, 1500);
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Failed to update admin password.';
+      const msg = err instanceof Error ? err.message : 'Failed to update admin credentials.';
       if (msg.toLowerCase().includes('expired') || msg.toLowerCase().includes('already been used')) {
         setVerificationToken(null);
         setGmailVerified(false);
@@ -292,10 +307,11 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
   if (!isOpen) return null;
 
   const maskedEmail = maskGmailAddress(targetAdminEmail);
+  const effectiveBanner = reasonBanner || (isMonthlyReset ? MONTHLY_RESET_REQUIRED_NOTICE : null);
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 font-sans select-none animate-in fade-in duration-200">
-      <div className="bg-white dark:bg-neutral-950 border border-slate-300 dark:border-neutral-800 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden relative">
+    <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4 font-sans select-none animate-in fade-in duration-200 overflow-y-auto">
+      <div className="bg-white dark:bg-neutral-950 border border-slate-300 dark:border-neutral-800 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden relative my-auto">
         {/* Header Bar */}
         <div className="bg-[#003870] text-white p-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -305,14 +321,16 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="font-extrabold text-sm tracking-tight text-white">
-                  Admin Credentials Recovery
+                  {isMonthlyReset ? '1st of Month Security Reset' : 'Admin Credentials Recovery'}
                 </h3>
                 <span className="text-[9px] font-bold uppercase tracking-wider bg-amber-400 text-slate-900 px-1.5 py-0.5 rounded-sm">
                   Gmail OTP
                 </span>
               </div>
               <p className="text-[11px] text-blue-200">
-                Amul Headquarters Master Account Access
+                {isMonthlyReset
+                  ? 'Mandatory Monthly Password & 6-Digit PIN Rotation'
+                  : 'Amul Headquarters Master Account Access'}
               </p>
             </div>
           </div>
@@ -354,13 +372,20 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
               }`}
             >
               <Lock className="w-3.5 h-3.5" />
-              <span>2. Reset Password</span>
+              <span>2. New Password &amp; PIN</span>
             </div>
           </div>
         </div>
 
         {/* Modal Body */}
         <div className="p-6">
+          {effectiveBanner && currentStep !== 'COMPLETED' && (
+            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800 rounded-xl flex items-start gap-2.5 text-xs text-amber-900 dark:text-amber-200">
+              <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+              <span className="font-semibold leading-relaxed">{effectiveBanner}</span>
+            </div>
+          )}
+
           {error && (
             <div className="mb-4 p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 rounded-xl flex items-start gap-2.5 text-xs text-rose-700 dark:text-rose-300 animate-in fade-in duration-150">
               <AlertCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0 mt-0.5" />
@@ -386,13 +411,34 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                   Step 1: Admin Gmail OTP Verification
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-neutral-400">
-                  {sendingOtp ? 'Sending 6-digit OTP to registered Admin Gmail:' : 'Verification sent to registered Master Admin Gmail:'}
+                  {sendingOtp
+                    ? 'Sending 6-digit OTP to registered Admin Gmail:'
+                    : 'Password & Security PIN Reset strictly requires Gmail OTP verification:'}
                   <br />
                   <strong className="text-slate-900 dark:text-white font-mono text-sm tracking-wide">
                     {maskedEmail}
                   </strong>
                 </p>
               </div>
+
+              {/* Explicit On-Demand Send OTP to Gmail Button */}
+              <button
+                type="button"
+                onClick={handleResendOtp}
+                disabled={resendCooldown > 0 || loading || sendingOtp}
+                className="w-full py-2.5 px-4 bg-[#005A9C] hover:bg-blue-800 disabled:bg-slate-400 text-white rounded-xl font-bold text-xs transition shadow-xs cursor-pointer flex items-center justify-center gap-2"
+              >
+                <Mail className="w-4 h-4 text-amber-200 shrink-0" />
+                <span>
+                  {sendingOtp
+                    ? 'Sending OTP to Gmail...'
+                    : resendCooldown > 0
+                      ? `Send OTP to Gmail (${resendCooldown}s)`
+                      : expiresAt > 0
+                        ? `Resend OTP to Gmail (${targetAdminEmail})`
+                        : `Send OTP to Gmail (${targetAdminEmail})`}
+                </span>
+              </button>
 
               {expiresAt > 0 && deliveryChannel === 'emailjs' && (
                 <div className="flex items-center justify-between text-[11px] px-3 py-2 rounded-xl bg-slate-50 dark:bg-neutral-900 border border-slate-200 dark:border-neutral-800 text-slate-600 dark:text-neutral-300">
@@ -422,7 +468,6 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                       placeholder="••••••"
                       aria-label="6-digit Gmail OTP code"
                       className="w-full text-center tracking-[0.45em] text-xl font-mono pl-10 pr-10 py-3 bg-slate-50 dark:bg-black text-slate-900 dark:text-white border border-slate-300 dark:border-neutral-800 rounded-2xl focus:ring-2 focus:ring-blue-600 focus:outline-hidden transition"
-                      autoFocus
                       required
                     />
                     <button
@@ -440,30 +485,15 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                 <div className="p-3.5 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-2xl text-xs text-blue-900 dark:text-blue-200 space-y-1.5">
                   <p className="font-bold">Firebase Email Link Sent</p>
                   <p className="text-[11px] leading-relaxed">
-                    Open the verification email in <strong>{maskedEmail}</strong> and click the link to unlock Password Reset directly.
+                    Open the verification email in <strong>{maskedEmail}</strong> and click the link to unlock Password &amp; PIN Reset directly.
                   </p>
                 </div>
               )}
 
               <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
-                <button
-                  type="button"
-                  onClick={handleResendOtp}
-                  disabled={resendCooldown > 0 || loading || sendingOtp}
-                  className={`flex items-center gap-1 font-semibold ${
-                    resendCooldown > 0 || sendingOtp
-                      ? 'text-slate-400 cursor-not-allowed'
-                      : 'text-blue-600 dark:text-blue-400 hover:underline cursor-pointer'
-                  }`}
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${sendingOtp ? 'animate-spin' : ''}`} />
-                  <span>
-                    {sendingOtp
-                      ? 'Sending OTP...'
-                      : `Send OTP to Gmail ${resendCooldown > 0 ? `(${resendCooldown}s)` : ''}`}
-                  </span>
-                </button>
-
+                <span className="text-[10px] text-slate-400">
+                  Gmail OTP only · No PIN bypass allowed
+                </span>
                 <span className="text-[10px] text-slate-400">
                   Single-use · 5 min validity
                 </span>
@@ -491,23 +521,23 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
             </form>
           )}
 
-          {/* STEP 2: REVEAL USERNAME & RESET PASSWORD (Strictly guarded by verified OTP token) */}
+          {/* STEP 2: REVEAL USERNAME & SET NEW PASSWORD + NEW 6-DIGIT SECURITY PIN */}
           {currentStep === 'RESET_PASSWORD' && gmailVerified && verificationToken && (
-            <form onSubmit={handleSaveNewPassword} className="space-y-4">
+            <form onSubmit={handleSaveNewPassword} className="space-y-3.5" autoComplete="off">
               <div className="text-center space-y-1">
-                <div className="w-12 h-12 bg-emerald-50 dark:bg-neutral-900 border border-emerald-200 dark:border-neutral-800 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-2">
-                  <CheckCircle2 className="w-6 h-6" />
+                <div className="w-11 h-11 bg-emerald-50 dark:bg-neutral-900 border border-emerald-200 dark:border-neutral-800 text-emerald-600 rounded-2xl flex items-center justify-center mx-auto mb-1.5">
+                  <CheckCircle2 className="w-5 h-5" />
                 </div>
                 <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                  Step 2: Admin Credentials Recovery &amp; Reset
+                  Step 2: Set New Admin Password &amp; 6-Digit PIN
                 </h4>
-                <p className="text-xs text-slate-500 dark:text-neutral-400">
-                  Gmail OTP verified. View your username and set a new password:
+                <p className="text-[11px] text-slate-500 dark:text-neutral-400">
+                  Both new credentials must differ from your previous ones and are stored only as salted SHA-256 hashes.
                 </p>
               </div>
 
               {/* Current Admin Username Card */}
-              <div className="bg-slate-50 dark:bg-black p-3.5 rounded-2xl border border-slate-200 dark:border-neutral-800 flex items-center justify-between">
+              <div className="bg-slate-50 dark:bg-black p-3 rounded-2xl border border-slate-200 dark:border-neutral-800 flex items-center justify-between">
                 <div>
                   <div className="text-[10px] uppercase font-bold text-slate-400 dark:text-neutral-500 tracking-wider">
                     Current Admin Username
@@ -548,6 +578,7 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                     value={newPassword}
                     onChange={(e) => setNewPassword(e.target.value)}
                     placeholder="Enter new admin password"
+                    autoComplete="new-password"
                     className="w-full text-xs rounded-xl pl-3.5 pr-10 py-2.5 bg-slate-50 dark:bg-black border border-slate-300 dark:border-neutral-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
                     required
                     minLength={6}
@@ -574,6 +605,7 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Re-enter new admin password"
+                    autoComplete="new-password"
                     className="w-full text-xs rounded-xl pl-3.5 pr-10 py-2.5 bg-slate-50 dark:bg-black border border-slate-300 dark:border-neutral-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
                     required
                     minLength={6}
@@ -588,6 +620,65 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                 </div>
               </div>
 
+              {/* New 6-Digit Security PIN + Confirm */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1">
+                    New 6-Digit Security PIN
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showNewPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      maxLength={6}
+                      value={newSecurityPin}
+                      onChange={(e) => setNewSecurityPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="••••••"
+                      aria-label="New 6-digit Security PIN"
+                      className="w-full text-center tracking-[0.35em] text-sm font-mono font-bold rounded-xl pl-3 pr-9 py-2.5 bg-slate-50 dark:bg-black border border-slate-300 dark:border-neutral-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowNewPin((prev) => !prev)}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                      aria-label={showNewPin ? 'Hide new PIN' : 'Show new PIN'}
+                    >
+                      {showNewPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-neutral-300 mb-1">
+                    Confirm 6-Digit PIN
+                  </label>
+                  <div className="relative">
+                    <input
+                      type={showConfirmPin ? 'text' : 'password'}
+                      inputMode="numeric"
+                      autoComplete="off"
+                      maxLength={6}
+                      value={confirmSecurityPin}
+                      onChange={(e) => setConfirmSecurityPin(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      placeholder="••••••"
+                      aria-label="Confirm 6-digit Security PIN"
+                      className="w-full text-center tracking-[0.35em] text-sm font-mono font-bold rounded-xl pl-3 pr-9 py-2.5 bg-slate-50 dark:bg-black border border-slate-300 dark:border-neutral-800 text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-hidden focus:ring-2 focus:ring-blue-600"
+                      required
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowConfirmPin((prev) => !prev)}
+                      className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 cursor-pointer"
+                      aria-label={showConfirmPin ? 'Hide confirm PIN' : 'Show confirm PIN'}
+                    >
+                      {showConfirmPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
               {/* Save & Instant Firestore Update Button */}
               <button
                 type="submit"
@@ -597,12 +688,12 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                 {loading ? (
                   <>
                     <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Updating Cloud Firestore...</span>
+                    <span>Saving Salted SHA-256 Hashes...</span>
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4 text-amber-400" />
-                    <span>Save New Password &amp; Update Cloud</span>
+                    <span>Save Password &amp; Security PIN</span>
                   </>
                 )}
               </button>
@@ -616,10 +707,10 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
                 <CheckCircle2 className="w-8 h-8" />
               </div>
               <h4 className="text-base font-extrabold text-slate-900 dark:text-white">
-                Admin Password Successfully Updated!
+                Admin Credentials Updated!
               </h4>
               <p className="text-xs text-slate-600 dark:text-neutral-400 leading-relaxed max-w-xs mx-auto">
-                Your new credentials have been encrypted with SHA-256 and synced to Cloud Firestore. Your OTP has been invalidated. Returning to login...
+                Your new Admin Password and 6-Digit Security PIN have been encrypted with salted SHA-256 and synced to Cloud Firestore. Returning to login...
               </p>
             </div>
           )}

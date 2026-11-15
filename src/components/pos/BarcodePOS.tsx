@@ -69,6 +69,7 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
 
   // Instant Item Search & Autocomplete State
   const [searchQuery, setSearchQuery] = useState('');
+  const [showZeroStock, setShowZeroStock] = useState(false);
   const [isSearchDropdownOpen, setIsSearchDropdownOpen] = useState(false);
   const [activeAutocompleteIndex, setActiveAutocompleteIndex] = useState(0);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -174,12 +175,18 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Real-time scored autocomplete matches from live inventory database
+  // In-stock product pool (default strictly hides 0 stock items during POS billing)
+  const inStockProducts = React.useMemo(
+    () => products.filter((p) => p.isActive && (p.currentStock ?? 0) > 0),
+    [products]
+  );
+
+  // Real-time scored autocomplete matches from live in-stock inventory database
   const searchMatches = React.useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return [];
     return products
-      .filter((p) => p.isActive)
+      .filter((p) => p.isActive && (showZeroStock || (p.currentStock ?? 0) > 0))
       .map((p) => {
         const nameLower = p.name.toLowerCase();
         const regLower = p.regionalName?.toLowerCase() || '';
@@ -205,7 +212,7 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
       .sort((a, b) => b.score - a.score)
       .slice(0, 10)
       .map((item) => item.product);
-  }, [products, searchQuery]);
+  }, [products, searchQuery, showZeroStock]);
 
   // USB HID Barcode Scanner Hardware Listener (captures rapid keystrokes ending in Enter)
   useEffect(() => {
@@ -254,6 +261,15 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
     const matched = products.find(p => p.barcode === clean && p.isActive);
 
     if (matched) {
+      if (!showZeroStock && (matched.currentStock ?? 0) <= 0) {
+        playBeep(false);
+        setScanMessage({
+          text: `Out of Stock: ${matched.name} has 0 stock. Enable "Show 0 Stock" or add stock first.`,
+          type: 'error'
+        });
+        setTimeout(() => setScanMessage(null), 3000);
+        return;
+      }
       playBeep(true);
       addToCart(matched);
       setScanMessage({ text: `Added: ${matched.name}`, type: 'success' });
@@ -319,8 +335,12 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
       } else if (searchQuery.trim().length >= 3) {
         const clean = searchQuery.trim();
         const matched = products.find((p) => (p.barcode === clean || p.sku.toLowerCase() === clean.toLowerCase() || p.name.toLowerCase() === clean.toLowerCase()) && p.isActive);
-        if (matched) {
+        if (matched && (showZeroStock || (matched.currentStock ?? 0) > 0)) {
           handleSelectSearchedItem(matched);
+        } else if (matched && (matched.currentStock ?? 0) <= 0) {
+          playBeep(false);
+          setScanMessage({ text: `Out of Stock: "${matched.name}" has 0 stock.`, type: 'error' });
+          setTimeout(() => setScanMessage(null), 3000);
         } else {
           playBeep(false);
           setScanMessage({ text: `Item or Barcode [${clean}] not found in inventory.`, type: 'error' });
@@ -367,6 +387,16 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
         text: '1-Month Plan Expired: Counter is in Read-Only Mode. Please contact Admin to activate.',
         type: 'error'
       });
+      return;
+    }
+
+    if (!showZeroStock && (product.currentStock ?? 0) <= 0) {
+      playBeep(false);
+      setScanMessage({
+        text: `Out of Stock: ${product.name} has 0 stock.`,
+        type: 'error'
+      });
+      setTimeout(() => setScanMessage(null), 3000);
       return;
     }
 
@@ -509,18 +539,32 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
     }
   };
 
-  // Filter products for manual click catalog
-  const filteredProducts = products.filter(p => {
+  // Filter products for manual click catalog (only in-stock items by default)
+  const visibleCatalogPool = React.useMemo(
+    () => products.filter((p) => p.isActive && (showZeroStock || (p.currentStock ?? 0) > 0)),
+    [products, showZeroStock]
+  );
+
+  const filteredProducts = visibleCatalogPool.filter((p) => {
     const matchCat = selectedCategory === 'ALL' || p.category === selectedCategory;
     const matchSearch =
       searchTerm === '' ||
       p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       p.barcode.includes(searchTerm) ||
       (p.regionalName && p.regionalName.toLowerCase().includes(searchTerm.toLowerCase()));
-    return matchCat && matchSearch && p.isActive;
+    return matchCat && matchSearch;
   });
 
-  const categories = ['ALL', ...Array.from(new Set(products.map(p => p.category)))];
+  const categories = React.useMemo(
+    () => ['ALL', ...Array.from(new Set(visibleCatalogPool.map((p) => p.category)))],
+    [visibleCatalogPool]
+  );
+
+  useEffect(() => {
+    if (selectedCategory !== 'ALL' && !categories.includes(selectedCategory)) {
+      setSelectedCategory('ALL');
+    }
+  }, [categories, selectedCategory]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -572,7 +616,7 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
               </span>
               <span className="text-xs text-emerald-700 font-bold flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                <span>Live Inventory: {products.length} Products</span>
+                <span>In Stock: {inStockProducts.length} Products</span>
               </span>
             </div>
           </div>
@@ -852,14 +896,33 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
               />
             </div>
 
-            <button
-              onClick={onOpenStockModal}
-              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
-              title="Stock In / Stock Out rapid inventory adjustment"
-            >
-              <Package className="w-3.5 h-3.5 text-blue-600" />
-              Stock In / Out
-            </button>
+            <div className="flex items-center gap-2">
+              <label
+                className={`px-2.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 cursor-pointer border transition select-none ${
+                  showZeroStock
+                    ? 'bg-rose-50 text-rose-700 border-rose-200'
+                    : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                }`}
+                title="Show out-of-stock (0 stock) products in POS Billing"
+              >
+                <input
+                  type="checkbox"
+                  checked={showZeroStock}
+                  onChange={(e) => setShowZeroStock(e.target.checked)}
+                  className="w-3.5 h-3.5 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+                <span>Show 0 Stock</span>
+              </label>
+
+              <button
+                onClick={onOpenStockModal}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                title="Stock In / Stock Out rapid inventory adjustment"
+              >
+                <Package className="w-3.5 h-3.5 text-blue-600" />
+                Stock In / Out
+              </button>
+            </div>
           </div>
 
           {/* Category Chips */}
@@ -881,77 +944,98 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
           </div>
 
           {/* Products Grid */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto max-h-[460px] pr-1">
-            {filteredProducts.map((p) => {
-              const isLowStock = p.currentStock <= p.minStockAlert;
-              return (
-                <div
-                  key={p.id}
-                  onClick={() => addToCart(p)}
-                  className="group bg-slate-50 hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-xl p-3 cursor-pointer transition flex flex-col justify-between relative shadow-xs hover:shadow-md"
+          {filteredProducts.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center py-12 text-center text-slate-400">
+              <Package className="w-10 h-10 text-slate-300 mb-2" />
+              <p className="text-xs font-bold text-slate-600">
+                No in-stock products available matching your filter
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Items with 0 stock are hidden during billing. Add stock via Purchases or Stock In / Out.
+              </p>
+              {!showZeroStock && products.some((p) => p.isActive && (p.currentStock ?? 0) <= 0) && (
+                <button
+                  type="button"
+                  onClick={() => setShowZeroStock(true)}
+                  className="mt-3 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-semibold transition cursor-pointer"
                 >
-                  <div>
-                    <div className="flex items-start justify-between gap-1 mb-2">
-                      <span className="text-[10px] font-semibold text-blue-700 bg-blue-100/80 px-1.5 py-0.5 rounded">
-                        {p.category}
-                      </span>
-                      <span
-                        className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
-                          p.currentStock === 0
-                            ? 'bg-rose-100 text-rose-700'
-                            : isLowStock
-                            ? 'bg-amber-100 text-amber-700'
-                            : 'bg-emerald-100 text-emerald-700'
-                        }`}
-                      >
-                        Stock: {p.currentStock}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center gap-2 mb-1">
-                      {p.imageUrl ? (
-                        <img
-                          src={p.imageUrl}
-                          alt={p.name}
-                          className="w-10 h-10 object-contain rounded-lg bg-white p-0.5 border border-slate-200/80 shrink-0 group-hover:scale-105 transition-transform"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-300 shrink-0">
-                          <Package className="w-5 h-5 text-slate-400" />
-                        </div>
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold text-xs text-slate-900 group-hover:text-blue-900 line-clamp-2 leading-tight">
-                          {p.name}
-                        </div>
-                        {p.regionalName && (
-                          <div className="text-[10px] text-slate-500 font-sans truncate">{p.regionalName}</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-2 pt-2 border-t border-slate-200/80 flex items-center justify-between">
+                  Show 0 Stock Items
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 overflow-y-auto max-h-[460px] pr-1">
+              {filteredProducts.map((p) => {
+                const isLowStock = p.currentStock <= p.minStockAlert;
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => addToCart(p)}
+                    className="group bg-slate-50 hover:bg-blue-50/60 border border-slate-200 hover:border-blue-300 rounded-xl p-3 cursor-pointer transition flex flex-col justify-between relative shadow-xs hover:shadow-md"
+                  >
                     <div>
-                      <div className="text-xs font-extrabold text-slate-900 font-mono">
-                        ₹{p.sellingPrice}
+                      <div className="flex items-start justify-between gap-1 mb-2">
+                        <span className="text-[10px] font-semibold text-blue-700 bg-blue-100/80 px-1.5 py-0.5 rounded">
+                          {p.category}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            p.currentStock <= 0
+                              ? 'bg-rose-100 text-rose-700'
+                              : isLowStock
+                              ? 'bg-amber-100 text-amber-700'
+                              : 'bg-emerald-100 text-emerald-700'
+                          }`}
+                        >
+                          Stock: {p.currentStock}
+                        </span>
                       </div>
-                      <div className="text-[9px] text-slate-400">MRP ₹{p.mrp}</div>
+
+                      <div className="flex items-center gap-2 mb-1">
+                        {p.imageUrl ? (
+                          <img
+                            src={p.imageUrl}
+                            alt={p.name}
+                            className="w-10 h-10 object-contain rounded-lg bg-white p-0.5 border border-slate-200/80 shrink-0 group-hover:scale-105 transition-transform"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-300 shrink-0">
+                            <Package className="w-5 h-5 text-slate-400" />
+                          </div>
+                        )}
+                        <div className="min-w-0 flex-1">
+                          <div className="font-bold text-xs text-slate-900 group-hover:text-blue-900 line-clamp-2 leading-tight">
+                            {p.name}
+                          </div>
+                          {p.regionalName && (
+                            <div className="text-[10px] text-slate-500 font-sans truncate">{p.regionalName}</div>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                    <button
-                      type="button"
-                      className="w-7 h-7 bg-white group-hover:bg-blue-600 group-hover:text-white rounded-lg border border-slate-300 group-hover:border-blue-600 flex items-center justify-center text-slate-700 transition shadow-xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
+
+                    <div className="mt-2 pt-2 border-t border-slate-200/80 flex items-center justify-between">
+                      <div>
+                        <div className="text-xs font-extrabold text-slate-900 font-mono">
+                          ₹{p.sellingPrice}
+                        </div>
+                        <div className="text-[9px] text-slate-400">MRP ₹{p.mrp}</div>
+                      </div>
+                      <button
+                        type="button"
+                        className="w-7 h-7 bg-white group-hover:bg-blue-600 group-hover:text-white rounded-lg border border-slate-300 group-hover:border-blue-600 flex items-center justify-center text-slate-700 transition shadow-xs"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

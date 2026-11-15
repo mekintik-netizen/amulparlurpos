@@ -38,6 +38,7 @@ import { AppRepository } from '../../storage/repositories.ts';
 import { subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/firebase.ts';
 import { downloadIcoFile } from '../../utils/icoConverter.ts';
 import { encodeAiApiKey, maskApiKey } from '../../utils/aiKeyCodec.ts';
+import { changeShopOwnPassword, getShopPasswordAgeDays } from '../../storage/auth.ts';
 import amulLogo from '../../assets/logo.ts';
 
 interface ShopProfileManagementProps {
@@ -81,6 +82,17 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
   const [shopGeminiKeyInput, setShopGeminiKeyInput] = useState('');
   const [showShopGeminiKey, setShowShopGeminiKey] = useState(false);
   const [clearShopGeminiKey, setClearShopGeminiKey] = useState(false);
+
+  // Change Shop Password state
+  const [currentShopPwd, setCurrentShopPwd] = useState('');
+  const [newShopPwd, setNewShopPwd] = useState('');
+  const [confirmShopPwd, setConfirmShopPwd] = useState('');
+  const [showCurrentShopPwd, setShowCurrentShopPwd] = useState(false);
+  const [showNewShopPwd, setShowNewShopPwd] = useState(false);
+  const [showConfirmShopPwd, setShowConfirmShopPwd] = useState(false);
+  const [changingShopPwd, setChangingShopPwd] = useState(false);
+  const [shopPwdError, setShopPwdError] = useState<string | null>(null);
+  const [shopPwdSuccess, setShopPwdSuccess] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -219,6 +231,46 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
   const handlePrintStandee = () => {
     window.print();
   };
+
+  const handleChangeShopPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setShopPwdError(null);
+    setShopPwdSuccess(null);
+
+    if (!currentShopPwd) {
+      setShopPwdError('કૃપા કરીને હાલનો પાસવર્ડ દાખલ કરો (Enter current password).');
+      return;
+    }
+    if (!newShopPwd || newShopPwd.length < 6) {
+      setShopPwdError('નવો પાસવર્ડ ઓછામાં ઓછો ૬ અક્ષરનો હોવો જોઈએ (Min 6 characters).');
+      return;
+    }
+    if (newShopPwd !== confirmShopPwd) {
+      setShopPwdError('નવો પાસવર્ડ અને કન્ફર્મ પાસવર્ડ સરખા નથી.');
+      return;
+    }
+
+    setChangingShopPwd(true);
+    try {
+      const updated = await changeShopOwnPassword({
+        shop: currentShop,
+        currentPassword: currentShopPwd,
+        newPassword: newShopPwd
+      });
+      setCurrentShopPwd('');
+      setNewShopPwd('');
+      setConfirmShopPwd('');
+      onShopUpdated(updated);
+      setShopPwdSuccess('તમારો શોપ લોગિન પાસવર્ડ સફળતાપૂર્વક અપડેટ થઈ ગયો છે (Salted SHA-256).');
+      setTimeout(() => setShopPwdSuccess(null), 5000);
+    } catch (err: unknown) {
+      setShopPwdError(err instanceof Error ? err.message : 'પાસવર્ડ અપડેટ કરવામાં સમસ્યા આવી.');
+    } finally {
+      setChangingShopPwd(false);
+    }
+  };
+
+  const passwordAgeInfo = getShopPasswordAgeDays(currentShop);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto pb-12">
@@ -758,6 +810,147 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
               </div>
             )}
           </div>
+        </div>
+      </form>
+
+      {/* Shop Account Password Security & 90-Day Rotation Card */}
+      <form
+        onSubmit={handleChangeShopPassword}
+        autoComplete="off"
+        className="bg-white dark:bg-slate-900 rounded-2xl p-6 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-[#005A9C] dark:text-blue-400 flex items-center justify-center border border-blue-200 dark:border-blue-800 shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                દુકાન લોગિન પાસવર્ડ બદલો (Change Shop Password)
+              </h3>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                સુરક્ષા માટે દર ૩ મહિને (90 દિવસ) શોપ પાસવર્ડ બદલવાની ભલામણ છે.
+              </p>
+            </div>
+          </div>
+
+          <span
+            className={`text-[10px] font-bold px-2.5 py-1 rounded-lg border ${
+              passwordAgeInfo.isRotationDue
+                ? 'bg-amber-50 text-amber-800 border-amber-300 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800'
+                : 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+            }`}
+          >
+            {passwordAgeInfo.hasTimestamp
+              ? passwordAgeInfo.isRotationDue
+                ? `${passwordAgeInfo.daysSinceUpdate} દિવસ જૂનો — બદલવાની સલાહ`
+                : `Updated ${passwordAgeInfo.daysSinceUpdate}d ago (SHA-256)`
+              : 'SHA-256 Protected'}
+          </span>
+        </div>
+
+        {shopPwdError && (
+          <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{shopPwdError}</span>
+          </div>
+        )}
+
+        {shopPwdSuccess && (
+          <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0" />
+            <span>{shopPwdSuccess}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              હાલનો પાસવર્ડ (Current Password) *
+            </label>
+            <div className="relative">
+              <input
+                type={showCurrentShopPwd ? 'text' : 'password'}
+                value={currentShopPwd}
+                onChange={(e) => setCurrentShopPwd(e.target.value)}
+                placeholder="Enter current password"
+                autoComplete="current-password"
+                className="w-full px-3 pr-9 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowCurrentShopPwd((v) => !v)}
+                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label={showCurrentShopPwd ? 'Hide current password' : 'Show current password'}
+              >
+                {showCurrentShopPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              નવો પાસવર્ડ (New Password, min 6) *
+            </label>
+            <div className="relative">
+              <input
+                type={showNewShopPwd ? 'text' : 'password'}
+                value={newShopPwd}
+                onChange={(e) => setNewShopPwd(e.target.value)}
+                placeholder="Min 6 characters"
+                autoComplete="new-password"
+                minLength={6}
+                className="w-full px-3 pr-9 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewShopPwd((v) => !v)}
+                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label={showNewShopPwd ? 'Hide new password' : 'Show new password'}
+              >
+                {showNewShopPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+              નવો પાસવર્ડ કન્ફર્મ કરો (Confirm Password) *
+            </label>
+            <div className="relative">
+              <input
+                type={showConfirmShopPwd ? 'text' : 'password'}
+                value={confirmShopPwd}
+                onChange={(e) => setConfirmShopPwd(e.target.value)}
+                placeholder="Re-enter new password"
+                autoComplete="new-password"
+                minLength={6}
+                className="w-full px-3 pr-9 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmShopPwd((v) => !v)}
+                className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                aria-label={showConfirmShopPwd ? 'Hide confirm password' : 'Show confirm password'}
+              >
+                {showConfirmShopPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end">
+          <button
+            type="submit"
+            disabled={changingShopPwd}
+            className="px-4 py-2 bg-[#005A9C] hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+          >
+            <Key className="w-3.5 h-3.5" />
+            <span>{changingShopPwd ? 'પાસવર્ડ અપડેટ થાય છે...' : 'Change Shop Password'}</span>
+          </button>
         </div>
       </form>
 

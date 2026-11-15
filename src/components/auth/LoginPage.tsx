@@ -31,8 +31,17 @@ import { AmulBrandLogoMotion, AmulLoginSuccessTransition } from '../common/AmulB
 import { getAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from '../../storage/firebase.ts';
 import {
   DEFAULT_ADMIN_SECURITY_EMAIL,
+  MONTHLY_RESET_REQUIRED_NOTICE,
+  OTP_RESEND_COOLDOWN_SECONDS,
+  clearAdminLoginFailures,
+  getAdminLoginLockoutStatus,
   getAdminSecurityConfig,
-  inspectPendingFirebaseEmailLink
+  inspectPendingFirebaseEmailLink,
+  isAdminMonthlyResetDue,
+  recordAdminLoginFailure,
+  sendAdminGmailOtp,
+  sendAdminMobileOtp,
+  verifyAdminLoginCode
 } from '../../storage/adminEmailOtp.ts';
 import { saveSession } from '../../storage/auth.ts';
 import { checkRateLimit, recordFailedAttempt, clearRateLimit, sanitizeErrorMessage } from '../../utils/sanitizer.ts';
@@ -49,7 +58,8 @@ import {
   CheckCircle2, 
   KeyRound,
   Sparkles,
-  Mail
+  Mail,
+  Smartphone
 } from 'lucide-react';
 
 export type LoginTab = 'SHOP_USER' | 'ADMIN' | 'ADMIN_REGISTER';
@@ -92,11 +102,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isTrustedDevice, setIsTrustedDevice] = useState(false);
 
-  // 2FA Gmail OTP States
+  // 2FA Gmail OTP / On-Demand Mobile OTP / Master Backup Code States (ZERO auto-sending)
   const [is2FAModalOpen, setIs2FAModalOpen] = useState(false);
   const [pendingAdminSession, setPendingAdminSession] = useState<AuthSession | null>(null);
   const [adminSecurityEmail, setAdminSecurityEmail] = useState<string>(DEFAULT_ADMIN_SECURITY_EMAIL);
   const [requireGmailOtpOnLogin, setRequireGmailOtpOnLogin] = useState<boolean>(true);
+  const [otpOrBackupCode, setOtpOrBackupCode] = useState('');
+  const [showOtpCode, setShowOtpCode] = useState(false);
+  const [otpCooldownSeconds, setOtpCooldownSeconds] = useState(0);
+  const [otpSendingChannel, setOtpSendingChannel] = useState<'mobile' | 'gmail' | null>(null);
+  const [otpStatusNotice, setOtpStatusNotice] = useState<string | null>(null);
+  const [adminLockoutSecondsRemaining, setAdminLockoutSecondsRemaining] = useState(0);
 
   // Admin Registration Tab Form States
   const [regUsername, setRegUsername] = useState('admin');
@@ -125,8 +141,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     }, 450);
   };
 
-  // Forgot Password Modal State
+  // Forgot Password / Mandatory Monthly Reset Modal State
   const [isForgotModalOpen, setIsForgotModalOpen] = useState(false);
+  const [recoveryModalMode, setRecoveryModalMode] = useState<'FORGOT_RECOVERY' | 'MONTHLY_RESET'>('FORGOT_RECOVERY');
+  const [recoveryReasonBanner, setRecoveryReasonBanner] = useState<string | null>(null);
+  const [monthlyResetRequired, setMonthlyResetRequired] = useState(false);
 
   // Check initialization & admin security config on mount
   useEffect(() => {
@@ -135,17 +154,21 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         await ensureDefaultAccountsSeeded();
         const hasAdmin = await isMasterAdminInitialized();
         setHasMasterAdmin(hasAdmin);
-        const [config, secConfig] = await Promise.all([
+        const [config, secConfig, lockStatus] = await Promise.all([
           getAdminAuthConfig(),
-          getAdminSecurityConfig()
+          getAdminSecurityConfig(),
+          getAdminLoginLockoutStatus()
         ]);
         setAdminConfig(config);
         setAdminSecurityEmail(secConfig.adminEmail || DEFAULT_ADMIN_SECURITY_EMAIL);
         setRequireGmailOtpOnLogin(secConfig.requireGmailOtpOnLogin !== false);
+        setAdminLockoutSecondsRemaining(lockStatus.locked ? lockStatus.retryAfterSeconds : 0);
+        setMonthlyResetRequired(isAdminMonthlyResetDue(secConfig));
 
         const emailLink = inspectPendingFirebaseEmailLink();
         if (emailLink.isLink && emailLink.purpose === 'ADMIN_PASSWORD_RESET') {
           setActiveTab('ADMIN');
+          setRecoveryModalMode(isAdminMonthlyResetDue(secConfig) ? 'MONTHLY_RESET' : 'FORGOT_RECOVERY');
           setIsForgotModalOpen(true);
         }
       } catch (err) {
@@ -155,11 +178,102 @@ export const LoginPage: React.FC<LoginPageProps> = ({
     checkInitialization();
   }, [initialRole]);
 
+  // 60-second cooldown & 30-minute brute-force lockout countdown timers
+  useEffect(() => {
+    if (otpCooldownSeconds <= 0 && adminLockoutSecondsRemaining <= 0) return;
+    const timer = setInterval(() => {
+      setOtpCooldownSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+      setAdminLockoutSecondsRemaining((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [otpCooldownSeconds, adminLockoutSecondsRemaining]);
+
   // Switch tabs
   const handleTabChange = (tab: LoginTab) => {
     setActiveTab(tab);
     setError(null);
     setResetSuccessMessage(null);
+    setOtpStatusNotice(null);
+    setOtpOrBackupCode('');
+  };
+
+  // Validate Admin ID & Password BEFORE dispatching any on-demand OTP (prevents quota waste)
+  const verifyEnteredAdminCredentials = async (): Promise<AuthSession> => {
+    const cleanInput = username.trim();
+    if (!cleanInput || !password) {
+      throw new Error('Please enter both Admin Username and Password before requesting an OTP.');
+    }
+
+    const lockStatus = await getAdminLoginLockoutStatus();
+    if (lockStatus.locked) {
+      setAdminLockoutSecondsRemaining(lockStatus.retryAfterSeconds);
+      throw new Error(
+        `Admin login is locked for ${lockStatus.retryAfterMinutes} minute(s) due to 3 consecutive failed attempts. Security alert sent to registered Gmail.`
+      );
+    }
+
+    try {
+      const session = await authenticateLocalUser({
+        username: cleanInput,
+        password,
+        role: 'ADMIN'
+      });
+      return session;
+    } catch {
+      const failure = await recordAdminLoginFailure({
+        username: cleanInput,
+        reason: 'Invalid Admin Username or Password during OTP request'
+      });
+      if (failure.locked) {
+        setAdminLockoutSecondsRemaining(failure.retryAfterSeconds);
+        setPassword('');
+      }
+      throw new Error(failure.message);
+    }
+  };
+
+  // On-demand Mobile OTP click handler (zero auto-sending)
+  const handleSendMobileOtp = async () => {
+    if (otpCooldownSeconds > 0 || otpSendingChannel !== null) return;
+    setError(null);
+    setOtpStatusNotice(null);
+    setOtpSendingChannel('mobile');
+
+    try {
+      await verifyEnteredAdminCredentials();
+      const res = await sendAdminMobileOtp({
+        phoneNumber: adminConfig.superAdminPhone,
+        skipCooldown: true
+      });
+      setOtpCooldownSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+      setOtpStatusNotice(res.message);
+    } catch (err: any) {
+      setError(sanitizeErrorMessage(err?.message, 'Unable to trigger Mobile OTP.'));
+    } finally {
+      setOtpSendingChannel(null);
+    }
+  };
+
+  // On-demand Gmail OTP click handler (zero auto-sending)
+  const handleSendGmailOtp = async () => {
+    if (otpCooldownSeconds > 0 || otpSendingChannel !== null) return;
+    setError(null);
+    setOtpStatusNotice(null);
+    setOtpSendingChannel('gmail');
+
+    try {
+      await verifyEnteredAdminCredentials();
+      const res = await sendAdminGmailOtp({
+        purpose: 'ADMIN_LOGIN_2FA',
+        skipCooldown: true
+      });
+      setOtpCooldownSeconds(OTP_RESEND_COOLDOWN_SECONDS);
+      setOtpStatusNotice(res.message);
+    } catch (err: any) {
+      setError(sanitizeErrorMessage(err?.message, 'Unable to dispatch Gmail OTP. Please check EmailJS settings.'));
+    } finally {
+      setOtpSendingChannel(null);
+    }
   };
 
   // Handle Standard Login (Shop Counter or Admin HQ)
@@ -181,45 +295,100 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
     const enteredUsername = username.trim();
     const enteredPassword = password;
-    // Clear password state on submit for privacy & anti-shoulder surfing
-    setPassword('');
+    const enteredCode = otpOrBackupCode.trim();
 
     try {
       let session: AuthSession;
       if (activeTab === 'SHOP_USER') {
+        setPassword('');
         session = await authenticateShopCounterFromFirestore({
           mobileNumberOrShopId: enteredUsername,
           usernameOrShopId: enteredUsername,
           password: enteredPassword
         });
-      } else {
+        clearRateLimit(rateLimitKey);
+        triggerSuccessfulLoginTransition(session, false);
+        return;
+      }
+
+      if (activeTab === 'ADMIN') {
+        const lockStatus = await getAdminLoginLockoutStatus();
+        if (lockStatus.locked) {
+          setAdminLockoutSecondsRemaining(lockStatus.retryAfterSeconds);
+          setError(
+            `Admin login is locked for ${lockStatus.retryAfterMinutes} minute(s) due to 3 consecutive failed attempts. Security alert sent to registered Gmail.`
+          );
+          setLoading(false);
+          return;
+        }
+
+        // 1st-of-month mandatory security policy enforcement (Admin HQ only; never blocks Shop Counter)
+        const latestSec = await getAdminSecurityConfig();
+        if (isAdminMonthlyResetDue(latestSec)) {
+          setMonthlyResetRequired(true);
+          setError(MONTHLY_RESET_REQUIRED_NOTICE);
+          setRecoveryReasonBanner(MONTHLY_RESET_REQUIRED_NOTICE);
+          setRecoveryModalMode('MONTHLY_RESET');
+          setIsForgotModalOpen(true);
+          setLoading(false);
+          return;
+        }
+        setMonthlyResetRequired(false);
+
+        // Admin HQ Password check
         session = await authenticateLocalUser({
           username: enteredUsername,
           password: enteredPassword,
           role: 'ADMIN'
         });
-      }
 
-      // Successful credentials verification -> clear rate limit
-      clearRateLimit(rateLimitKey);
-
-      if (activeTab === 'ADMIN') {
+        // Admin HQ 2FA 6-Digit Security PIN or On-Demand OTP check
         if (requireGmailOtpOnLogin) {
-          // Trigger Real-time Gmail 6-Digit OTP 2FA for Master Admin
-          setPendingAdminSession(session);
-          setIs2FAModalOpen(true);
-        } else {
-          triggerSuccessfulLoginTransition(session, isTrustedDevice);
+          if (!/^\d{6}$/.test(enteredCode)) {
+            setError('Enter your 6-Digit Security PIN (or click Send Gmail OTP / Send Mobile OTP).');
+            setLoading(false);
+            return;
+          }
+          await verifyAdminLoginCode({ code: enteredCode, securityConfigOverride: latestSec });
         }
-      } else {
-        triggerSuccessfulLoginTransition(session, false);
+
+        // Clear failure counter and sensitive inputs upon complete authentication success
+        await clearAdminLoginFailures();
+        setAdminLockoutSecondsRemaining(0);
+        setPassword('');
+        setOtpOrBackupCode('');
+        clearRateLimit(rateLimitKey);
+        triggerSuccessfulLoginTransition(session, isTrustedDevice);
+        return;
       }
+
+      // Fallback non-admin local path
+      session = await authenticateLocalUser({
+        username: enteredUsername,
+        password: enteredPassword,
+        role: 'ADMIN'
+      });
+      triggerSuccessfulLoginTransition(session, isTrustedDevice);
     } catch (err: any) {
-      const lockResult = recordFailedAttempt(rateLimitKey);
-      if (lockResult.locked) {
-        setError(`Maximum login attempts exceeded. Account access temporarily locked for ${lockResult.retryAfterSeconds} seconds.`);
+      setOtpOrBackupCode('');
+      if (activeTab === 'ADMIN') {
+        const failure = await recordAdminLoginFailure({
+          username: enteredUsername,
+          reason: err instanceof Error ? err.message : 'Failed Admin login/OTP attempt'
+        });
+        if (failure.locked) {
+          setAdminLockoutSecondsRemaining(failure.retryAfterSeconds);
+          setPassword('');
+        }
+        setError(failure.message);
       } else {
-        setError(sanitizeErrorMessage(err?.message, 'Authentication failed. Please verify credentials.'));
+        const lockResult = recordFailedAttempt(rateLimitKey);
+        if (lockResult.locked) {
+          setPassword('');
+          setError(`Maximum login attempts exceeded. Account access temporarily locked for ${lockResult.retryAfterSeconds} seconds.`);
+        } else {
+          setError(sanitizeErrorMessage(err?.message, 'Authentication failed. Please verify credentials.'));
+        }
       }
     } finally {
       setLoading(false);
@@ -229,6 +398,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
   const handle2FAVerified = () => {
     if (pendingAdminSession) {
       setIs2FAModalOpen(false);
+      clearAdminLoginFailures().catch(() => undefined);
       triggerSuccessfulLoginTransition(pendingAdminSession, isTrustedDevice);
     }
   };
@@ -576,9 +746,13 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                   {activeTab === 'ADMIN' && (
                     <button
                       type="button"
-                      onClick={() => setIsForgotModalOpen(true)}
+                      onClick={() => {
+                        setRecoveryModalMode(monthlyResetRequired ? 'MONTHLY_RESET' : 'FORGOT_RECOVERY');
+                        setRecoveryReasonBanner(monthlyResetRequired ? MONTHLY_RESET_REQUIRED_NOTICE : null);
+                        setIsForgotModalOpen(true);
+                      }}
                       className="text-[11px] text-[#005A9C] dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-1 font-semibold"
-                      title="Forgot Password? Recover Admin Username and reset password via 2FA"
+                      title="Forgot Password? Recover Admin Username and reset password & Security PIN via Gmail OTP"
                     >
                       <KeyRound className="w-3 h-3" />
                       <span>Forgot Username / Password?</span>
@@ -613,6 +787,142 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 </div>
               </div>
 
+              {/* 1st-of-Month Mandatory Security Reset Banner */}
+              {activeTab === 'ADMIN' && monthlyResetRequired && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/50 border border-amber-300 dark:border-amber-800 text-[11px] text-amber-900 dark:text-amber-200 space-y-2">
+                  <div className="font-extrabold flex items-center justify-between gap-2">
+                    <span>1st of Month Mandatory Reset</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRecoveryModalMode('MONTHLY_RESET');
+                        setRecoveryReasonBanner(MONTHLY_RESET_REQUIRED_NOTICE);
+                        setIsForgotModalOpen(true);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[#005A9C] hover:bg-blue-800 text-white font-bold text-[10px] cursor-pointer shrink-0"
+                    >
+                      Reset via Gmail OTP
+                    </button>
+                  </div>
+                  <p>{MONTHLY_RESET_REQUIRED_NOTICE}</p>
+                </div>
+              )}
+
+              {/* 30-Minute Brute-Force Lockout Banner */}
+              {activeTab === 'ADMIN' && adminLockoutSecondsRemaining > 0 && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 text-[11px] text-rose-800 dark:text-rose-200 space-y-1">
+                  <div className="font-extrabold flex items-center justify-between">
+                    <span>30-Minute Security Lockout Active</span>
+                    <span className="font-mono">
+                      {Math.floor(adminLockoutSecondsRemaining / 60)}:
+                      {String(adminLockoutSecondsRemaining % 60).padStart(2, '0')}
+                    </span>
+                  </div>
+                  <p>
+                    Locked after 3 consecutive failed attempts. A security alert has been emailed to registered Admin Gmail.
+                  </p>
+                </div>
+              )}
+
+              {/* On-Demand OTP Buttons + Direct Masked Verification Input (Admin HQ Only) */}
+              {activeTab === 'ADMIN' && requireGmailOtpOnLogin && (
+                <div className="p-3.5 rounded-2xl bg-slate-50/90 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 space-y-3">
+                  <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                    <span>On-Demand OTP (No Auto-Send)</span>
+                    {otpCooldownSeconds > 0 && (
+                      <span className="text-amber-600 dark:text-amber-400 font-mono">
+                        Cooldown: {otpCooldownSeconds}s
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Two Separate On-Demand OTP Send Buttons */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={handleSendMobileOtp}
+                      disabled={otpCooldownSeconds > 0 || otpSendingChannel !== null || loading || adminLockoutSecondsRemaining > 0}
+                      className="py-2 px-2.5 rounded-xl text-[11px] font-bold bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-300 dark:border-slate-600 shadow-2xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Verify Admin ID/Password and send Mobile OTP"
+                    >
+                      <Smartphone className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span className="truncate">
+                        {otpSendingChannel === 'mobile'
+                          ? 'Sending...'
+                          : otpCooldownSeconds > 0
+                            ? `Mobile (${otpCooldownSeconds}s)`
+                            : 'Send Mobile OTP'}
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSendGmailOtp}
+                      disabled={otpCooldownSeconds > 0 || otpSendingChannel !== null || loading || adminLockoutSecondsRemaining > 0}
+                      className="py-2 px-2.5 rounded-xl text-[11px] font-bold bg-[#005A9C] hover:bg-[#00487E] text-white border border-blue-700 shadow-2xs transition flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                      title="Verify Admin ID/Password and send Gmail OTP"
+                    >
+                      <Mail className="w-3.5 h-3.5 text-amber-200 shrink-0" />
+                      <span className="truncate">
+                        {otpSendingChannel === 'gmail'
+                          ? 'Sending...'
+                          : otpCooldownSeconds > 0
+                            ? `Gmail (${otpCooldownSeconds}s)`
+                            : 'Send Gmail OTP'}
+                      </span>
+                    </button>
+                  </div>
+
+                  {/* Clean Dispatch Status Confirmation */}
+                  {otpStatusNotice && (
+                    <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 rounded-xl flex items-start gap-2 text-[11px] text-emerald-800 dark:text-emerald-200">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+                      <span>{otpStatusNotice}</span>
+                    </div>
+                  )}
+
+                  {/* Direct Always-Ready Masked 6-Digit Security PIN / OTP Input */}
+                  <div>
+                    <label
+                      htmlFor="admin-otp-or-backup-input"
+                      className="block text-[11px] font-bold text-slate-700 dark:text-slate-200 mb-1"
+                    >
+                      6-Digit Security PIN (or OTP)
+                    </label>
+                    <div className="relative">
+                      <div className="absolute left-3.5 top-3 text-slate-400 dark:text-slate-500 pointer-events-none">
+                        <ShieldCheck className="w-4 h-4 text-[#E31837]" />
+                      </div>
+                      <input
+                        id="admin-otp-or-backup-input"
+                        type={showOtpCode ? 'text' : 'password'}
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        maxLength={6}
+                        value={otpOrBackupCode}
+                        onChange={(e) => setOtpOrBackupCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="••••••"
+                        aria-label="6-digit Security PIN or OTP"
+                        disabled={adminLockoutSecondsRemaining > 0}
+                        className="w-full min-h-[42px] text-center tracking-[0.4em] text-base font-mono font-bold rounded-xl pl-10 pr-10 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-[#E31837] focus:border-[#E31837] disabled:opacity-50"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowOtpCode((prev) => !prev)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer p-0.5"
+                        aria-label={showOtpCode ? 'Hide verification code' : 'Show verification code'}
+                      >
+                        {showOtpCode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                      Enter your 6-digit Security PIN (or on-demand Gmail/Mobile OTP).
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Admin Device Trust Checkbox */}
               {activeTab === 'ADMIN' && (
                 <div className="pt-0.5">
@@ -636,7 +946,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
               {/* Main Log In Button */}
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || (activeTab === 'ADMIN' && adminLockoutSecondsRemaining > 0)}
                 className={`w-full min-h-[46px] py-3 px-4 rounded-xl font-bold text-sm text-white shadow-lg transition-all cursor-pointer disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.99] ${
                   activeTab === 'ADMIN'
                     ? 'bg-[#E31837] hover:bg-[#C4122D] shadow-rose-900/20'
@@ -646,10 +956,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({
                 {loading ? (
                   <span>Logging In...</span>
                 ) : activeTab === 'ADMIN' ? (
-                  <>
-                    <Mail className="w-4 h-4 text-amber-200" />
-                    <span>Verify Credentials &amp; Send Gmail OTP</span>
-                  </>
+                  adminLockoutSecondsRemaining > 0 ? (
+                    <span>Locked for 30 Minutes (Security Alert Sent)</span>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-4 h-4 text-amber-200" />
+                      <span>Verify &amp; Log In to Admin HQ</span>
+                    </>
+                  )
                 ) : (
                   <span>Log In to Counter</span>
                 )}
@@ -668,14 +982,25 @@ export const LoginPage: React.FC<LoginPageProps> = ({
         </div>
       </div>
 
-      {/* 2FA Master Admin Forgot Username / Password Recovery Modal */}
+      {/* 2FA Master Admin Forgot Username / Password Recovery & Monthly Reset Modal */}
       <AdminCredentialsRecoveryModal
         isOpen={isForgotModalOpen}
-        onClose={() => setIsForgotModalOpen(false)}
+        mode={recoveryModalMode}
+        reasonBanner={recoveryReasonBanner}
+        onClose={() => {
+          setIsForgotModalOpen(false);
+          setRecoveryReasonBanner(null);
+        }}
         onSuccess={(recoveredAdminUsername, message) => {
           setUsername(recoveredAdminUsername);
           setPassword('');
-          setResetSuccessMessage(message || 'Admin credentials successfully updated! You can now log in with your new password.');
+          setOtpOrBackupCode('');
+          setMonthlyResetRequired(false);
+          setAdminLockoutSecondsRemaining(0);
+          setRecoveryReasonBanner(null);
+          setResetSuccessMessage(
+            message || 'Admin credentials successfully updated! You can now log in with your new Password and 6-Digit Security PIN.'
+          );
           setError(null);
         }}
       />

@@ -321,4 +321,16 @@ describe('Instant Item Search & Autocomplete Tests', () => {
     expect(syncCode).toContain("collection(db, 'inventory')");
     expect(syncCode).toContain('startShopRealtimeSync');
   });
+
+  it('10. hides 0-stock items in POS Billing autocomplete and grid by default while showing In Stock count and Show 0 Stock toggle', () => {
+    const posCode = fs.readFileSync(
+      path.join(process.cwd(), 'src/components/pos/BarcodePOS.tsx'),
+      'utf-8'
+    );
+
+    expect(posCode).toContain('const [showZeroStock, setShowZeroStock] = useState(false);');
+    expect(posCode).toContain('showZeroStock || (p.currentStock ?? 0) > 0');
+    expect(posCode).toContain('In Stock: {inStockProducts.length} Products');
+    expect(posCode).toContain('Show 0 Stock');
+  });
 });

@@ -86,6 +86,7 @@ export interface Shop {
   cashierPassword?: string;
   passwordHash?: string;
   salt?: string;
+  passwordUpdatedAt?: number | string; // Unix timestamp (ms) or ISO string of last password update
   ownerIdVerified?: boolean; // Whether the shop owner's ID has been verified by admin
   ownerVerifiedAt?: string; // ISO string when verification occurred
   verifiedByAdmin?: string; // Admin username who performed verification
@@ -729,6 +730,18 @@ export interface AdminSecurityConfig {
   otpExpiryMinutes: number;
   maxAttempts: number;
   requireGmailOtpOnLogin: boolean;
+  adminPasswordSalt?: string;
+  adminPasswordHash?: string; // Salted SHA-256 hash ONLY — never plain-text password
+  securityPinSalt?: string;
+  securityPinHash?: string; // Salted SHA-256 hash ONLY — never plain-text 6-digit Security PIN
+  masterBackupCodeSalt?: string;
+  masterBackupCodeHash?: string; // Backward-compatible salted SHA-256 PIN/Backup hash
+  lastResetMonth?: string; // "YYYY-MM" of last Admin password + PIN reset
+  lastReminderMonth?: string; // "YYYY-MM" when 1st-of-month Gmail reminder was dispatched
+  failedLoginAttempts?: number; // Consecutive failed Admin login/OTP attempts
+  lockedUntil?: number; // Unix timestamp (ms) when 30-minute lockout expires
+  lastFailedAttemptAt?: number;
+  lastSecurityAlertAt?: number;
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -753,7 +766,7 @@ export interface AdminOtpChallengeRecord {
   attemptsUsed: number;
   maxAttempts: number;
   consumed: boolean;
-  deliveryChannel: 'emailjs' | 'firebase_email_link';
+  deliveryChannel: 'emailjs' | 'firebase_email_link' | 'mobile_sms';
   createdAt: string;
 }
 

@@ -48,7 +48,16 @@ import { SubscriptionRenewalReminderBanner } from './components/common/Subscript
 import { AmulStartupSplash } from './components/common/AmulBrandMotion.tsx';
 import { Shop, SaleBill } from './types/index.ts';
 import { AppRepository } from './storage/repositories.ts';
-import { AuthSession, UserRole, getActiveSession, clearActiveSession, ensureDefaultAccountsSeeded } from './storage/auth.ts';
+import {
+  AuthSession,
+  UserRole,
+  getActiveSession,
+  clearActiveSession,
+  ensureDefaultAccountsSeeded,
+  getShopPasswordAgeDays,
+  changeShopOwnPassword
+} from './storage/auth.ts';
+import { checkAndSendMonthlyAdminResetReminder } from './storage/adminEmailOtp.ts';
 import { isShopSubscriptionActive } from './storage/subscription.ts';
 import { startShopRealtimeSync, startAdminShopsRealtimeSync } from './storage/firestoreSync.ts';
 import { subscribeToAdminAuthConfig, updateAdminAuthConfig } from './storage/firebase.ts';
@@ -59,7 +68,7 @@ import {
 } from './storage/aiConfig.ts';
 import { applyDynamicFavicon, uint8ArrayToBase64 } from './utils/icoConverter.ts';
 import { Theme, getStoredTheme, applyTheme } from './storage/theme.ts';
-import { RefreshCw, AlertCircle, Store, Shield } from 'lucide-react';
+import { RefreshCw, AlertCircle, Store, Shield, KeyRound, Eye, EyeOff, CheckCircle2, Lock } from 'lucide-react';
 
 export default function App() {
   const [theme, setTheme] = useState<Theme>(() => getStoredTheme());
@@ -84,6 +93,17 @@ export default function App() {
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
   const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
+
+  // Shop 90-day (3-month) Password Rotation Prompt Modal state
+  const [dismissed90DayShopIds, setDismissed90DayShopIds] = useState<string[]>([]);
+  const [show90DayChangeForm, setShow90DayChangeForm] = useState(false);
+  const [rotationCurrentPwd, setRotationCurrentPwd] = useState('');
+  const [rotationNewPwd, setRotationNewPwd] = useState('');
+  const [rotationConfirmPwd, setRotationConfirmPwd] = useState('');
+  const [showRotationPwd, setShowRotationPwd] = useState(false);
+  const [rotationSaving, setRotationSaving] = useState(false);
+  const [rotationError, setRotationError] = useState<string | null>(null);
+  const [rotationSuccess, setRotationSuccess] = useState<string | null>(null);
 
   const loadShops = async () => {
     try {
@@ -130,6 +150,8 @@ export default function App() {
 
   useEffect(() => {
     loadShops();
+    // Non-blocking 1st-of-month automatic EmailJS reminder check (sent at most once per month)
+    checkAndSendMonthlyAdminResetReminder().catch(() => {});
   }, []);
 
   // Sync theme with documentElement and localStorage
@@ -204,8 +226,66 @@ export default function App() {
     clearAiSessionMemory();
     setIsAiDrawerOpen(false);
     setActiveTab('POS');
+    setDismissed90DayShopIds([]);
+    setShow90DayChangeForm(false);
+    setRotationCurrentPwd('');
+    setRotationNewPwd('');
+    setRotationConfirmPwd('');
+    setRotationError(null);
+    setRotationSuccess(null);
     clearActiveSession();
     setCurrentUser(null);
+  };
+
+  const handleDismiss90DayPrompt = () => {
+    if (currentShop?.id) {
+      setDismissed90DayShopIds((prev) => (prev.includes(currentShop.id) ? prev : [...prev, currentShop.id]));
+    }
+    setShow90DayChangeForm(false);
+    setRotationCurrentPwd('');
+    setRotationNewPwd('');
+    setRotationConfirmPwd('');
+    setRotationError(null);
+    setRotationSuccess(null);
+  };
+
+  const handleSubmit90DayShopPasswordChange = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentShop) return;
+    setRotationError(null);
+    setRotationSuccess(null);
+
+    if (!rotationNewPwd || rotationNewPwd.length < 6) {
+      setRotationError('નવો પાસવર્ડ ઓછામાં ઓછો ૬ અક્ષરનો હોવો જોઈએ.');
+      return;
+    }
+    if (rotationNewPwd !== rotationConfirmPwd) {
+      setRotationError('નવો પાસવર્ડ અને કન્ફર્મ પાસવર્ડ સરખા નથી.');
+      return;
+    }
+
+    setRotationSaving(true);
+    try {
+      const updated = await changeShopOwnPassword({
+        shop: currentShop,
+        currentPassword: rotationCurrentPwd,
+        newPassword: rotationNewPwd
+      });
+      setCurrentShop(updated);
+      setShops((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+      setRotationCurrentPwd('');
+      setRotationNewPwd('');
+      setRotationConfirmPwd('');
+      setRotationSuccess('તમારો શોપ પાસવર્ડ સફળતાપૂર્વક બદલાઈ ગયો છે!');
+      setTimeout(() => {
+        setShow90DayChangeForm(false);
+        setRotationSuccess(null);
+      }, 1400);
+    } catch (err: unknown) {
+      setRotationError(err instanceof Error ? err.message : 'પાસવર્ડ બદલવામાં સમસ્યા આવી.');
+    } finally {
+      setRotationSaving(false);
+    }
   };
 
   // Load AI Config strictly into module-level session RAM when logged in & AI is enabled for shop
@@ -333,6 +413,14 @@ export default function App() {
   const isShopUser = currentUser?.role !== 'ADMIN';
   const subCheck = currentShop ? isShopSubscriptionActive(currentShop) : null;
   const isShopPlanExpired = isShopUser && subCheck !== null && !subCheck.isActive;
+  const shopPasswordAge = currentShop ? getShopPasswordAgeDays(currentShop) : null;
+  const is90DayPasswordPromptVisible = Boolean(
+    isShopUser &&
+      currentShop &&
+      !isShopPlanExpired &&
+      shopPasswordAge?.isRotationDue &&
+      !dismissed90DayShopIds.includes(currentShop.id)
+  );
 
   return (
     <div className="min-h-screen bg-slate-100/90 dark:bg-slate-950 flex flex-col font-sans text-slate-900 dark:text-slate-100 selection:bg-blue-600 selection:text-white transition-colors duration-200 animate-fadeIn">
@@ -572,6 +660,139 @@ export default function App() {
             setShops((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
           }}
         />
+      )}
+      {/* 11. Friendly Post-Login 3-Month (90-Day) Shop Password Reset Option Modal (Non-blocking) */}
+      {is90DayPasswordPromptVisible && currentShop && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="bg-[#005A9C] text-white p-5 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center shrink-0">
+                <KeyRound className="w-5 h-5 text-amber-300" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold">દુકાન પાસવર્ડ સુરક્ષા સૂચના (90-Day Security Notice)</h3>
+                <p className="text-[11px] text-blue-100">
+                  {currentShop.name} • {shopPasswordAge?.daysSinceUpdate || 90} દિવસથી પાસવર્ડ બદલાયો નથી
+                </p>
+              </div>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-900 dark:text-amber-200 leading-relaxed font-medium">
+                સુરક્ષા સૂચના: તમારા શોપ પાસવર્ડને ૩ મહિના પૂરા થયા છે. તમારી દુકાનના ડેટાની સુરક્ષા માટે નવો પાસવર્ડ સેટ કરો.
+              </div>
+
+              {rotationError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{rotationError}</span>
+                </div>
+              )}
+
+              {rotationSuccess && (
+                <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                  <span>{rotationSuccess}</span>
+                </div>
+              )}
+
+              {show90DayChangeForm ? (
+                <form onSubmit={handleSubmit90DayShopPasswordChange} className="space-y-3" autoComplete="off">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      હાલનો પાસવર્ડ (Current Password)
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-2.5" />
+                      <input
+                        type={showRotationPwd ? 'text' : 'password'}
+                        value={rotationCurrentPwd}
+                        onChange={(e) => setRotationCurrentPwd(e.target.value)}
+                        placeholder="Enter current shop password"
+                        autoComplete="current-password"
+                        className="w-full pl-8 pr-9 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowRotationPwd((v) => !v)}
+                        className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                      >
+                        {showRotationPwd ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      નવો પાસવર્ડ (New Password, min 6)
+                    </label>
+                    <input
+                      type={showRotationPwd ? 'text' : 'password'}
+                      value={rotationNewPwd}
+                      onChange={(e) => setRotationNewPwd(e.target.value)}
+                      placeholder="Enter new password"
+                      autoComplete="new-password"
+                      minLength={6}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      નવો પાસવર્ડ કન્ફર્મ કરો (Confirm Password)
+                    </label>
+                    <input
+                      type={showRotationPwd ? 'text' : 'password'}
+                      value={rotationConfirmPwd}
+                      onChange={(e) => setRotationConfirmPwd(e.target.value)}
+                      placeholder="Confirm new password"
+                      autoComplete="new-password"
+                      minLength={6}
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-600 focus:outline-hidden"
+                      required
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="submit"
+                      disabled={rotationSaving}
+                      className="flex-1 py-2.5 px-4 bg-[#005A9C] hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition cursor-pointer disabled:opacity-50"
+                    >
+                      {rotationSaving ? 'સેવ થાય છે...' : 'Save New Shop Password'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleDismiss90DayPrompt}
+                      className="py-2.5 px-3 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+                    >
+                      ચાલુ રાખો
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex flex-col sm:flex-row gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setShow90DayChangeForm(true)}
+                    className="flex-1 py-2.5 px-4 bg-[#005A9C] hover:bg-blue-800 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                  >
+                    Change Shop Password Now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDismiss90DayPrompt}
+                    className="flex-1 py-2.5 px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
+                  >
+                    Remind Me Later / ચાલુ રાખો
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

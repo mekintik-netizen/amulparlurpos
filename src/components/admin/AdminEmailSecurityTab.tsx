@@ -27,6 +27,7 @@ import {
   DEFAULT_ADMIN_SECURITY_CONFIG,
   isEmailJsConfigured,
   saveAdminEmailConfig,
+  saveAdminMasterBackupCode,
   saveAdminSecurityConfig,
   sendAdminGmailOtp,
   subscribeToAdminEmailConfig,
@@ -59,6 +60,10 @@ export const AdminEmailSecurityTab: React.FC<AdminEmailSecurityTabProps> = ({
   const [savingEmailJs, setSavingEmailJs] = useState(false);
   const [testingSend, setTestingSend] = useState(false);
   const [testingVerify, setTestingVerify] = useState(false);
+
+  const [masterBackupInput, setMasterBackupInput] = useState('');
+  const [showMasterBackup, setShowMasterBackup] = useState(false);
+  const [savingBackupCode, setSavingBackupCode] = useState(false);
 
   const [testOtpInput, setTestOtpInput] = useState('');
   const [showTestOtp, setShowTestOtp] = useState(false);
@@ -104,6 +109,26 @@ export const AdminEmailSecurityTab: React.FC<AdminEmailSecurityTabProps> = ({
       setError(err instanceof Error ? err.message : 'Failed to save security settings.');
     } finally {
       setSavingSecurity(false);
+    }
+  };
+
+  const handleSaveMasterBackupCode = async () => {
+    setError(null);
+    setNotice(null);
+    if (!/^\d{6}$/.test(masterBackupInput.trim())) {
+      setError('Silent Master Backup Code must be exactly 6 digits.');
+      return;
+    }
+    setSavingBackupCode(true);
+    try {
+      const saved = await saveAdminMasterBackupCode(masterBackupInput.trim(), adminUsername);
+      setSecurityConfig(saved);
+      setMasterBackupInput('');
+      setNotice('Silent 6-digit Master Backup Code saved as salted SHA-256 hash in Firestore (Login Only).');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to save Master Backup Code.');
+    } finally {
+      setSavingBackupCode(false);
     }
   };
 
@@ -275,6 +300,18 @@ export const AdminEmailSecurityTab: React.FC<AdminEmailSecurityTabProps> = ({
             <Save className="w-4 h-4" />
             <span>{savingSecurity ? 'Saving Security Settings...' : 'Save Admin Security Settings'}</span>
           </button>
+
+          <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200 text-[11px] text-amber-900 space-y-1">
+            <div className="font-bold flex items-center justify-between">
+              <span>Brute-Force Lockout &amp; Gmail Security Alert</span>
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-amber-100 border border-amber-300">
+                3 Strikes → 30m Lock
+              </span>
+            </div>
+            <p className="text-[11px] text-amber-800">
+              After 3 consecutive failed Admin login or OTP attempts, Admin login locks for 30 minutes and automatically dispatches a Security Alert email to {securityConfig.adminEmail}.
+            </p>
+          </div>
         </form>
 
         {/* Card 2: EmailJS Configuration (`adminSettings/emailConfig`) */}
@@ -401,6 +438,56 @@ export const AdminEmailSecurityTab: React.FC<AdminEmailSecurityTabProps> = ({
                 Last updated: {new Date(emailConfig.updatedAt).toLocaleString()}
               </div>
             )}
+          </div>
+
+          {/* Secret 6-Digit Master Backup Code (Admin Login Only — Salted SHA-256 in Firestore) */}
+          <div className="pt-3 border-t border-slate-200 space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-bold text-slate-800">
+                Secret 6-Digit Backup Code (Login Only)
+              </label>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                  securityConfig.masterBackupCodeHash
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-slate-100 text-slate-600 border-slate-200'
+                }`}
+              >
+                {securityConfig.masterBackupCodeHash ? 'Configured (SHA-256)' : 'Not Set'}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Immediately hashed via Web Crypto SHA-256 (<code className="font-mono">subtle.digest</code>) before saving to Cloud Firestore (<code className="font-mono">adminSettings/security</code>). Never stored in plain text or frontend bundle; never usable for Password Reset.
+            </p>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <input
+                  type={showMasterBackup ? 'text' : 'password'}
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={masterBackupInput}
+                  onChange={(e) => setMasterBackupInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="••••••"
+                  className="w-full text-center tracking-[0.35em] font-mono font-bold py-2 pl-3 pr-9 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-[#005A9C] focus:outline-hidden"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowMasterBackup((prev) => !prev)}
+                  className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                  aria-label={showMasterBackup ? 'Hide Master Backup Code' : 'Show Master Backup Code'}
+                >
+                  {showMasterBackup ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={handleSaveMasterBackupCode}
+                disabled={savingBackupCode || masterBackupInput.length !== 6}
+                className="bg-slate-900 hover:bg-black disabled:bg-slate-300 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition cursor-pointer shrink-0"
+              >
+                {savingBackupCode ? 'Hashing...' : 'Save Backup Code'}
+              </button>
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-2.5">

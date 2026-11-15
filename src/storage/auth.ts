@@ -17,10 +17,17 @@ import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firesto
 import { syncShopToCloud } from './firestoreSync.ts';
 import { Shop } from '../types/index.ts';
 import { isShopSubscriptionActive } from './subscription.ts';
-import { generateSalt, hashPasswordWithSalt } from '../utils/cryptoHash.ts';
-import { consumeAdminVerificationToken, getAdminSecurityConfig } from './adminEmailOtp.ts';
+import { constantTimeEqual, generateSalt, hashPasswordWithSalt } from '../utils/cryptoHash.ts';
+import {
+  consumeAdminVerificationToken,
+  getAdminSecurityConfig,
+  getCurrentYearMonth,
+  matchesStoredAdminSecurityPin,
+  saveAdminCredentialsToSecurity
+} from './adminEmailOtp.ts';
 
 export { generateSalt, hashPasswordWithSalt };
+export const SHOP_PASSWORD_ROTATION_DAYS = 90;
 
 export type UserRole = 'ADMIN' | 'SHOP_USER';
 
@@ -405,16 +412,25 @@ export async function authenticateShopCounterFromFirestore(params: {
     throw new Error('Invalid password. Please check your credentials or contact Amul Administrator.');
   }
 
-  // Auto-upgrade security hash on shop document if missing
+  // Auto-upgrade security hash and initialize passwordUpdatedAt timestamp on shop document if missing
+  let shopNeedsCloudSync = false;
   if (!matchedShop.passwordHash || !matchedShop.salt) {
+    const newSalt = generateSalt();
+    const newHash = await hashPasswordWithSalt(params.password, newSalt);
+    matchedShop.salt = newSalt;
+    matchedShop.passwordHash = newHash;
+    shopNeedsCloudSync = true;
+  }
+  if (!matchedShop.passwordUpdatedAt) {
+    matchedShop.passwordUpdatedAt = Date.now();
+    matchedShop.updatedAt = new Date().toISOString();
+    shopNeedsCloudSync = true;
+  }
+  if (shopNeedsCloudSync) {
     try {
-      const newSalt = generateSalt();
-      const newHash = await hashPasswordWithSalt(params.password, newSalt);
-      matchedShop.salt = newSalt;
-      matchedShop.passwordHash = newHash;
       await syncShopToCloud(matchedShop);
     } catch (upgradeErr) {
-      console.warn('[Auth] Failed to auto-upgrade shop password hash:', upgradeErr);
+      console.warn('[Auth] Failed to auto-upgrade shop password metadata:', upgradeErr);
     }
   }
 
@@ -582,47 +598,59 @@ export async function authenticateLocalUser(params: {
 
   const user = users.find(u => u.username === cleanUsername);
 
-  // If Admin user not found locally or password check fails, check Cloud Firestore adminSettings
+  // If Admin user check runs against Cloud Firestore adminSettings (authConfig or security)
   if (params.role === 'ADMIN') {
     try {
-      const cloudConfig = await getAdminAuthConfig();
+      const [cloudConfig, secConfig] = await Promise.all([
+        getAdminAuthConfig(),
+        getAdminSecurityConfig().catch(() => null)
+      ]);
       const cloudUsername = (cloudConfig.adminUsername || 'admin').trim().toLowerCase();
-      if (cloudConfig.adminPasswordHash && cloudConfig.adminSalt && (cleanUsername === cloudUsername || !user)) {
-        const cloudComputedHash = await hashPasswordWithSalt(params.password, cloudConfig.adminSalt);
-        if (cloudComputedHash === cloudConfig.adminPasswordHash) {
-          // Cloud credentials match! Sync into local IndexedDB
-          let adminUser = user;
-          if (!adminUser) {
-            adminUser = {
-              id: `usr-admin-${Date.now()}`,
-              username: cloudUsername,
-              fullName: cloudConfig.adminName || 'Master Administrator',
-              role: 'ADMIN',
-              isMasterAdmin: true,
-              salt: cloudConfig.adminSalt,
-              passwordHash: cloudConfig.adminPasswordHash,
-              createdAt: new Date().toISOString(),
-              lastLoginAt: new Date().toISOString()
+      const candidateHashes: Array<{ hash: string; salt: string }> = [];
+      if (secConfig?.adminPasswordHash && secConfig?.adminPasswordSalt) {
+        candidateHashes.push({ hash: secConfig.adminPasswordHash, salt: secConfig.adminPasswordSalt });
+      }
+      if (cloudConfig.adminPasswordHash && cloudConfig.adminSalt) {
+        candidateHashes.push({ hash: cloudConfig.adminPasswordHash, salt: cloudConfig.adminSalt });
+      }
+
+      if (candidateHashes.length > 0 && (cleanUsername === cloudUsername || !user)) {
+        for (const cred of candidateHashes) {
+          const cloudComputedHash = await hashPasswordWithSalt(params.password, cred.salt);
+          if (constantTimeEqual(cloudComputedHash, cred.hash)) {
+            let adminUser = user;
+            if (!adminUser) {
+              adminUser = {
+                id: `usr-admin-${Date.now()}`,
+                username: cloudUsername,
+                fullName: cloudConfig.adminName || 'Master Administrator',
+                role: 'ADMIN',
+                isMasterAdmin: true,
+                salt: cred.salt,
+                passwordHash: cred.hash,
+                createdAt: new Date().toISOString(),
+                lastLoginAt: new Date().toISOString()
+              };
+              users.push(adminUser);
+            } else {
+              adminUser.salt = cred.salt;
+              adminUser.passwordHash = cred.hash;
+              adminUser.lastLoginAt = new Date().toISOString();
+            }
+            await saveAllLocalUsers(users);
+
+            const session: AuthSession = {
+              userId: adminUser.id,
+              username: adminUser.username,
+              fullName: adminUser.fullName,
+              role: adminUser.role,
+              tokenExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
+              loggedInAt: new Date().toISOString()
             };
-            users.push(adminUser);
-          } else {
-            adminUser.salt = cloudConfig.adminSalt;
-            adminUser.passwordHash = cloudConfig.adminPasswordHash;
-            adminUser.lastLoginAt = new Date().toISOString();
+
+            saveSession(session);
+            return session;
           }
-          await saveAllLocalUsers(users);
-
-          const session: AuthSession = {
-            userId: adminUser.id,
-            username: adminUser.username,
-            fullName: adminUser.fullName,
-            role: adminUser.role,
-            tokenExpiresAt: Date.now() + 24 * 60 * 60 * 1000,
-            loggedInAt: new Date().toISOString()
-          };
-
-          saveSession(session);
-          return session;
         }
       }
     } catch (cloudErr) {
@@ -972,13 +1000,17 @@ export async function adminResetShopPassword(params: {
   }
 
   // Update shop document in local IndexedDB and Cloud Firestore so cross-device logins use new password
+  const nowTs = Date.now();
+  const nowIso = new Date(nowTs).toISOString();
   try {
     const shops = await getAllShops();
     const shop = shops.find(s => s.shopCode === params.shopCode);
     if (shop) {
       shop.salt = newSalt;
       shop.passwordHash = newHash;
-      shop.cashierPassword = params.newPassword;
+      delete shop.cashierPassword;
+      shop.passwordUpdatedAt = nowTs;
+      shop.updatedAt = nowIso;
       await saveShop(shop);
       await syncShopToCloud(shop);
     } else {
@@ -989,7 +1021,9 @@ export async function adminResetShopPassword(params: {
         const s = docSnap.data() as Shop;
         s.salt = newSalt;
         s.passwordHash = newHash;
-        s.cashierPassword = params.newPassword;
+        delete s.cashierPassword;
+        s.passwordUpdatedAt = nowTs;
+        s.updatedAt = nowIso;
         await saveShop(s);
         await syncShopToCloud(s);
       }
@@ -999,6 +1033,96 @@ export async function adminResetShopPassword(params: {
   }
 
   return { success: true, username: shopUser ? shopUser.username : username };
+}
+
+/**
+ * Evaluates whether a Shop Owner's password has reached the 90-day (3-month) rotation mark.
+ */
+export function getShopPasswordAgeDays(
+  shop: Shop | null | undefined,
+  nowMs: number = Date.now()
+): { hasTimestamp: boolean; daysSinceUpdate: number; isRotationDue: boolean } {
+  if (!shop || shop.passwordUpdatedAt === undefined || shop.passwordUpdatedAt === null || shop.passwordUpdatedAt === '') {
+    return { hasTimestamp: false, daysSinceUpdate: 0, isRotationDue: false };
+  }
+
+  const parsedMs =
+    typeof shop.passwordUpdatedAt === 'number'
+      ? shop.passwordUpdatedAt
+      : Date.parse(String(shop.passwordUpdatedAt));
+
+  if (!Number.isFinite(parsedMs) || parsedMs <= 0) {
+    return { hasTimestamp: false, daysSinceUpdate: 0, isRotationDue: false };
+  }
+
+  const daysSinceUpdate = Math.max(0, Math.floor((nowMs - parsedMs) / (24 * 60 * 60 * 1000)));
+  return {
+    hasTimestamp: true,
+    daysSinceUpdate,
+    isRotationDue: daysSinceUpdate >= SHOP_PASSWORD_ROTATION_DAYS
+  };
+}
+
+/**
+ * Allows a Shop Owner to update their shop password cleanly (from Shop Profile or 90-day prompt).
+ * Stores ONLY salted SHA-256 hash and updates `passwordUpdatedAt` in IndexedDB + Firestore (`shops/{shopId}`).
+ */
+export async function changeShopOwnPassword(params: {
+  shop: Shop;
+  currentPassword: string;
+  newPassword: string;
+}): Promise<Shop> {
+  if (!params.currentPassword) {
+    throw new Error('Please enter your current shop password.');
+  }
+  const validCurrent = await verifyShopPassword(params.shop, params.currentPassword);
+  if (!validCurrent) {
+    throw new Error('Current shop password is incorrect.');
+  }
+  if (!params.newPassword || params.newPassword.length < 6) {
+    throw new Error('New shop password must be at least 6 characters long.');
+  }
+  if (params.newPassword === params.currentPassword) {
+    throw new Error('New password must be different from your current shop password.');
+  }
+
+  const newSalt = generateSalt(16);
+  const newHash = await hashPasswordWithSalt(params.newPassword, newSalt);
+  const nowTs = Date.now();
+  const updatedShop: Shop = {
+    ...params.shop,
+    salt: newSalt,
+    passwordHash: newHash,
+    passwordUpdatedAt: nowTs,
+    updatedAt: new Date(nowTs).toISOString()
+  };
+  delete updatedShop.cashierPassword;
+
+  await saveShop(updatedShop);
+  try {
+    await syncShopToCloud(updatedShop);
+  } catch (err) {
+    console.warn('[Auth] Shop password cloud sync deferred:', err);
+  }
+
+  try {
+    const users = await getAllLocalUsers();
+    const targetUser = users.find(
+      (u) =>
+        u.role === 'SHOP_USER' &&
+        (u.shopId === updatedShop.id ||
+          (updatedShop.shopCode && u.shopCode === updatedShop.shopCode))
+    );
+    if (targetUser) {
+      targetUser.salt = newSalt;
+      targetUser.passwordHash = newHash;
+      await saveAllLocalUsers(users);
+    }
+  } catch {
+    // non-fatal
+  }
+
+  return updatedShop;
 }
 
 /**
@@ -1047,28 +1171,83 @@ export async function getMasterAdminProfile(): Promise<{ username: string; email
 }
 
 /**
- * Reset Master Admin password via verified Gmail OTP 2FA recovery flow.
- * Strictly requires a valid single-use Gmail OTP verification token before updating
- * Firestore 'adminSettings/authConfig' and local IndexedDB, and immediately invalidates it.
+ * Resets Master Admin Password AND (when provided) 6-Digit Security PIN via verified Gmail OTP flow.
+ * Enforces:
+ * - Valid single-use `ADMIN_PASSWORD_RESET` Gmail OTP verification token
+ * - New Password MUST differ from previous Admin Password
+ * - New 6-Digit Security PIN MUST differ from previous Security PIN
+ * - Stores ONLY salted SHA-256 hashes in Cloud Firestore (`adminSettings/security` & `authConfig`)
+ * - Updates `lastResetMonth` and `lastReminderMonth` to current `YYYY-MM`.
  */
 export async function resetAdminPasswordViaTwoFactor(
   newPassword: string,
-  verificationToken: string
-): Promise<{ username: string }> {
+  verificationToken: string,
+  options?: { newSecurityPin?: string; currentMonth?: string; nowMs?: number }
+): Promise<{ username: string; resetMonth: string }> {
+  if (!verificationToken || typeof verificationToken !== 'string') {
+    throw new Error('Valid Gmail OTP verification is required before updating the Admin password.');
+  }
   if (!newPassword || newPassword.length < 6) {
     throw new Error('New password must be at least 6 characters long.');
   }
 
-  // Strictly enforce verified Gmail OTP token before ANY password change
-  await consumeAdminVerificationToken(verificationToken, 'ADMIN_PASSWORD_RESET');
+  const cleanPin = options?.newSecurityPin ? options.newSecurityPin.trim() : undefined;
+  if (cleanPin !== undefined && !/^\d{6}$/.test(cleanPin)) {
+    throw new Error('New Security PIN must be exactly 6 numeric digits.');
+  }
 
-  const profile = await getMasterAdminProfile();
+  // Gather existing credential hashes BEFORE consuming the verification token so user can retry on reuse error
+  const [secConfig, cloudConfig, users] = await Promise.all([
+    getAdminSecurityConfig().catch(() => null),
+    getAdminAuthConfig().catch(() => null),
+    getAllLocalUsers().catch(() => [] as LocalUser[])
+  ]);
+
+  const profile = await getMasterAdminProfile().catch(() => ({
+    username: cloudConfig?.adminUsername || 'admin',
+    email: secConfig?.adminEmail || 'mekintik@gmail.com',
+    phone: ''
+  }));
   const cleanUsername = profile.username.trim().toLowerCase();
+  const localAdmin =
+    users.find((u) => u.role === 'ADMIN' && (u.username === cleanUsername || u.isMasterAdmin)) ||
+    users.find((u) => u.role === 'ADMIN');
 
-  const newSalt = generateSalt();
+  // Verify new password differs from previous password hashes
+  const previousPasswordPairs: Array<{ salt: string; hash: string }> = [];
+  if (secConfig?.adminPasswordSalt && secConfig?.adminPasswordHash) {
+    previousPasswordPairs.push({ salt: secConfig.adminPasswordSalt, hash: secConfig.adminPasswordHash });
+  }
+  if (cloudConfig?.adminSalt && cloudConfig?.adminPasswordHash) {
+    previousPasswordPairs.push({ salt: cloudConfig.adminSalt, hash: cloudConfig.adminPasswordHash });
+  }
+  if (localAdmin?.salt && localAdmin?.passwordHash) {
+    previousPasswordPairs.push({ salt: localAdmin.salt, hash: localAdmin.passwordHash });
+  }
+
+  for (const prev of previousPasswordPairs) {
+    const candidateHash = await hashPasswordWithSalt(newPassword, prev.salt);
+    if (constantTimeEqual(candidateHash, prev.hash)) {
+      throw new Error('New Admin password must be different from your previous password.');
+    }
+  }
+
+  // Verify new 6-digit Security PIN differs from previous PIN hashes
+  if (cleanPin !== undefined) {
+    const matchesOldPin = await matchesStoredAdminSecurityPin(cleanPin, secConfig);
+    if (matchesOldPin) {
+      throw new Error('New 6-Digit Security PIN must be different from your previous Security PIN.');
+    }
+  }
+
+  // Strictly enforce verified Gmail OTP token before ANY credential update
+  await consumeAdminVerificationToken(verificationToken, 'ADMIN_PASSWORD_RESET', options?.nowMs);
+
+  const newSalt = generateSalt(16);
   const newHash = await hashPasswordWithSalt(newPassword, newSalt);
+  const resetMonth = options?.currentMonth || getCurrentYearMonth(options?.nowMs);
 
-  // 1. Instant Cloud Firestore update
+  // 1. Update adminSettings/authConfig
   try {
     await updateAdminAuthConfig({
       adminUsername: cleanUsername,
@@ -1077,15 +1256,22 @@ export async function resetAdminPasswordViaTwoFactor(
       updatedAt: new Date().toISOString()
     });
   } catch (cloudErr: any) {
-    console.error('[Auth] Failed to update admin password in Firestore:', cloudErr);
-    // Still proceed to update local storage so admin is not locked out
+    console.error('[Auth] Failed to update admin password in authConfig:', cloudErr);
   }
 
-  // 2. Local IndexedDB update
-  const users = await getAllLocalUsers();
-  let admin = users.find(u => u.role === 'ADMIN' && (u.username === cleanUsername || u.isMasterAdmin))
-    || users.find(u => u.role === 'ADMIN');
+  // 2. Update adminSettings/security with salted SHA-256 hashes + lastResetMonth
+  if (cleanPin !== undefined) {
+    await saveAdminCredentialsToSecurity({
+      passwordSalt: newSalt,
+      passwordHash: newHash,
+      securityPin: cleanPin,
+      currentMonth: resetMonth,
+      updatedBy: cleanUsername
+    });
+  }
 
+  // 3. Local IndexedDB update
+  let admin = localAdmin;
   if (admin) {
     admin.username = cleanUsername;
     admin.salt = newSalt;
@@ -1106,7 +1292,24 @@ export async function resetAdminPasswordViaTwoFactor(
 
   await saveAllLocalUsers(users);
 
-  return { username: cleanUsername };
+  return { username: cleanUsername, resetMonth };
+}
+
+/**
+ * Unified Monthly & Forgot Recovery reset requiring BOTH a new Admin Password and a new 6-Digit Security PIN.
+ */
+export async function resetAdminCredentialsViaGmailOtp(params: {
+  newPassword: string;
+  newSecurityPin: string;
+  verificationToken: string;
+  currentMonth?: string;
+  nowMs?: number;
+}): Promise<{ username: string; resetMonth: string }> {
+  return resetAdminPasswordViaTwoFactor(params.newPassword, params.verificationToken, {
+    newSecurityPin: params.newSecurityPin,
+    currentMonth: params.currentMonth,
+    nowMs: params.nowMs
+  });
 }
 
 

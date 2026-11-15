@@ -38,17 +38,26 @@ vi.mock('../src/storage/firebase.ts', () => ({
 }));
 
 import {
+  ADMIN_LOCKOUT_DURATION_MS,
+  ADMIN_LOCKOUT_MAX_ATTEMPTS,
   DEFAULT_ADMIN_EMAILJS_CONFIG,
   DEFAULT_ADMIN_SECURITY_EMAIL,
+  OTP_RESEND_COOLDOWN_SECONDS,
   OTP_VALIDITY_MS,
+  clearAdminLoginFailures,
+  computeMasterBackupCodeHash,
   computeOtpHash,
   consumeAdminVerificationToken,
   generateSecureSixDigitOtp,
   getActiveOtpChallengeMeta,
+  getAdminLoginLockoutStatus,
   maskGmailAddress,
+  recordAdminLoginFailure,
   resetAdminOtpTestState,
   sendAdminGmailOtp,
-  verifyAdminGmailOtp
+  sendAdminMobileOtp,
+  verifyAdminGmailOtp,
+  verifyAdminLoginCode
 } from '../src/storage/adminEmailOtp.ts';
 import {
   resetAdminPasswordViaTwoFactor,
@@ -339,5 +348,209 @@ describe('Master Admin Gmail OTP Login & Password Reset Security', () => {
     await expect(
       consumeAdminVerificationToken(resetVerified.verificationToken, 'ADMIN_PASSWORD_RESET', baseNow + 8000)
     ).rejects.toThrow(/invalid or has already been used/i);
+  });
+
+  it('8. enforces 60-second cooldown and never auto-sends OTP on tab/modal open', async () => {
+    expect(OTP_RESEND_COOLDOWN_SECONDS).toBe(60);
+
+    const loginPageSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/auth/LoginPage.tsx'),
+      'utf8'
+    );
+    expect(loginPageSource).toContain('Send Mobile OTP');
+    expect(loginPageSource).toContain('Send Gmail OTP');
+    expect(loginPageSource).toContain('admin-otp-or-backup-input');
+    expect(loginPageSource).toContain("type={showOtpCode ? 'text' : 'password'}");
+    expect(loginPageSource).toContain('On-Demand OTP (No Auto-Send)');
+
+    // AdminGmail2FAModal and AdminCredentialsRecoveryModal must not auto-send on mount
+    const modal2faSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/auth/AdminGmail2FAModal.tsx'),
+      'utf8'
+    );
+    const recoveryModalSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/auth/AdminCredentialsRecoveryModal.tsx'),
+      'utf8'
+    );
+    const modal2faEffect = modal2faSource.slice(
+      modal2faSource.indexOf('useEffect('),
+      modal2faSource.indexOf('handleVerifyOtp')
+    );
+    const recoveryModalEffect = recoveryModalSource.slice(
+      recoveryModalSource.indexOf('useEffect('),
+      recoveryModalSource.indexOf('handleVerifyOtp')
+    );
+    expect(modal2faEffect).toContain('useEffect(');
+    expect(modal2faEffect).not.toContain('sendAdminGmailOtp');
+    expect(recoveryModalEffect).toContain('useEffect(');
+    expect(recoveryModalEffect).not.toContain('sendAdminGmailOtp');
+    expect(recoveryModalSource).toContain('Gmail OTP only');
+
+    // Enforce 60s cooldown across consecutive Gmail/Mobile OTP dispatches
+    const baseNow = 1_700_000_000_000;
+    await sendAdminGmailOtp({
+      purpose: 'ADMIN_LOGIN_2FA',
+      emailSender: async () => undefined,
+      nowMs: baseNow
+    });
+
+    await expect(
+      sendAdminGmailOtp({
+        purpose: 'ADMIN_LOGIN_2FA',
+        emailSender: async () => undefined,
+        nowMs: baseNow + 30_000
+      })
+    ).rejects.toThrow(/30 seconds/i);
+
+    await expect(
+      sendAdminMobileOtp({
+        nowMs: baseNow + 45_000
+      })
+    ).rejects.toThrow(/15 seconds/i);
+
+    // Succeeds after full 60s passes
+    const afterCooldown = await sendAdminMobileOtp({
+      nowMs: baseNow + 60_000
+    });
+    expect(afterCooldown.cooldownSeconds).toBe(60);
+    expect(afterCooldown.channel).toBe('sms_unconfigured');
+    expect(afterCooldown.sent).toBe(false);
+  });
+
+  it('9. allows configured silent Master Backup Code for Admin Login ONLY without sending OTP, while blocking it on Password Reset', async () => {
+    const backupCode = '847291';
+    const salt = 'backup-salt-001';
+    const backupHash = await computeMasterBackupCodeHash(backupCode, salt);
+    const secConfig = {
+      adminEmail: DEFAULT_ADMIN_SECURITY_EMAIL,
+      otpExpiryMinutes: 5,
+      maxAttempts: 3,
+      requireGmailOtpOnLogin: true,
+      masterBackupCodeSalt: salt,
+      masterBackupCodeHash: backupHash
+    };
+
+    const baseNow = 1_700_000_000_000;
+    // Login succeeds directly with Master Backup Code even when zero OTP was sent
+    const loginResult = await verifyAdminLoginCode({
+      code: backupCode,
+      securityConfigOverride: secConfig,
+      nowMs: baseNow
+    });
+    expect(loginResult.verified).toBe(true);
+    expect(loginResult.method).toBe('master_backup_code');
+    expect(loginResult.purpose).toBe('ADMIN_LOGIN_2FA');
+
+    // Wrong 6-digit code fails when no active OTP and doesn't match backup hash
+    await expect(
+      verifyAdminLoginCode({
+        code: '539182',
+        securityConfigOverride: secConfig,
+        nowMs: baseNow + 1000
+      })
+    ).rejects.toThrow(/Invalid Master Backup Code/i);
+
+    // Master Backup Code verification token MUST NOT authorize ADMIN_PASSWORD_RESET
+    await expect(
+      consumeAdminVerificationToken(loginResult.verificationToken, 'ADMIN_PASSWORD_RESET', baseNow + 2000)
+    ).rejects.toThrow(/not authorized for password updates/i);
+
+    // Direct verifyAdminGmailOtp for ADMIN_PASSWORD_RESET rejects backup code without an active Gmail OTP
+    await expect(
+      verifyAdminGmailOtp({
+        code: backupCode,
+        purpose: 'ADMIN_PASSWORD_RESET',
+        nowMs: baseNow + 3000
+      })
+    ).rejects.toThrow(/No active Gmail OTP found/i);
+  });
+
+  it('10. enforces 3-strike 30-minute brute-force lockout, sends Gmail Security Alert via EmailJS, and keeps Secret Backup Code UI inside Gmail OTP Settings card', async () => {
+    expect(ADMIN_LOCKOUT_MAX_ATTEMPTS).toBe(3);
+    expect(ADMIN_LOCKOUT_DURATION_MS).toBe(30 * 60 * 1000);
+
+    // Verify AdminEmailSecurityTab places Secret 6-Digit Backup Code directly inside Gmail OTP Settings card
+    const settingsTabSource = fs.readFileSync(
+      path.resolve(process.cwd(), 'src/components/admin/AdminEmailSecurityTab.tsx'),
+      'utf8'
+    );
+    const gmailCardStart = settingsTabSource.indexOf('Gmail OTP Settings');
+    expect(gmailCardStart).toBeGreaterThan(-1);
+    const gmailCardSlice = settingsTabSource.slice(gmailCardStart);
+    expect(gmailCardSlice).toContain('Secret 6-Digit Backup Code (Login Only)');
+    expect(gmailCardSlice).toContain('handleSaveMasterBackupCode');
+
+    // Verify Web Crypto subtle.digest('SHA-256') is used for salted hashing
+    const cryptoSource = fs.readFileSync(path.resolve(process.cwd(), 'src/utils/cryptoHash.ts'), 'utf8');
+    expect(cryptoSource).toContain("subtle.digest('SHA-256'");
+
+    const alertEmails: Array<{ svc: string; tpl: string; email: string; passcode: string; time: string }> = [];
+    const baseNow = 1_700_000_000_000;
+
+    // Strike 1
+    const f1 = await recordAdminLoginFailure({
+      username: 'admin',
+      reason: 'Wrong backup code',
+      nowMs: baseNow
+    });
+    expect(f1.locked).toBe(false);
+    expect(f1.remainingAttempts).toBe(2);
+    expect(f1.alertSent).toBe(false);
+
+    // Strike 2
+    const f2 = await recordAdminLoginFailure({
+      username: 'admin',
+      reason: 'Wrong password',
+      nowMs: baseNow + 5_000
+    });
+    expect(f2.locked).toBe(false);
+    expect(f2.remainingAttempts).toBe(1);
+    expect(f2.alertSent).toBe(false);
+
+    // Strike 3 -> Locks for 30 minutes and sends EmailJS Security Alert to mekintik@gmail.com
+    const f3 = await recordAdminLoginFailure({
+      username: 'admin',
+      reason: 'Wrong OTP attempt',
+      emailSender: async (svc, tpl, params) => {
+        alertEmails.push({
+          svc,
+          tpl,
+          email: String(params.email),
+          passcode: String(params.passcode),
+          time: String(params.time)
+        });
+      },
+      nowMs: baseNow + 10_000
+    });
+    expect(f3.locked).toBe(true);
+    expect(f3.failedAttempts).toBe(3);
+    expect(f3.remainingAttempts).toBe(0);
+    expect(f3.retryAfterMinutes).toBe(30);
+    expect(f3.alertSent).toBe(true);
+    expect(alertEmails).toHaveLength(1);
+    expect(alertEmails[0].svc).toBe('service_vewt5qp');
+    expect(alertEmails[0].tpl).toBe('template_00959gb');
+    expect(alertEmails[0].email).toBe('mekintik@gmail.com');
+    expect(alertEmails[0].passcode).toBe('SECURITY ALERT');
+    expect(alertEmails[0].time).toContain('LOCKED FOR 30 MINUTES');
+
+    // During the 30-minute window, verification attempts are rejected immediately
+    await expect(
+      verifyAdminLoginCode({
+        code: '847291',
+        nowMs: baseNow + 10 * 60 * 1000
+      })
+    ).rejects.toThrow(/temporarily locked/i);
+
+    const midStatus = await getAdminLoginLockoutStatus(baseNow + 10 * 60 * 1000);
+    expect(midStatus.locked).toBe(true);
+    expect(midStatus.retryAfterMinutes).toBeGreaterThanOrEqual(20);
+
+    // After full 30 minutes elapse, lockout auto-expires cleanly
+    const expiredStatus = await getAdminLoginLockoutStatus(baseNow + 10_000 + ADMIN_LOCKOUT_DURATION_MS);
+    expect(expiredStatus.locked).toBe(false);
+    expect(expiredStatus.remainingAttempts).toBe(3);
+
+    await clearAdminLoginFailures();
   });
 });

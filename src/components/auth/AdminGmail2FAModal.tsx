@@ -24,13 +24,15 @@ import {
   X
 } from 'lucide-react';
 import {
+  clearAdminLoginFailures,
   completeFirebaseEmailLinkOtp,
   DEFAULT_ADMIN_SECURITY_EMAIL,
   inspectPendingFirebaseEmailLink,
   maskGmailAddress,
   OTP_RESEND_COOLDOWN_SECONDS,
+  recordAdminLoginFailure,
   sendAdminGmailOtp,
-  verifyAdminGmailOtp
+  verifyAdminLoginCode
 } from '../../storage/adminEmailOtp.ts';
 
 export interface AdminGmail2FAModalProps {
@@ -63,7 +65,7 @@ export const AdminGmail2FAModal: React.FC<AdminGmail2FAModalProps> = ({
   const [maskedTargetEmail, setMaskedTargetEmail] = useState<string>(() =>
     maskGmailAddress(adminEmail || DEFAULT_ADMIN_SECURITY_EMAIL)
   );
-  const [resendCooldown, setResendCooldown] = useState(OTP_RESEND_COOLDOWN_SECONDS);
+  const [resendCooldown, setResendCooldown] = useState(0);
   const [expiresAt, setExpiresAt] = useState<number>(0);
   const [secondsRemaining, setSecondsRemaining] = useState<number>(300);
   const [remainingAttempts, setRemainingAttempts] = useState<number>(3);
@@ -74,6 +76,7 @@ export const AdminGmail2FAModal: React.FC<AdminGmail2FAModalProps> = ({
       setShowOtp(false);
       setError(null);
       setStatusMsg(null);
+      setResendCooldown(0);
       setExpiresAt(0);
       setSecondsRemaining(300);
       setRemainingAttempts(3);
@@ -82,8 +85,9 @@ export const AdminGmail2FAModal: React.FC<AdminGmail2FAModalProps> = ({
 
     let isMounted = true;
 
-    const initOtpFlow = async () => {
-      // Check if user returned by clicking a Firebase Email Auth link in Gmail
+    const checkReturningLinkOnly = async () => {
+      // NEVER auto-send OTP on open; only handle returning Firebase Email Auth link if present
+      setMaskedTargetEmail(maskGmailAddress(adminEmail || DEFAULT_ADMIN_SECURITY_EMAIL));
       const linkInfo = inspectPendingFirebaseEmailLink();
       if (linkInfo.isLink && linkInfo.purpose === 'ADMIN_LOGIN_2FA') {
         setLoading(true);
@@ -101,30 +105,9 @@ export const AdminGmail2FAModal: React.FC<AdminGmail2FAModalProps> = ({
           if (isMounted) setLoading(false);
         }
       }
-
-      setSending(true);
-      setError(null);
-      try {
-        const res = await sendAdminGmailOtp({ purpose: 'ADMIN_LOGIN_2FA' });
-        if (!isMounted) return;
-        setDeliveryChannel(res.channel);
-        setMaskedTargetEmail(res.maskedEmail);
-        setExpiresAt(res.expiresAt);
-        setSecondsRemaining(res.expiresInSeconds);
-        setRemainingAttempts(res.maxAttempts);
-        setResendCooldown(OTP_RESEND_COOLDOWN_SECONDS);
-        setStatusMsg(res.message);
-      } catch (err: unknown) {
-        if (!isMounted) return;
-        setMaskedTargetEmail(maskGmailAddress(adminEmail || DEFAULT_ADMIN_SECURITY_EMAIL));
-        setResendCooldown(0);
-        setError(err instanceof Error ? err.message : 'Could not send Gmail OTP. Please check EmailJS settings.');
-      } finally {
-        if (isMounted) setSending(false);
-      }
     };
 
-    initOtpFlow();
+    checkReturningLinkOnly();
 
     const timer = setInterval(() => {
       setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
@@ -154,19 +137,18 @@ export const AdminGmail2FAModal: React.FC<AdminGmail2FAModalProps> = ({
 
     setLoading(true);
     try {
-      const result = await verifyAdminGmailOtp({
-        code: cleanCode,
-        purpose: 'ADMIN_LOGIN_2FA'
+      const result = await verifyAdminLoginCode({
+        code: cleanCode
       });
+      await clearAdminLoginFailures();
       setOtpCode('');
       onVerified(result.verificationToken);
     } catch (err: unknown) {
       setOtpCode('');
       const msg = err instanceof Error ? err.message : 'Invalid Gmail OTP code.';
-      if (msg.includes('2 attempts remaining')) setRemainingAttempts(2);
-      else if (msg.includes('1 attempt remaining')) setRemainingAttempts(1);
-      else if (msg.includes('Maximum 3 wrong') || msg.includes('Maximum wrong')) setRemainingAttempts(0);
-      setError(msg);
+      const failure = await recordAdminLoginFailure({ reason: msg });
+      setRemainingAttempts(failure.remainingAttempts);
+      setError(failure.locked ? failure.message : msg);
     } finally {
       setLoading(false);
     }
@@ -180,7 +162,7 @@ export const AdminGmail2FAModal: React.FC<AdminGmail2FAModalProps> = ({
 
     try {
       const res = await sendAdminGmailOtp({ purpose: 'ADMIN_LOGIN_2FA' });
-      setDeliveryChannel(res.channel);
+      setDeliveryChannel(res.channel === 'firebase_email_link' ? 'firebase_email_link' : 'emailjs');
       setMaskedTargetEmail(res.maskedEmail);
       setExpiresAt(res.expiresAt);
       setSecondsRemaining(res.expiresInSeconds);
@@ -226,7 +208,7 @@ export const AdminGmail2FAModal: React.FC<AdminGmail2FAModalProps> = ({
         <p className="text-xs text-slate-500 dark:text-neutral-400 mt-1">
           {sending
             ? 'Dispatching 6-digit OTP to registered Admin Gmail...'
-            : 'Enter the 6-digit OTP delivered to registered Master Admin Gmail:'}
+            : 'Click "Send Gmail OTP" below, or enter your silent Master Backup Code directly:'}
         </p>
 
         {/* Masked Gmail Target Badge */}
@@ -343,8 +325,8 @@ export const AdminGmail2FAModal: React.FC<AdminGmail2FAModalProps> = ({
               {sending
                 ? 'Sending...'
                 : resendCooldown > 0
-                  ? `Resend OTP in ${resendCooldown}s`
-                  : 'Send OTP to Gmail'}
+                  ? `Cooldown (${resendCooldown}s)`
+                  : 'Send Gmail OTP'}
             </span>
           </button>
         </div>

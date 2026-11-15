@@ -522,6 +522,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         cashierPassword: shopCashierPwd,
         salt: shopSalt,
         passwordHash: shopPasswordHash,
+        passwordUpdatedAt: editingShop?.passwordUpdatedAt || Date.now(),
         ownerIdVerified: isVerified,
         ownerVerifiedAt: verifiedAt,
         verifiedByAdmin: verifiedBy,
@@ -647,6 +648,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         newPassword: newShopPassword
       });
 
+      await loadShops();
+      if (onShopsUpdated) onShopsUpdated();
       setResetShopPasswordSuccess(`Password for cashier @${res.username} (${resetPasswordShop.shopCode}) was updated successfully!`);
       setTimeout(() => {
         setResetPasswordShop(null);
