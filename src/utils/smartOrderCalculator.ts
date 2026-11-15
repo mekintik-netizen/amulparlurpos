@@ -80,7 +80,8 @@ export function calculateSmartOrderSuggestions({
 
       const avgDailySales = Math.round((totalSoldInCycle / cycleDays) * 1000) / 1000;
       const currentStock = Math.max(0, Number(p.currentStock) || 0);
-      const minStockAlert = Math.max(0, Number(p.minStockAlert) ?? 5);
+      const rawAlert = p.minStockAlert ?? 5;
+      const minStockAlert = Math.max(0, Number.isFinite(Number(rawAlert)) ? Number(rawAlert) : 5);
 
       const suggestedQty = Math.max(
         0,
