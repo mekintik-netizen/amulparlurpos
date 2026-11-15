@@ -41,7 +41,8 @@ import {
   LogOut,
   Printer,
   Download,
-  Monitor
+  Monitor,
+  FlaskConical
 } from 'lucide-react';
 import { Shop, ShopApprovalStatus, SubscriptionPlanId, SubscriptionStatus, SUBSCRIPTION_PLANS } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
@@ -49,6 +50,11 @@ import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShop
 import { isShopSubscriptionActive, activateOneMonthSubscription, renewShopSubscription } from '../../storage/subscription.ts';
 import { getAdminAuthConfig, updateAdminAuthConfig, subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/firebase.ts';
 import { startAdminShopsRealtimeSync } from '../../storage/firestoreSync.ts';
+import {
+  AiConfigSummary,
+  saveAdminAiConfig,
+  subscribeToAdminAiConfig
+} from '../../storage/aiConfig.ts';
 import { convertImageToIco, downloadIcoFile, applyDynamicFavicon } from '../../utils/icoConverter.ts';
 import { AdminOneTimeSetup } from './AdminOneTimeSetup.tsx';
 import { MonthlyRevenueChart } from './MonthlyRevenueChart.tsx';
@@ -62,6 +68,7 @@ interface AdminPortalProps {
   currentUser?: AuthSession | null;
   onShopsUpdated?: () => void;
   onLogout?: () => void;
+  onOpenTests?: () => void;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({ 
@@ -69,7 +76,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   activeShopId,
   currentUser,
   onShopsUpdated,
-  onLogout
+  onLogout,
+  onOpenTests
 }) => {
   const [shops, setShops] = useState<Shop[]>([]);
   const [loading, setLoading] = useState(true);
@@ -148,6 +156,17 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [shopToDelete, setShopToDelete] = useState<Shop | null>(null);
   const [isDeletingShop, setIsDeletingShop] = useState(false);
 
+  // Master Admin AI Configuration (`adminSettings/aiConfig`)
+  const [aiConfigSummary, setAiConfigSummary] = useState<AiConfigSummary>({
+    hasApiKey: false,
+    maskedKey: '',
+    aiGlobalEnabled: true
+  });
+  const [aiApiKeyInput, setAiApiKeyInput] = useState('');
+  const [showAiApiKey, setShowAiApiKey] = useState(false);
+  const [isSavingAiConfig, setIsSavingAiConfig] = useState(false);
+  const [aiConfigToast, setAiConfigToast] = useState<string | null>(null);
+
   // Keep admin session synced
   useEffect(() => {
     if (currentUser?.role === 'ADMIN') {
@@ -165,6 +184,76 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     });
     return () => unsub();
   }, []);
+
+  // Sync Master Admin AI Config (`adminSettings/aiConfig`) from Firestore in real-time
+  useEffect(() => {
+    const unsub = subscribeToAdminAiConfig((summary) => {
+      setAiConfigSummary(summary);
+    });
+    return () => unsub();
+  }, []);
+
+  const handleSaveAiKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!aiApiKeyInput.trim()) return;
+    try {
+      setIsSavingAiConfig(true);
+      const updated = await saveAdminAiConfig({
+        apiKey: aiApiKeyInput.trim(),
+        aiGlobalEnabled: aiConfigSummary.aiGlobalEnabled,
+        updatedBy: currentUser?.username || 'Master Admin'
+      });
+      setAiConfigSummary(updated);
+      setAiApiKeyInput('');
+      setAiConfigToast('Master Gemini API Key securely obfuscated and synced to Cloud Firestore (adminSettings/aiConfig)!');
+      setTimeout(() => setAiConfigToast(null), 5000);
+    } catch (err: unknown) {
+      alert(`Failed to save AI API key: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSavingAiConfig(false);
+    }
+  };
+
+  const handleToggleGlobalAi = async () => {
+    try {
+      setIsSavingAiConfig(true);
+      const updated = await saveAdminAiConfig({
+        aiGlobalEnabled: !aiConfigSummary.aiGlobalEnabled,
+        updatedBy: currentUser?.username || 'Master Admin'
+      });
+      setAiConfigSummary(updated);
+      setAiConfigToast(
+        updated.aiGlobalEnabled
+          ? 'Amul AI globally enabled across approved parlours.'
+          : 'Amul AI globally paused by Master Admin.'
+      );
+      setTimeout(() => setAiConfigToast(null), 4000);
+    } catch (err: unknown) {
+      alert(`Failed to update AI settings: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setIsSavingAiConfig(false);
+    }
+  };
+
+  const handleToggleShopAi = async (shop: Shop) => {
+    try {
+      const nextEnabled = shop.aiEnabled === false;
+      const updatedShop: Shop = {
+        ...shop,
+        aiEnabled: nextEnabled,
+        updatedAt: new Date().toISOString()
+      };
+      await AppRepository.shops.save(updatedShop);
+      await loadShops();
+      if (onShopsUpdated) onShopsUpdated();
+      setToastMessage(
+        `${shop.name} (${shop.shopCode}) માટે Amul AI ${nextEnabled ? 'ચાલુ (Active)' : 'બંધ (Suspended)'} કરવામાં આવ્યું.`
+      );
+      setTimeout(() => setToastMessage(null), 4000);
+    } catch (err: unknown) {
+      alert(`Failed to toggle shop AI status: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   const handleQrFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -682,6 +771,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
             </div>
 
             <div className="flex items-center gap-3">
+              {onOpenTests && (
+                <button
+                  type="button"
+                  onClick={onOpenTests}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+                  title="Run Automated System Verification Test Suite (13 Tests)"
+                >
+                  <FlaskConical className="w-4 h-4" />
+                  <span>Verify</span>
+                </button>
+              )}
+
               <button
                 onClick={openNewShopModal}
                 className="bg-[#005A9C] hover:bg-blue-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer"
@@ -931,6 +1032,87 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           {/* Sub-Tab 4: Shops & Franchises Table */}
           {adminSubTab === 'SHOPS' && (
             <>
+              {/* Master Admin AI Configuration / AI સેટિંગ્સ Card */}
+              <div className="bg-white rounded-2xl p-5 border border-blue-200/90 shadow-xs space-y-4">
+                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-blue-50 text-[#005A9C] flex items-center justify-center border border-blue-200 shrink-0">
+                      <Sparkles className="w-5 h-5 text-amber-500" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-extrabold text-slate-900 flex flex-wrap items-center gap-2">
+                        <span>AI Configuration / AI સેટિંગ્સ</span>
+                        <span
+                          className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
+                            aiConfigSummary.hasApiKey
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : 'bg-amber-50 text-amber-700 border-amber-200'
+                          }`}
+                        >
+                          {aiConfigSummary.hasApiKey ? `Key Active (${aiConfigSummary.maskedKey})` : 'No Cloud Key Saved'}
+                        </span>
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        Save or update the Master Gemini API Key securely into Cloud Firestore (<code className="font-mono bg-slate-100 px-1 rounded">adminSettings/aiConfig</code>, obfuscated &amp; never stored in plain source files). Only logged-in shops with <strong>AI Active</strong> enabled can access Amul AI.
+                      </p>
+                      {aiConfigToast && (
+                        <div className="mt-2 text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                          <span>{aiConfigToast}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={handleToggleGlobalAi}
+                      disabled={isSavingAiConfig}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold transition border cursor-pointer ${
+                        aiConfigSummary.aiGlobalEnabled
+                          ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                          : 'bg-rose-50 text-rose-800 border-rose-300 hover:bg-rose-100'
+                      }`}
+                    >
+                      {aiConfigSummary.aiGlobalEnabled ? 'Global AI: Active' : 'Global AI: Paused'}
+                    </button>
+                  </div>
+                </div>
+
+                <form onSubmit={handleSaveAiKey} className="flex flex-col sm:flex-row gap-2.5">
+                  <div className="relative flex-1">
+                    <Key className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                    <input
+                      type={showAiApiKey ? 'text' : 'password'}
+                      value={aiApiKeyInput}
+                      onChange={(e) => setAiApiKeyInput(e.target.value)}
+                      placeholder={
+                        aiConfigSummary.hasApiKey
+                          ? `Enter new Master Gemini API Key to replace ${aiConfigSummary.maskedKey}...`
+                          : 'Enter Master Gemini API Key (AIza...) to enable Amul AI across shops'
+                      }
+                      className="w-full pl-9 pr-10 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-[#005A9C] focus:outline-hidden"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowAiApiKey((prev) => !prev)}
+                      className="absolute right-2.5 top-2 text-slate-400 hover:text-slate-700 cursor-pointer"
+                      title={showAiApiKey ? 'Hide key' : 'Show key'}
+                    >
+                      {showAiApiKey ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSavingAiConfig || !aiApiKeyInput.trim()}
+                    className="bg-[#005A9C] hover:bg-blue-800 disabled:bg-slate-400 text-white px-4 py-2 rounded-xl text-xs font-bold transition cursor-pointer shrink-0 shadow-xs"
+                  >
+                    {isSavingAiConfig ? 'Saving...' : 'Save AI Key to Cloud'}
+                  </button>
+                </form>
+              </div>
+
               {/* Subscription Plans Overview Cards */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {(Object.keys(SUBSCRIPTION_PLANS) as SubscriptionPlanId[]).map((key) => {
@@ -1003,6 +1185,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <th className="py-3 px-2">Owner & Contact</th>
                     <th className="py-3 px-2 text-center">Owner Verification</th>
                     <th className="py-3 px-2 text-center">Plan</th>
+                    <th className="py-3 px-2 text-center">AI Active</th>
                     <th className="py-3 px-3 text-center">Subscription Expiry Date</th>
                     <th className="py-3 px-3 text-right">Admin Actions</th>
                   </tr>
@@ -1065,6 +1248,25 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <td className="py-3 px-2 text-center">
                         <div className="font-bold text-slate-800 text-xs">{shop.subscriptionPlanId || '1-MONTH'}</div>
                         <div className="text-[10px] text-slate-400 capitalize">{shop.subscriptionStatus?.toLowerCase() || 'active'}</div>
+                      </td>
+                      <td className="py-3 px-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleToggleShopAi(shop)}
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition border cursor-pointer ${
+                            shop.aiEnabled !== false
+                              ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                              : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
+                          }`}
+                          title="Toggle Amul AI access for this shop"
+                        >
+                          <Sparkles
+                            className={`w-3 h-3 ${
+                              shop.aiEnabled !== false ? 'text-amber-500' : 'text-slate-400'
+                            }`}
+                          />
+                          <span>{shop.aiEnabled !== false ? 'AI Active' : 'Suspended'}</span>
+                        </button>
                       </td>
                       <td className="py-3 px-3 text-center">
                         {(() => {

@@ -12,6 +12,7 @@ import {
   initializeFirestore,
   enableNetwork,
   disableNetwork,
+  setLogLevel,
   Firestore,
   doc,
   setDoc,
@@ -38,13 +39,23 @@ export const firebaseConfig: AppletFirebaseConfig = firebaseAppletConfig;
 export const app: FirebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 function initFirestoreInstance(firebaseApp: FirebaseApp): Firestore {
+  // Prevent @firebase/firestore internal OnlineStateTracker from emitting noisy 10s console.error on offline/proxy devices;
+  // application-level try/catch and onSnapshot error handlers still report actual operation failures.
+  try {
+    if (typeof setLogLevel === 'function') {
+      setLogLevel('silent');
+    }
+  } catch {
+    // ignore in restricted environments
+  }
+
   const databaseId = firebaseConfig.firestoreDatabaseId;
   try {
-    // Use HTTP long-polling so proxy, iframe, and restricted HTTP/2 environments do not stall on WebChannel for 10s
+    // Auto-detect long-polling cleanly so standard HTTP/2 WebChannel works when available and proxies fall back smoothly
     return initializeFirestore(
       firebaseApp,
       {
-        experimentalForceLongPolling: true,
+        experimentalAutoDetectLongPolling: true,
         ignoreUndefinedProperties: true
       },
       databaseId
@@ -57,33 +68,79 @@ function initFirestoreInstance(firebaseApp: FirebaseApp): Firestore {
 export const db: Firestore = initFirestoreInstance(app);
 export const auth: Auth = getAuth(app);
 
+let networkEnabled = typeof navigator === 'undefined' ? true : navigator.onLine;
+
+/**
+ * Fast pre-flight reachability probe against Firestore REST endpoint with strict timeout.
+ * Prevents Firestore's internal 10-second watch stream timeout when offline or behind blocking proxies.
+ */
+export async function probeFirestoreReachability(timeoutMs: number = 3500): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return false;
+  }
+  if (typeof fetch !== 'function' || typeof AbortController !== 'function') {
+    return true;
+  }
+
+  const dbName = firebaseConfig.firestoreDatabaseId || '(default)';
+  const probeUrl = `https://firestore.googleapis.com/v1/projects/${firebaseConfig.projectId}/databases/${encodeURIComponent(
+    dbName
+  )}/documents/adminSettings/connectionCheck`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    // Any HTTP response (including 403/404) confirms HTTPS connectivity to Cloud Firestore backend
+    await fetch(probeUrl, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal
+    });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function setFirestoreOfflineCleanly(): Promise<void> {
+  networkEnabled = false;
+  try {
+    await disableNetwork(db);
+  } catch {
+    // ignore
+  }
+}
+
+async function syncNetworkStateWithConnectivity(): Promise<boolean> {
+  const reachable = await probeFirestoreReachability(3500);
+  if (!reachable) {
+    await setFirestoreOfflineCleanly();
+    return false;
+  }
+  if (!networkEnabled) {
+    networkEnabled = true;
+    try {
+      await enableNetwork(db);
+    } catch {
+      // ignore
+    }
+  }
+  return true;
+}
+
 // Keep Firestore network state aligned with browser connectivity so offline states never log 10s backend timeouts
 if (typeof window !== 'undefined' && typeof document !== 'undefined' && typeof navigator !== 'undefined') {
   if (!navigator.onLine) {
-    disableNetwork(db).catch(() => {});
+    setFirestoreOfflineCleanly().catch(() => {});
   }
   window.addEventListener('offline', () => {
-    disableNetwork(db).catch(() => {});
+    setFirestoreOfflineCleanly().catch(() => {});
   });
   window.addEventListener('online', () => {
-    enableNetwork(db).catch(() => {});
+    syncNetworkStateWithConnectivity().catch(() => {});
   });
-}
-
-// Validate server connectivity cleanly in browser runtime when online
-export async function validateFirestoreConnection(): Promise<void> {
-  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
-  try {
-    await getDocFromServer(doc(db, 'adminSettings', 'authConfig'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.warn('[Firebase] Firestore client is currently operating offline.');
-    }
-  }
-}
-
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-  validateFirestoreConnection().catch(() => {});
 }
 
 // Check existing session via onAuthStateChanged and silently authenticate anonymously if needed
@@ -97,7 +154,10 @@ export const authReady: Promise<void> = new Promise<void>((resolve) => {
   };
 
   // Never block local-first IndexedDB UI if network auth is slow or offline
-  const timeoutId = setTimeout(finish, 5000);
+  const timeoutId = setTimeout(() => {
+    setFirestoreOfflineCleanly().catch(() => {});
+    finish();
+  }, 4500);
 
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     clearTimeout(timeoutId);
@@ -125,6 +185,7 @@ export const authReady: Promise<void> = new Promise<void>((resolve) => {
           console.log('[Firebase] Secure anonymous session active');
         } catch (error: any) {
           console.warn('[Firebase] Anonymous auth deferred (offline/local mode):', error?.code || error?.message);
+          await setFirestoreOfflineCleanly();
         } finally {
           clearTimeout(timeoutId);
           finish();
@@ -132,6 +193,7 @@ export const authReady: Promise<void> = new Promise<void>((resolve) => {
       },
       () => {
         clearTimeout(timeoutId);
+        setFirestoreOfflineCleanly().catch(() => {});
         finish();
       }
     );
@@ -143,6 +205,43 @@ export const authReady: Promise<void> = new Promise<void>((resolve) => {
 
 export function ensureAnonymousAuth(): Promise<void> {
   return authReady;
+}
+
+/**
+ * Validates Cloud Firestore connectivity after authentication without stalling for 10s.
+ * If the backend is unreachable or does not respond within 5s, cleanly switches Firestore
+ * into offline mode so IndexedDB operates uninterrupted.
+ */
+export async function validateFirestoreConnection(): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    await setFirestoreOfflineCleanly();
+    return false;
+  }
+  await authReady;
+  const reachable = await syncNetworkStateWithConnectivity();
+  if (!reachable) return false;
+
+  try {
+    const serverCheck = getDocFromServer(doc(db, 'adminSettings', 'connectionCheck'));
+    const timedOut = await Promise.race([
+      serverCheck.then(() => false),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 5000))
+    ]);
+    if (timedOut) {
+      await setFirestoreOfflineCleanly();
+      return false;
+    }
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      await setFirestoreOfflineCleanly();
+    }
+    return false;
+  }
+}
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  validateFirestoreConnection().catch(() => {});
 }
 
 export interface AdminAuthConfig {

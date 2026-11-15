@@ -830,15 +830,7 @@ export async function createSaleBill(
     const prodStore = tx.objectStore('products');
     const movStore = tx.objectStore('stockMovements');
 
-    // 1. Idempotency Check: prevent duplicate sales and double deductions
-    const idempIndex = saleStore.index('idempotencyKey');
-    const checkReq = idempIndex.get(billData.idempotencyKey);
-
-    checkReq.onsuccess = () => {
-      if (checkReq.result) {
-        return resolve(checkReq.result as SaleBill);
-      }
-
+    const performCreate = () => {
       const newBill: SaleBill = {
         ...billData,
         id: `sale-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
@@ -858,7 +850,7 @@ export async function createSaleBill(
             prodStore.put(prod);
 
             const mov: StockMovement = {
-              id: `mov-sale-${Date.now()}-${item.productId}`,
+              id: `mov-sale-${Date.now()}-${Math.random().toString(36).substring(2, 6)}-${item.productId}`,
               shopId: newBill.shopId,
               productId: item.productId,
               productName: item.productName,
@@ -899,10 +891,27 @@ export async function createSaleBill(
       saleStore.add(newBill);
 
       tx.oncomplete = () => resolve(newBill);
-      tx.onerror = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error || new Error('Failed to commit sale bill'));
+      tx.onabort = () => reject(tx.error || new Error('Sale transaction aborted'));
     };
 
-    checkReq.onerror = () => reject(checkReq.error);
+    // 1. Idempotency Check: prevent duplicate sales and double deductions
+    if (billData.idempotencyKey && saleStore.indexNames.contains('idempotencyKey')) {
+      const idempIndex = saleStore.index('idempotencyKey');
+      const checkReq = idempIndex.get(billData.idempotencyKey);
+
+      checkReq.onsuccess = () => {
+        if (checkReq.result) {
+          resolve(checkReq.result as SaleBill);
+          return;
+        }
+        performCreate();
+      };
+
+      checkReq.onerror = () => reject(checkReq.error || new Error('Idempotency lookup failed'));
+    } else {
+      performCreate();
+    }
   });
 }
 

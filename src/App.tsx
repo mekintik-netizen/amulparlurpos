@@ -40,6 +40,7 @@ import { ReportsHub } from './components/reports/ReportsHub.tsx';
 import { BackupManagementView } from './components/backup/BackupManagementView.tsx';
 import { ShopProfileManagement } from './components/profile/ShopProfileManagement.tsx';
 import { BankStatementManagement } from './components/banking/BankStatementManagement.tsx';
+import { AmulAiAssistant } from './components/ai/AmulAiAssistant.tsx';
 import { RightSideNavigation } from './components/layout/RightSideNavigation.tsx';
 import { MorningGreetingModal } from './components/common/MorningGreetingModal.tsx';
 import { SubscriptionExpiredLockOverlay } from './components/common/SubscriptionExpiredLockOverlay.tsx';
@@ -51,6 +52,11 @@ import { AuthSession, UserRole, getActiveSession, clearActiveSession, ensureDefa
 import { isShopSubscriptionActive } from './storage/subscription.ts';
 import { startShopRealtimeSync, startAdminShopsRealtimeSync } from './storage/firestoreSync.ts';
 import { subscribeToAdminAuthConfig, updateAdminAuthConfig } from './storage/firebase.ts';
+import {
+  clearAiSessionMemory,
+  isAiAccessAllowedForSession,
+  loadAiSessionConfig
+} from './storage/aiConfig.ts';
 import { applyDynamicFavicon, uint8ArrayToBase64 } from './utils/icoConverter.ts';
 import { Theme, getStoredTheme, applyTheme } from './storage/theme.ts';
 import { RefreshCw, AlertCircle, Store, Shield } from 'lucide-react';
@@ -77,6 +83,7 @@ export default function App() {
   const [isStockModalOpen, setIsStockModalOpen] = useState(false);
   const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
+  const [isAiDrawerOpen, setIsAiDrawerOpen] = useState(false);
 
   const loadShops = async () => {
     try {
@@ -194,9 +201,25 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    clearAiSessionMemory();
+    setIsAiDrawerOpen(false);
+    setActiveTab('POS');
     clearActiveSession();
     setCurrentUser(null);
   };
+
+  // Load AI Config strictly into module-level session RAM when logged in & AI is enabled for shop
+  useEffect(() => {
+    if (!isAiAccessAllowedForSession(currentUser, currentShop)) {
+      clearAiSessionMemory();
+      setIsAiDrawerOpen(false);
+      if (activeTab === 'AMUL_AI') {
+        setActiveTab('POS');
+      }
+      return;
+    }
+    loadAiSessionConfig(currentShop, currentUser).catch(() => {});
+  }, [currentUser?.username, currentUser?.role, currentShop?.id, currentShop?.aiEnabled]);
 
   // Background automated scheduled daily backup runner (Checks while website is open)
   useEffect(() => {
@@ -224,12 +247,12 @@ export default function App() {
 
   // Real-time Firestore sync for active shop data (bills, inventory, expenses, bank statements)
   useEffect(() => {
-    if (!currentShop?.id) return;
+    if (!currentUser || !currentShop?.id) return;
     const unsubShop = startShopRealtimeSync(currentShop.id, () => {
       loadShops();
     });
     return () => unsubShop.unsubscribeAll();
-  }, [currentShop?.id]);
+  }, [currentUser?.username, currentShop?.id]);
 
   // Real-time Firestore sync for Admin HQ shops collection
   useEffect(() => {
@@ -332,8 +355,8 @@ export default function App() {
         shops={shops}
         currentShop={currentShop}
         onSelectShop={setCurrentShop}
-        onOpenTests={() => setIsTestModalOpen(true)}
         onOpenBackup={() => setIsBackupModalOpen(true)}
+        onOpenAiDrawer={() => setIsAiDrawerOpen(true)}
         currentUser={currentUser}
         onLogout={handleLogout}
         onOpenShopLogin={() => setLoginModal({ isOpen: true, initialRole: 'SHOP_USER' })}
@@ -379,6 +402,18 @@ export default function App() {
                 <SmartOrderManagement
                   currentShop={currentShop}
                   onOpenPurchases={() => setActiveTab('PURCHASES')}
+                />
+              )}
+
+              {activeTab === 'AMUL_AI' && isAiAccessAllowedForSession(currentUser, currentShop) && (
+                <AmulAiAssistant
+                  currentShop={currentShop}
+                  currentUser={currentUser}
+                  mode="page"
+                  onShopUpdated={(updated) => {
+                    setCurrentShop(updated);
+                    setShops((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+                  }}
                 />
               )}
 
@@ -439,6 +474,7 @@ export default function App() {
                   currentUser={currentUser}
                   onShopsUpdated={loadShops}
                   onLogout={handleLogout}
+                  onOpenTests={() => setIsTestModalOpen(true)}
                 />
               )}
             </>
@@ -521,6 +557,20 @@ export default function App() {
             setLoginModal({ isOpen: false, initialRole: 'SHOP_USER' });
           }}
           onClose={() => setLoginModal(prev => ({ ...prev, isOpen: false }))}
+        />
+      )}
+
+      {/* 10. Quick Amul AI Slide-Over Drawer (Non-blocking over POS or any screen) */}
+      {isAiDrawerOpen && currentShop && isAiAccessAllowedForSession(currentUser, currentShop) && (
+        <AmulAiAssistant
+          currentShop={currentShop}
+          currentUser={currentUser}
+          mode="drawer"
+          onClose={() => setIsAiDrawerOpen(false)}
+          onShopUpdated={(updated) => {
+            setCurrentShop(updated);
+            setShops((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+          }}
         />
       )}
     </div>

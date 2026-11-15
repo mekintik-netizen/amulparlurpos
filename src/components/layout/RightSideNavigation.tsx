@@ -35,6 +35,7 @@ import { Shop } from '../../types/index.ts';
 import { AuthSession } from '../../storage/auth.ts';
 import { Theme } from '../../storage/theme.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
+import { isAiAccessAllowedForSession } from '../../storage/aiConfig.ts';
 
 interface RightSideNavigationProps {
   activeTab: ActiveTab;
@@ -65,6 +66,7 @@ export const RightSideNavigation: React.FC<RightSideNavigationProps> = ({
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const subCheck = currentShop ? isShopSubscriptionActive(currentShop) : null;
+  const showAiAssistant = isAiAccessAllowedForSession(currentUser, currentShop);
 
   const navItems = [
     {
@@ -86,6 +88,14 @@ export const RightSideNavigation: React.FC<RightSideNavigationProps> = ({
       sub: 'ઓટો ઓર્ડર & પર્ચેઝ લિસ્ટ',
       icon: ClipboardList,
       badge: 'Auto'
+    },
+    {
+      key: 'AMUL_AI' as ActiveTab,
+      label: 'Amul AI',
+      sub: 'AI સહાયક & બિઝનેસ સલાહ',
+      icon: Sparkles,
+      badge: 'AI',
+      aiOnly: true
     },
     {
       key: 'STOCK' as ActiveTab,
@@ -185,7 +195,7 @@ export const RightSideNavigation: React.FC<RightSideNavigationProps> = ({
       {/* Main Function Navigation List */}
       <div className="flex-1 py-3 px-2 space-y-1 overflow-y-auto">
         {navItems
-          .filter((item) => !item.adminOnly || currentUser?.role === 'ADMIN')
+          .filter((item) => (!item.adminOnly || currentUser?.role === 'ADMIN') && (!item.aiOnly || showAiAssistant))
           .map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.key;
@@ -276,13 +286,15 @@ export const RightSideNavigation: React.FC<RightSideNavigationProps> = ({
             <Database className="w-4 h-4 text-blue-600" />
           </button>
 
-          <button
-            onClick={onOpenTests}
-            className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
-            title="Diagnostic Test Suite"
-          >
-            <FlaskConical className="w-4 h-4 text-purple-600" />
-          </button>
+          {currentUser?.role === 'ADMIN' && (
+            <button
+              onClick={onOpenTests}
+              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition cursor-pointer"
+              title="Diagnostic Test Suite (Admin)"
+            >
+              <FlaskConical className="w-4 h-4 text-purple-600" />
+            </button>
+          )}
 
           {currentUser ? (
             <button

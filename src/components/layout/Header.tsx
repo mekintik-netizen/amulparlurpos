@@ -11,7 +11,6 @@ import {
   Package, 
   Receipt, 
   ShieldCheck, 
-  FlaskConical, 
   ChevronDown,
   Truck,
   Calculator,
@@ -29,18 +28,21 @@ import {
   QrCode,
   Wifi,
   WifiOff,
-  ClipboardList
+  ClipboardList,
+  Sparkles
 } from 'lucide-react';
 import { Shop } from '../../types/index.ts';
 import { AuthSession } from '../../storage/auth.ts';
 import { Theme } from '../../storage/theme.ts';
 import { useNetworkStatus } from '../../storage/offlineSyncManager.ts';
+import { isAiAccessAllowedForSession } from '../../storage/aiConfig.ts';
 import amulLogo from '../../assets/logo.ts';
 
 export type ActiveTab = 
   | 'POS' 
   | 'PURCHASES'
   | 'SMART_ORDER'
+  | 'AMUL_AI'
   | 'STOCK' 
   | 'SALES' 
   | 'REPORTS'
@@ -57,8 +59,8 @@ interface HeaderProps {
   shops: Shop[];
   currentShop: Shop | null;
   onSelectShop: (shop: Shop) => void;
-  onOpenTests: () => void;
   onOpenBackup: () => void;
+  onOpenAiDrawer?: () => void;
   currentUser?: AuthSession | null;
   onLogout?: () => void;
   onOpenShopLogin: () => void;
@@ -73,7 +75,7 @@ export const Header: React.FC<HeaderProps> = ({
   shops,
   currentShop,
   onSelectShop,
-  onOpenTests,
+  onOpenAiDrawer,
   currentUser,
   onLogout,
   onOpenShopLogin,
@@ -82,6 +84,7 @@ export const Header: React.FC<HeaderProps> = ({
   onToggleTheme
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN';
+  const showAiAssistant = isAiAccessAllowedForSession(currentUser, currentShop);
   const { isOnline } = useNetworkStatus(currentShop?.id);
 
   return (
@@ -148,6 +151,22 @@ export const Header: React.FC<HeaderProps> = ({
               <ClipboardList className="w-4 h-4" />
               <span>Smart Order</span>
             </button>
+
+            {showAiAssistant && (
+              <button
+                type="button"
+                onClick={() => (onOpenAiDrawer ? onOpenAiDrawer() : onTabChange('AMUL_AI'))}
+                className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 whitespace-nowrap cursor-pointer border ${
+                  activeTab === 'AMUL_AI'
+                    ? 'bg-amber-300 text-slate-950 border-amber-200 shadow-sm'
+                    : 'bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 border-amber-300/40'
+                }`}
+                title="Amul AI Business Assistant (AI સહાયક & બિઝનેસ સલાહ)"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                <span>✨ Amul AI</span>
+              </button>
+            )}
 
             <button
               onClick={() => onTabChange('STOCK')}
@@ -388,16 +407,6 @@ export const Header: React.FC<HeaderProps> = ({
                 )}
               </button>
             )}
-
-            {/* Run Automated Tests Button */}
-            <button
-              onClick={onOpenTests}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white p-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-              title="Run Automated Verification Test Suite"
-            >
-              <FlaskConical className="w-4 h-4" />
-              <span className="hidden xl:inline">Verify</span>
-            </button>
 
             {/* Logout / Switch User */}
             {onLogout && (

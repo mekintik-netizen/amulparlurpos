@@ -92,6 +92,9 @@ export interface Shop {
   ownerIdentityNumber?: string; // Aadhaar / PAN / Franchise Agreement ID
   isFirstMonth?: boolean; // True for first month / trial / onboarding shops
   renewalCount?: number; // Number of times subscription has been renewed
+  aiEnabled?: boolean; // Whether Amul AI Assistant is active for this shop (defaults to true)
+  encodedGeminiApiKey?: string; // Optional obfuscated shop-level Gemini API key set in Shop Profile
+  maskedGeminiApiKey?: string; // Display-safe masked preview of shop-level key
   createdAt: string;
   updatedAt: string;
 }
@@ -597,4 +600,121 @@ export const DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG: SubscriptionSettingsConfig = 
   whatsappMessageTemplate: 'નમસ્તે એડમિન, મેં અમુલ પાર્લર ({shopName} - {shopCode}) માટે ₹{amount} નું સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને સબ્સ્ક્રિપ્શન રિન્યુ કરી આપશો.'
 };
 
+// ==========================================
+// AMUL AI BUSINESS ASSISTANT (AI સહાયક)
+// ==========================================
+
+export interface AdminAiConfig {
+  encodedApiKey: string;
+  maskedKey: string;
+  aiGlobalEnabled: boolean;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface AiChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: string;
+  isError?: boolean;
+  sourceMode?: 'gemini' | 'local';
+}
+
+export interface ShopAiContextSummary {
+  generatedAt: string;
+  shop: {
+    id: string;
+    shopCode: string;
+    name: string;
+    city: string;
+    ownerName: string;
+  };
+  salesMetrics: {
+    todayDate: string;
+    todayBills: number;
+    todayRevenue: number;
+    todayCogs: number;
+    todayGrossProfit: number;
+    todayExpenses: number;
+    todayNetProfit: number;
+    todayByPaymentMode: {
+      cash: number;
+      upi: number;
+      card: number;
+      credit: number;
+    };
+    last7DaysBills: number;
+    last7DaysRevenue: number;
+    last7DaysExpenses: number;
+    last7DaysEstimatedNetProfit: number;
+    last30DaysBills: number;
+    last30DaysRevenue: number;
+    last30DaysExpenses: number;
+    last30DaysEstimatedNetProfit: number;
+  };
+  topSellingProducts7d: Array<{
+    productName: string;
+    unit: string;
+    qtySold: number;
+    revenue: number;
+    currentStock: number;
+  }>;
+  lowStockItems: Array<{
+    productName: string;
+    unit: string;
+    currentStock: number;
+    minStockAlert: number;
+    costPrice: number;
+    sellingPrice: number;
+  }>;
+  outOfStockCount: number;
+  lowStockCount: number;
+  deadStockItems30d: Array<{
+    productName: string;
+    category: string;
+    unit: string;
+    currentStock: number;
+    stockValueAtCost: number;
+  }>;
+  smartOrder7dRecommendations: Array<{
+    productName: string;
+    unit: string;
+    currentStock: number;
+    avgDailySales: number;
+    suggestedQty: number;
+    purchaseRate: number;
+    estimatedCost: number;
+  }>;
+  pendingCustomerDues: {
+    totalPendingAmount: number;
+    totalCreditBills: number;
+    customers: Array<{
+      customerName: string;
+      customerPhone?: string;
+      dueAmount: number;
+      billCount: number;
+      lastBillDate: string;
+    }>;
+  };
+  pendingSupplierPayables: {
+    totalPendingBillsAmount: number;
+    totalSupplierLedgerBalance: number;
+    pendingBills: Array<{
+      billNumber: string;
+      agencyName: string;
+      purchaseDate: string;
+      totalAmount: number;
+      paidAmount: number;
+      dueAmount: number;
+      status: string;
+    }>;
+    suppliersWithBalance: Array<{
+      supplierName: string;
+      companyName: string;
+      phone: string;
+      payableBalance: number;
+    }>;
+  };
+}
 
