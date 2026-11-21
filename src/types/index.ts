@@ -89,6 +89,7 @@ export interface Shop {
   ifscCode?: string; // e.g. 'SBIN0000315'
   upiId?: string; // e.g. 'amulparlour.anand@sbi'
   qrCodeImageUrl?: string; // Base64 data URL or custom image URL for the shop's payment QR
+  logoUrl?: string; // Optional custom shop logo uploaded by the shop owner for PDFs & receipts
   approvalStatus: ShopApprovalStatus;
   subscriptionPlanId: SubscriptionPlanId;
   subscriptionStatus: SubscriptionStatus;
@@ -550,7 +551,7 @@ export interface PrintSettingsConfig {
 
 export const DEFAULT_PRINT_SETTINGS_CONFIG: PrintSettingsConfig = {
   showHeaderLogo: true,
-  headerTitle: 'PARLOURPRO POS',
+  headerTitle: '',
   showShopName: true,
   customShopName: '',
   showAddress: true,
@@ -563,7 +564,7 @@ export const DEFAULT_PRINT_SETTINGS_CONFIG: PrintSettingsConfig = {
   customFssai: '',
 
   footerNote1: 'Thank you! Please visit again',
-  footerNote2: 'Smart Billing & Inventory • ParlourPro POS',
+  footerNote2: 'We value your business!',
   footerNote3: 'Goods once sold will not be taken back',
   showPaymentMode: true,
   showBarcodeSimulation: true,

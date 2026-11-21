@@ -39,7 +39,7 @@ import { subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/fireb
 import { downloadIcoFile } from '../../utils/icoConverter.ts';
 import { encodeAiApiKey, maskApiKey } from '../../utils/aiKeyCodec.ts';
 import { changeShopOwnPassword, getShopPasswordAgeDays } from '../../storage/auth.ts';
-import amulLogo from '../../assets/logo.ts';
+import { RECEIPT_FOOTER_BRAND_CREDIT } from '../../utils/shopPdfBranding.ts';
 
 interface ShopProfileManagementProps {
   currentShop: Shop;
@@ -70,6 +70,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
   const [ifscCode, setIfscCode] = useState(currentShop.ifscCode || '');
   const [upiId, setUpiId] = useState(currentShop.upiId || '');
   const [qrCodeImageUrl, setQrCodeImageUrl] = useState<string>(currentShop.qrCodeImageUrl || '');
+  const [logoUrl, setLogoUrl] = useState<string>(currentShop.logoUrl || '');
 
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -95,6 +96,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
   const [shopPwdSuccess, setShopPwdSuccess] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const unsub = subscribeToAdminAuthConfig((cfg) => {
@@ -132,9 +134,34 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
     setIfscCode(currentShop.ifscCode || '');
     setUpiId(currentShop.upiId || '');
     setQrCodeImageUrl(currentShop.qrCodeImageUrl || '');
+    setLogoUrl(currentShop.logoUrl || '');
     setShopGeminiKeyInput('');
     setClearShopGeminiKey(false);
   }, [currentShop.id]);
+
+  // Handle custom Shop Logo image upload (used on shop's PDFs & invoices)
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      setErrorMessage('Please upload a valid logo image (PNG, JPG, or WEBP).');
+      return;
+    }
+
+    if (file.size > 2 * 1024 * 1024) {
+      setErrorMessage('Shop logo image size should be less than 2 MB.');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      setLogoUrl(result);
+      setErrorMessage(null);
+    };
+    reader.readAsDataURL(file);
+  };
 
   // Handle QR image file upload
   const handleQrUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -209,6 +236,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
         ifscCode: ifscCode.trim().toUpperCase() || undefined,
         upiId: upiId.trim() || undefined,
         qrCodeImageUrl: qrCodeImageUrl.trim() || undefined,
+        logoUrl: logoUrl.trim() || undefined,
         encodedGeminiApiKey: nextEncodedKey,
         maskedGeminiApiKey: nextMaskedKey,
         updatedAt: new Date().toISOString()
@@ -353,6 +381,58 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
             </div>
 
             <div className="space-y-3">
+              {/* Custom Shop Logo Upload (Optional — printed ONLY on this shop's PDFs & receipts) */}
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  {logoUrl ? (
+                    <img
+                      src={logoUrl}
+                      alt={name || 'Shop Logo'}
+                      className="h-14 w-14 rounded-xl object-contain bg-white border border-slate-200 p-1 shrink-0"
+                    />
+                  ) : (
+                    <div className="h-14 w-14 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 flex items-center justify-center text-slate-400 shrink-0">
+                      <Store className="w-6 h-6" />
+                    </div>
+                  )}
+                  <div>
+                    <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200">
+                      દુકાનનો પોતાનો લોગો (Custom Shop Logo for PDFs &amp; Bills)
+                    </div>
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Optional: Upload your own shop logo (PNG/JPG, max 2 MB). If empty, PDFs &amp; bills print clean shop typography with no placeholder logo.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <input
+                    ref={logoInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={handleLogoUpload}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => logoInputRef.current?.click()}
+                    className="px-3 py-1.5 bg-white dark:bg-slate-900 hover:bg-slate-100 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-lg flex items-center gap-1.5 cursor-pointer transition"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{logoUrl ? 'Change Logo' : 'Upload Logo'}</span>
+                  </button>
+                  {logoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setLogoUrl('')}
+                      className="p-1.5 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition cursor-pointer"
+                      title="Remove Custom Shop Logo"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
                   દુકાનનું નામ (Shop Name in English) *
@@ -361,7 +441,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. ParlourPro Outlet - Main Market"
+                  placeholder="e.g. Shreenathji Parlour - Main Market"
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   required
                 />
@@ -980,38 +1060,42 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
               </div>
             </div>
 
-            {/* Standee Content Card Designed for Parlour Counter Display */}
-            <div className="border-4 border-[#005A9C] rounded-2xl p-6 text-center bg-white shadow-md">
-              {/* ParlourPro POS Brand Header */}
-              <div className="flex flex-col items-center justify-center mb-4 border-b-2 border-[#005A9C] pb-3">
-                <img
-                  src={amulLogo}
-                  alt="ParlourPro POS"
-                  className="h-14 w-14 rounded-full object-contain mb-1.5"
-                />
-                <div className="text-[11px] font-black uppercase text-[#005A9C] tracking-wider">
-                  ParlourPro POS • Smart Billing &amp; Inventory
+            {/* Standee Content Card Designed for Shop Counter Display (100% Shop Identity Only) */}
+            <div className="border-4 border-slate-900 rounded-2xl p-6 text-center bg-white shadow-md">
+              {/* Shop Header — Custom Shop Logo ONLY if uploaded, otherwise clean uppercase typography */}
+              <div className="flex flex-col items-center justify-center mb-4 border-b-2 border-slate-900 pb-3">
+                {logoUrl && (
+                  <img
+                    src={logoUrl}
+                    alt={(name || currentShop.name || 'Shop').toUpperCase()}
+                    className="h-14 w-14 rounded-xl object-contain mb-2"
+                  />
+                )}
+                <h3 className="font-black uppercase tracking-wide text-slate-900 text-lg leading-tight">
+                  {(name || currentShop.name || '').toUpperCase()}
+                </h3>
+                {regionalName && (
+                  <div className="text-xs font-bold text-slate-700 mt-0.5">
+                    {regionalName}
+                  </div>
+                )}
+                {address && (
+                  <div className="text-[11px] text-slate-600 mt-1">
+                    {address}{city ? `, ${city}` : ''}{pincode ? ` - ${pincode}` : ''}
+                  </div>
+                )}
+                <div className="text-[11px] text-slate-600 font-mono mt-0.5">
+                  {phone || currentShop.phone}
+                  {gstNumber ? ` • GSTIN: ${gstNumber}` : ''}
+                  {fssaiNumber ? ` • FSSAI: ${fssaiNumber}` : ''}
                 </div>
-              </div>
-
-              {/* Shop Title */}
-              <h3 className="font-black text-slate-900 text-base leading-tight mb-0.5">
-                {name || currentShop.name}
-              </h3>
-              {regionalName && (
-                <div className="text-xs font-bold text-[#E31837] mb-1">
-                  {regionalName}
-                </div>
-              )}
-              <div className="text-[11px] text-slate-500 font-mono mb-4">
-                {city || currentShop.city} • {phone || currentShop.phone}
               </div>
 
               {/* Crisp QR Code Frame */}
               <div className="inline-block p-4 bg-slate-50 border-2 border-slate-800 rounded-2xl mb-4 shadow-xs">
                 <img
                   src={displayQrUrl}
-                  alt="ParlourPro Scan to Pay"
+                  alt="Scan to Pay QR Code"
                   className="w-52 h-52 object-contain mx-auto"
                 />
               </div>
@@ -1035,6 +1119,9 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
                 <span className="bg-slate-100 px-2 py-0.5 rounded">PhonePe</span>
                 <span className="bg-slate-100 px-2 py-0.5 rounded">Paytm</span>
                 <span className="bg-slate-100 px-2 py-0.5 rounded">BHIM</span>
+              </div>
+              <div className="mt-3 text-[9px] text-slate-400 font-sans">
+                {RECEIPT_FOOTER_BRAND_CREDIT}
               </div>
             </div>
           </div>

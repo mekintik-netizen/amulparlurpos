@@ -40,9 +40,14 @@ import {
   CartesianGrid 
 } from 'recharts';
 import { jsPDF } from 'jspdf';
-import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 import { Shop, SaleBill, Expense } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
+import {
+  drawShopPdfHeader,
+  drawCommercialSignatoryFooter,
+  getShopFileSlug,
+  getShopPdfIdentity
+} from '../../utils/shopPdfBranding.ts';
 
 interface SalesProfitAnalyticsProps {
   currentShop: Shop | null;
@@ -220,9 +225,13 @@ export const SalesProfitAnalytics: React.FC<SalesProfitAnalyticsProps> = ({ curr
     };
   }, [sales, expenses]);
 
-  // PDF Export Generator
+  // PDF Export Generator (100% White-Label Shop Identity Only)
   const handleDownloadPdf = async () => {
     try {
+      if (!currentShop) {
+        alert('Please select an active shop before generating report.');
+        return;
+      }
       setPdfGenerating(true);
       const doc = new jsPDF({
         orientation: 'portrait',
@@ -230,75 +239,28 @@ export const SalesProfitAnalytics: React.FC<SalesProfitAnalyticsProps> = ({ curr
         format: 'a4'
       });
 
-      const primaryColor = [0, 90, 156]; // ParlourPro Blue
-      const redColor = [227, 24, 55];
-      const darkColor = [30, 41, 59];
+      const primaryColor: [number, number, number] = [15, 23, 42];
+      const accentRed: [number, number, number] = [185, 28, 28];
+      const identity = getShopPdfIdentity(currentShop);
 
-      // 1. Header Banner
-      doc.setFillColor(0, 90, 156);
-      doc.rect(0, 0, 210, 26, 'F');
+      // 1. Clean Shop-Only Commercial Header (Custom shop logo ONLY if uploaded)
+      let cursorY = drawShopPdfHeader(doc, currentShop, {
+        documentTitle: 'SALES & PROFIT REPORT',
+        documentSubtitle: 'Sales & Net Profit Audit Statement',
+        metaRightLines: [
+          `Report Date: ${todayStr}`,
+          `Generated: ${new Date().toLocaleString('en-IN')}`
+        ],
+        accentRgb: primaryColor
+      });
 
-      // Embed round emblem (logo-round.png) into PDF header if loadable
-      let textStartX = 14;
-      try {
-        const res = await fetch(LOGO_ROUND_URL);
-        if (res.ok) {
-          const blob = await res.blob();
-          const dataUrl = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(String(reader.result || ''));
-            reader.onerror = reject;
-            reader.readAsDataURL(blob);
-          });
-          if (dataUrl.startsWith('data:image/')) {
-            doc.addImage(dataUrl, 'PNG', 12, 3, 20, 20);
-            textStartX = 36;
-          }
-        }
-      } catch {
-        // Non-blocking fallback if image fetch unavailable
-      }
-
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.text('PARLOURPRO POS', textStartX, 11);
-
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Smart Billing & Inventory · Sales & Net Profit Audit Report', textStartX, 17);
-      doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, textStartX, 22.5);
-
-      // 2. Shop Details Card
-      doc.setFillColor(248, 250, 252);
-      doc.roundedRect(14, 32, 182, 28, 3, 3, 'F');
-      doc.setDrawColor(226, 232, 240);
-      doc.roundedRect(14, 32, 182, 28, 3, 3, 'S');
-
-      if (!currentShop) {
-        alert('Please select an active parlour before generating report.');
-        return;
-      }
-
-      doc.setTextColor(primaryColor[0], primaryColor[1], primaryColor[2]);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.text(currentShop.name, 18, 40);
-
-      doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.text(`Parlour Code: ${currentShop.shopCode}  |  Owner: ${currentShop.ownerName || 'Parlour Owner'}  |  Phone: ${currentShop.phone || 'N/A'}`, 18, 46);
-      doc.text(`Address: ${currentShop.address || 'ParlourPro Outlet'}`, 18, 51);
-      doc.text(`GSTIN: ${currentShop.gstNumber || 'N/A'}  |  FSSAI: ${currentShop.fssaiNumber || 'N/A'}`, 18, 56);
-
-      // 3. Today vs Yesterday Comparison Table
-      doc.setTextColor(redColor[0], redColor[1], redColor[2]);
+      // 2. Today vs Yesterday Comparison Table
+      doc.setTextColor(accentRed[0], accentRed[1], accentRed[2]);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
-      doc.text('1. TODAY vs YESTERDAY COMPARATIVE PERFORMANCE', 14, 68);
+      doc.text('1. TODAY vs YESTERDAY COMPARATIVE PERFORMANCE', 14, cursorY + 2);
 
-      let startY = 72;
+      let startY = cursorY + 6;
       // Table Header
       doc.setFillColor(241, 245, 249);
       doc.rect(14, startY, 182, 8, 'F');
@@ -431,17 +393,17 @@ export const SalesProfitAnalytics: React.FC<SalesProfitAnalyticsProps> = ({ curr
         doc.setTextColor(51, 65, 85);
       });
 
-      // 6. Footer Disclaimer & Signature
-      doc.setDrawColor(203, 213, 225);
-      doc.line(14, 275, 196, 275);
+      // 6. Clean Shop-Only Commercial Signatory Footer (Zero Software Branding)
+      drawCommercialSignatoryFooter(doc, {
+        shopName: identity.displayName,
+        leftLabel: 'Prepared By',
+        rightLabel: 'Authorized Signatory',
+        noteLine: `Confidential Business Record — ${identity.displayName}  |  Page 1 of 1`
+      });
 
-      doc.setFontSize(8);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Confidential - Generated exclusively by ParlourPro POS (Smart Billing & Inventory) for internal records.', 14, 281);
-      doc.text(`Page 1 of 1 · ParlourPro POS`, 170, 281);
-
-      // Save PDF
-      doc.save(`ParlourPro_Report_${currentShop.shopCode}_${todayStr}.pdf`);
+      // Save PDF using shop's own name slug
+      const shopSlug = getShopFileSlug(currentShop);
+      doc.save(`${shopSlug}_Sales_Profit_Report_${todayStr}.pdf`);
     } catch (err) {
       console.error('Failed to generate PDF:', err);
       alert('PDF generation failed. Please try again.');

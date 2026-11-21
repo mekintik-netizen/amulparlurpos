@@ -953,6 +953,62 @@ export async function getAllSales(): Promise<SaleBill[]> {
   });
 }
 
+/**
+ * Idempotently upserts a SaleBill hydrated from Cloud Firestore without duplicating stock deductions
+ * or failing on unique idempotencyKey collisions.
+ */
+export async function saveSaleBillFromCloud(sale: SaleBill): Promise<SaleBill> {
+  const db = await openAppDatabase();
+  const normalized: SaleBill = {
+    ...sale,
+    id: sale.id || `cloud-sale-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    timestamp: sale.timestamp || sale.createdAt || new Date().toISOString(),
+    createdAt: sale.createdAt || sale.timestamp || new Date().toISOString(),
+    billNumber: sale.billNumber || sale.id,
+    items: Array.isArray(sale.items) ? sale.items : [],
+    idempotencyKey:
+      sale.idempotencyKey && String(sale.idempotencyKey).trim().length > 0
+        ? String(sale.idempotencyKey).trim()
+        : `cloud-sale-${sale.id}`
+  };
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('sales', 'readwrite');
+    const store = tx.objectStore('sales');
+
+    const finishPut = (record: SaleBill) => {
+      const req = store.put(record);
+      req.onsuccess = () => resolve(record);
+      req.onerror = () => {
+        // Fallback if another record already owns this idempotencyKey
+        const fallbackRecord: SaleBill = {
+          ...record,
+          idempotencyKey: `cloud-sale-${record.id}`
+        };
+        const retryReq = store.put(fallbackRecord);
+        retryReq.onsuccess = () => resolve(fallbackRecord);
+        retryReq.onerror = () => reject(retryReq.error);
+      };
+    };
+
+    try {
+      const idx = store.index('idempotencyKey');
+      const existingReq = idx.get(normalized.idempotencyKey);
+      existingReq.onsuccess = () => {
+        const existing = existingReq.result as SaleBill | undefined;
+        if (existing && existing.id !== normalized.id) {
+          finishPut({ ...normalized, idempotencyKey: `cloud-sale-${normalized.id}` });
+        } else {
+          finishPut(normalized);
+        }
+      };
+      existingReq.onerror = () => finishPut(normalized);
+    } catch {
+      finishPut(normalized);
+    }
+  });
+}
+
 export async function cancelSaleBill(
   billId: string,
   shopId: string,
@@ -1920,19 +1976,63 @@ export async function updatePurchaseBill(
 }
 
 /**
- * Saves a purchase bill directly into local IndexedDB (used by Firestore real-time sync)
+ * Saves a purchase bill directly into local IndexedDB (used by Firestore real-time sync & cloud hydration).
+ * Normalizes required fields and safely avoids unique idempotencyKey constraint collisions.
  */
 export async function savePurchaseBill(purchase: PurchaseBill): Promise<PurchaseBill> {
   if (isPurchaseDeleted(purchase.id)) {
     return purchase;
   }
   const db = await openAppDatabase();
+  const normalized: PurchaseBill = {
+    ...purchase,
+    id: purchase.id || `cloud-pur-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    purchaseInvoiceNumber: purchase.purchaseInvoiceNumber || purchase.billNumber || purchase.id,
+    billNumber: purchase.billNumber || purchase.purchaseInvoiceNumber || purchase.id,
+    supplierName: purchase.supplierName || purchase.agencyName || 'Distributor',
+    agencyName: purchase.agencyName || purchase.supplierName || 'Distributor',
+    purchaseDate: purchase.purchaseDate || (purchase.createdAt ? purchase.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+    items: Array.isArray(purchase.items) ? purchase.items : [],
+    idempotencyKey:
+      purchase.idempotencyKey && String(purchase.idempotencyKey).trim().length > 0
+        ? String(purchase.idempotencyKey).trim()
+        : `cloud-pur-${purchase.id}`
+  };
+
   return new Promise((resolve, reject) => {
     const tx = db.transaction('purchases', 'readwrite');
     const store = tx.objectStore('purchases');
-    const req = store.put(purchase);
-    req.onsuccess = () => resolve(purchase);
-    req.onerror = () => reject(req.error);
+
+    const finishPut = (record: PurchaseBill) => {
+      const req = store.put(record);
+      req.onsuccess = () => resolve(record);
+      req.onerror = () => {
+        const fallbackRecord: PurchaseBill = {
+          ...record,
+          idempotencyKey: `cloud-pur-${record.id}`
+        };
+        const retryReq = store.put(fallbackRecord);
+        retryReq.onsuccess = () => resolve(fallbackRecord);
+        retryReq.onerror = () => reject(retryReq.error);
+      };
+    };
+
+    try {
+      const idempKey = normalized.idempotencyKey || `cloud-pur-${normalized.id}`;
+      const idx = store.index('idempotencyKey');
+      const existingReq = idx.get(idempKey);
+      existingReq.onsuccess = () => {
+        const existing = existingReq.result as PurchaseBill | undefined;
+        if (existing && existing.id !== normalized.id) {
+          finishPut({ ...normalized, idempotencyKey: `cloud-pur-${normalized.id}` });
+        } else {
+          finishPut({ ...normalized, idempotencyKey: idempKey });
+        }
+      };
+      existingReq.onerror = () => finishPut({ ...normalized, idempotencyKey: idempKey });
+    } catch {
+      finishPut(normalized);
+    }
   });
 }
 
@@ -2249,6 +2349,51 @@ export async function deleteExpense(expenseId: string): Promise<void> {
     const store = tx.objectStore('expenses');
     const req = store.delete(expenseId);
     req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Idempotently upserts an Expense record hydrated from Cloud Firestore without duplicating IDs.
+ */
+export async function saveExpenseFromCloud(expense: Expense): Promise<Expense> {
+  const db = await openAppDatabase();
+  const normalized: Expense = {
+    ...expense,
+    id: expense.id || `cloud-exp-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    date: expense.date || (expense.createdAt ? expense.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+    createdAt: expense.createdAt || new Date().toISOString()
+  };
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('expenses', 'readwrite');
+    const store = tx.objectStore('expenses');
+    const req = store.put(normalized);
+    req.onsuccess = () => resolve(normalized);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+/**
+ * Idempotently upserts a SupplierPayment / Khata record hydrated from Cloud Firestore.
+ */
+export async function saveSupplierPaymentFromCloud(payment: SupplierPayment): Promise<SupplierPayment> {
+  const db = await openAppDatabase();
+  const normalized: SupplierPayment = {
+    ...payment,
+    id: payment.id || `cloud-khata-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    paymentDate: payment.paymentDate || (payment.createdAt ? payment.createdAt.slice(0, 10) : new Date().toISOString().slice(0, 10)),
+    createdAt: payment.createdAt || new Date().toISOString()
+  };
+
+  return new Promise((resolve, reject) => {
+    if (!db.objectStoreNames.contains('supplierPayments')) {
+      return resolve(normalized);
+    }
+    const tx = db.transaction('supplierPayments', 'readwrite');
+    const store = tx.objectStore('supplierPayments');
+    const req = store.put(normalized);
+    req.onsuccess = () => resolve(normalized);
     req.onerror = () => reject(req.error);
   });
 }

@@ -116,11 +116,11 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
   // Sample Shop & Bill for Live Preview
   const previewShop: Shop = currentShop || {
     id: 'demo-shop',
-    shopCode: 'PP-GJ-0101',
-    name: 'ParlourPro Outlet - City Center',
+    shopCode: 'SH-GJ-0101',
+    name: 'SHREENATHJI PARLOUR',
     ownerName: 'Pravin Patel',
     phone: '+91 98250 98765',
-    email: 'city.center@parlourpro.in',
+    email: 'shreenathji.parlour@example.com',
     address: 'Shop 12, Ground Floor, Dairy Complex',
     city: 'Anand',
     state: 'Gujarat',
@@ -530,7 +530,7 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
                   type="text"
                   value={config.footerNote2}
                   onChange={(e) => handleTextChange('footerNote2', e.target.value)}
-                  placeholder="e.g. Smart Billing & Inventory • Thank You!"
+                  placeholder="e.g. We value your business!"
                   className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -753,14 +753,23 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
                       : 'pb-2 space-y-1'
                   }`}
                 >
-                  {config.showHeaderLogo && (
+                  {config.showHeaderLogo && previewShop.logoUrl && (
+                    <div className="flex justify-center pb-0.5">
+                      <img
+                        src={previewShop.logoUrl}
+                        alt={previewShop.name}
+                        className="h-9 w-9 object-contain"
+                      />
+                    </div>
+                  )}
+                  {config.showHeaderLogo && config.headerTitle && (
                     <div className="font-extrabold text-xs uppercase tracking-tight text-black">
-                      {config.headerTitle || 'PARLOURPRO POS'}
+                      {config.headerTitle}
                     </div>
                   )}
                   {config.showShopName && (
-                    <div className="font-bold text-[11px] mt-0.5 text-black">
-                      {config.customShopName || previewShop.name}
+                    <div className="font-extrabold text-xs uppercase mt-0.5 text-black">
+                      {(config.customShopName || previewShop.name).toUpperCase()}
                     </div>
                   )}
                   {config.showAddress && (

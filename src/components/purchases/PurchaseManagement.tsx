@@ -44,7 +44,14 @@ import { verifyShopPassword } from '../../storage/auth.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
 import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
 import { ReceiveConfirmPurchaseModal } from './ReceiveConfirmPurchaseModal.tsx';
-import { LOGO_ROUND_URL } from '../../assets/logo.ts';
+import { jsPDF } from 'jspdf';
+import {
+  drawShopPdfHeader,
+  drawCommercialSignatoryFooter,
+  getShopFileSlug,
+  getShopPdfIdentity,
+  PDF_FOOTER_BRAND_CREDIT
+} from '../../utils/shopPdfBranding.ts';
 
 interface PurchaseManagementProps {
   currentShop: Shop;
@@ -2042,19 +2049,147 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
             {/* Sticky Top Header Controls (Hidden in Print) */}
             <div className="no-print sticky top-0 z-30 bg-white/95 backdrop-blur-md px-4 sm:px-6 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0 shadow-xs">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-blue-50 text-[#005A9C] flex items-center justify-center font-bold shrink-0">
+                <div className="w-9 h-9 rounded-xl bg-slate-100 text-slate-800 flex items-center justify-center font-bold shrink-0">
                   <Printer className="w-5 h-5" />
                 </div>
                 <div>
                   <h3 className="font-extrabold text-sm sm:text-base text-slate-900 tracking-tight">
-                    BILL PRINT PREVIEW / ખરીદી બિલ પ્રિન્ટ
+                    PURCHASE VOUCHER / ખરીદી બિલ પ્રિન્ટ
                   </h3>
                   <p className="text-[11px] text-slate-500">
-                    Clean A4 Purchase Invoice Format ready for thermal or A4 printing
+                    Clean A4 Commercial Purchase Voucher issued by {getShopPdfIdentity(currentShop).displayName}
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                    const shopId = getShopPdfIdentity(currentShop);
+                    const billNo = printingBill.billNumber || printingBill.purchaseInvoiceNumber || 'PV';
+                    let y = drawShopPdfHeader(doc, currentShop, {
+                      documentTitle: 'PURCHASE VOUCHER',
+                      documentSubtitle: `Bill / Voucher No: ${billNo}`,
+                      metaRightLines: [
+                        `Date: ${printingBill.purchaseDate}`,
+                        `Mode: ${printingBill.paymentMode} (${printingBill.status})`
+                      ],
+                      accentRgb: [15, 23, 42]
+                    });
+
+                    // Supplier / Agency block
+                    doc.setFillColor(248, 250, 252);
+                    doc.roundedRect(14, y, 182, 16, 2, 2, 'F');
+                    doc.setDrawColor(203, 213, 225);
+                    doc.roundedRect(14, y, 182, 16, 2, 2, 'S');
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(7.5);
+                    doc.setTextColor(71, 85, 105);
+                    doc.text('SUPPLIER / AGENCY:', 18, y + 5.5);
+                    doc.setFontSize(10);
+                    doc.setTextColor(15, 23, 42);
+                    doc.text(printingBill.agencyName || printingBill.supplierName || 'Supplier', 18, y + 11.5);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8.5);
+                    doc.text(`Total SKUs: ${printingBill.items.length}  |  Units: ${printingBill.itemCount}`, 192, y + 11.5, { align: 'right' });
+                    y += 21;
+
+                    // Table header
+                    doc.setFillColor(15, 23, 42);
+                    doc.rect(14, y, 182, 8, 'F');
+                    doc.setTextColor(255, 255, 255);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(8);
+                    doc.text('#', 17, y + 5.2);
+                    doc.text('ITEM DESCRIPTION', 25, y + 5.2);
+                    doc.text('QTY', 124, y + 5.2, { align: 'right' });
+                    doc.text('UNIT', 136, y + 5.2, { align: 'center' });
+                    doc.text('RATE (INR)', 158, y + 5.2, { align: 'right' });
+                    doc.text('MRP', 175, y + 5.2, { align: 'right' });
+                    doc.text('AMOUNT', 193, y + 5.2, { align: 'right' });
+                    y += 8;
+
+                    printingBill.items.forEach((item, idx) => {
+                      if (y > 246) {
+                        doc.addPage();
+                        y = drawShopPdfHeader(doc, currentShop, {
+                          documentTitle: 'PURCHASE VOUCHER',
+                          documentSubtitle: `Bill No: ${billNo} (Cont.)`,
+                          metaRightLines: [`Date: ${printingBill.purchaseDate}`],
+                          accentRgb: [15, 23, 42]
+                        });
+                      }
+                      if (idx % 2 === 1) {
+                        doc.setFillColor(248, 250, 252);
+                        doc.rect(14, y, 182, 7, 'F');
+                      }
+                      doc.setDrawColor(226, 232, 240);
+                      doc.line(14, y + 7, 196, y + 7);
+                      doc.setFont('helvetica', 'normal');
+                      doc.setFontSize(8);
+                      doc.setTextColor(15, 23, 42);
+                      doc.text(String(idx + 1), 17, y + 4.8);
+                      const desc = item.productName.length > 46 ? `${item.productName.slice(0, 44)}..` : item.productName;
+                      doc.text(desc, 25, y + 4.8);
+                      doc.setFont('helvetica', 'bold');
+                      doc.text(String(item.quantity), 124, y + 4.8, { align: 'right' });
+                      doc.setFont('helvetica', 'normal');
+                      doc.text(item.unit || 'Pcs', 136, y + 4.8, { align: 'center' });
+                      doc.text(item.purchaseRate.toFixed(2), 158, y + 4.8, { align: 'right' });
+                      doc.text(item.mrp.toFixed(2), 175, y + 4.8, { align: 'right' });
+                      doc.setFont('helvetica', 'bold');
+                      doc.text(item.total.toFixed(2), 193, y + 4.8, { align: 'right' });
+                      y += 7;
+                    });
+
+                    // Totals summary block
+                    if (y > 230) {
+                      doc.addPage();
+                      y = 24;
+                    }
+                    y += 5;
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8.5);
+                    doc.setTextColor(51, 65, 85);
+                    doc.text('Subtotal:', 142, y);
+                    doc.text(`INR ${printingBill.subtotal.toFixed(2)}`, 193, y, { align: 'right' });
+                    if (printingBill.otherCharges > 0) {
+                      y += 5;
+                      doc.text('Other Charges:', 142, y);
+                      doc.text(`INR ${printingBill.otherCharges.toFixed(2)}`, 193, y, { align: 'right' });
+                    }
+                    y += 6;
+                    doc.setFillColor(15, 23, 42);
+                    doc.roundedRect(138, y - 4, 58, 9, 1.5, 1.5, 'F');
+                    doc.setTextColor(255, 255, 255);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(9);
+                    doc.text('GRAND TOTAL:', 142, y + 1.8);
+                    doc.text(`INR ${printingBill.totalAmount.toFixed(2)}`, 193, y + 1.8, { align: 'right' });
+
+                    y += 9;
+                    doc.setTextColor(22, 101, 52);
+                    doc.setFontSize(8);
+                    doc.text(`Paid: INR ${printingBill.paidAmount.toFixed(2)}`, 193, y, { align: 'right' });
+                    y += 4.5;
+                    doc.setTextColor(185, 28, 28);
+                    doc.text(`Balance Due: INR ${printingBill.dueAmount.toFixed(2)}`, 193, y, { align: 'right' });
+
+                    drawCommercialSignatoryFooter(doc, {
+                      shopName: shopId.displayName,
+                      leftLabel: 'Receiver Signature',
+                      rightLabel: 'Authorized Signatory',
+                      noteLine: `Purchase Voucher — ${shopId.displayName}  |  Bill No: ${billNo}`
+                    });
+
+                    const safeBillNo = billNo.replace(/[^a-zA-Z0-9_-]/g, '');
+                    doc.save(`Purchase-Voucher-${getShopFileSlug(currentShop)}-${safeBillNo}.pdf`);
+                  }}
+                  className="bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>DOWNLOAD PDF</span>
+                </button>
                 <button
                   onClick={() => window.print()}
                   className="bg-[#005A9C] hover:bg-blue-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
@@ -2073,69 +2208,94 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
 
             {/* Document Preview Area (Scrollable viewport on screen, full A4 in print) */}
             <div className="flex-1 overflow-y-auto overflow-x-auto p-3 sm:p-6 bg-slate-100/70 dark:bg-slate-900/60 flex justify-center print:bg-white print:p-0 print:overflow-visible">
-              {/* Printable Document (Rendered for both Screen Preview & A4 Print) */}
+              {/* Printable Commercial Purchase Voucher (100% Shop Identity Only — Zero Software Branding) */}
+              {(() => {
+                const shopIdentity = getShopPdfIdentity(currentShop);
+                return (
               <div 
                 id="purchase-invoice-print-area"
                 className="purchase-printable-bill bg-white p-5 sm:p-8 border border-slate-200 shadow-sm rounded-xl max-w-[210mm] w-full text-slate-900 print:border-none print:shadow-none print:p-0 print:max-w-none print:w-full print:rounded-none"
                 style={{ fontFamily: "'Inter', 'Noto Sans Gujarati', sans-serif" }}
               >
-                {/* Header Title strictly labeled BILL PRINT with ParlourPro Round Emblem */}
-                <div className="text-center pb-4 mb-4 border-b-2 border-slate-900">
-                  <div className="flex items-center justify-center gap-3 mb-1">
-                    <img
-                      src={LOGO_ROUND_URL}
-                      alt="ParlourPro POS"
-                      className="h-11 w-11 rounded-full object-contain"
-                    />
-                    <div className="text-left">
-                      <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase leading-none">
-                        BILL PRINT
+                {/* Commercial Shop Header (Custom Shop Logo ONLY if uploaded; clean typography otherwise) */}
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 mb-4 border-b-2 border-slate-900">
+                  <div className="flex items-start gap-3">
+                    {shopIdentity.logoUrl && (
+                      <img
+                        src={shopIdentity.logoUrl}
+                        alt={shopIdentity.displayName}
+                        className="h-14 w-14 rounded-lg object-contain border border-slate-200 p-1 shrink-0"
+                      />
+                    )}
+                    <div>
+                      <h1 className="text-xl sm:text-2xl font-black tracking-wide text-slate-900 uppercase leading-tight">
+                        {shopIdentity.displayName}
                       </h1>
-                      <div className="text-[10px] font-bold text-[#005A9C] uppercase tracking-wider mt-0.5">
-                        ParlourPro POS · Smart Billing &amp; Inventory
+                      {shopIdentity.regionalName && (
+                        <div className="text-xs font-bold text-slate-700 mt-0.5">
+                          {shopIdentity.regionalName}
+                        </div>
+                      )}
+                      {shopIdentity.addressLine && (
+                        <div className="text-[11px] text-slate-600 mt-0.5 leading-snug max-w-md">
+                          {shopIdentity.addressLine}
+                        </div>
+                      )}
+                      <div className="text-[11px] text-slate-600 font-mono mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5">
+                        {shopIdentity.phoneLine && <span><strong>Mob:</strong> {shopIdentity.phoneLine}</span>}
+                        {shopIdentity.gstNumber && <span><strong>GSTIN:</strong> {shopIdentity.gstNumber}</span>}
+                        {shopIdentity.fssaiNumber && <span><strong>FSSAI:</strong> {shopIdentity.fssaiNumber}</span>}
                       </div>
                     </div>
                   </div>
-                  <div className="text-xs font-bold text-slate-700 mt-1">
-                    પાર્લર ખરીદી ભરતિયું / PARLOURPRO POS PURCHASE INVOICE
-                  </div>
-                  <div className="text-[10px] text-slate-500 font-mono mt-0.5">
-                    GSTIN / Tax Invoice • Official Stock Delivery Copy
+
+                  <div className="sm:text-right shrink-0">
+                    <div className="inline-block border-2 border-slate-900 px-3 py-1 text-xs font-black uppercase tracking-widest text-slate-900">
+                      PURCHASE VOUCHER
+                    </div>
+                    <div className="text-[11px] font-bold text-slate-700 mt-1">
+                      ખરીદી ભરતિયું / COMMERCIAL PURCHASE BILL
+                    </div>
+                    <div className="text-[10px] text-slate-500 font-mono mt-0.5">
+                      Official Stock Receipt &amp; Account Copy
+                    </div>
                   </div>
                 </div>
 
-                {/* Parlour & Agency / Supplier Grid */}
+                {/* Buyer Shop & Supplier / Bill Metadata Grid */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pb-4 mb-4 border-b border-slate-200 text-xs">
-                  {/* Left: Parlour Details */}
+                  {/* Left: Consignee / Buyer Details */}
                   <div className="space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block font-sans">
-                      ખરીદનાર પાર્લર / Consignee (ParlourPro POS):
+                      ખરીદનાર / Consignee (Buyer):
                     </span>
-                    <div className="font-extrabold text-sm text-slate-900">
-                      {currentShop.name}
+                    <div className="font-extrabold text-sm text-slate-900 uppercase">
+                      {shopIdentity.displayName}
                     </div>
-                    {currentShop.address && (
+                    {shopIdentity.addressLine && (
                       <div className="text-slate-600 text-[11px] leading-tight">
-                        {currentShop.address}
+                        {shopIdentity.addressLine}
                       </div>
                     )}
-                    <div className="text-slate-600 text-[11px] flex items-center gap-3 font-mono">
-                      {(currentShop.gstNumber || (currentShop as any).gstin) && (
-                        <span><strong>GSTIN:</strong> {currentShop.gstNumber || (currentShop as any).gstin}</span>
+                    <div className="text-slate-600 text-[11px] flex flex-wrap items-center gap-3 font-mono">
+                      {shopIdentity.gstNumber && (
+                        <span><strong>GSTIN:</strong> {shopIdentity.gstNumber}</span>
                       )}
-                      {currentShop.phone && <span><strong>Ph:</strong> {currentShop.phone}</span>}
+                      {shopIdentity.phoneLine && <span><strong>Ph:</strong> {shopIdentity.phoneLine}</span>}
                     </div>
-                    <div className="text-[11px] text-slate-500 font-mono">
-                      <strong>Shop Code:</strong> {currentShop.shopCode}
-                    </div>
+                    {shopIdentity.shopCode && (
+                      <div className="text-[11px] text-slate-500 font-mono">
+                        <strong>Shop ID:</strong> {shopIdentity.shopCode}
+                      </div>
+                    )}
                   </div>
 
                   {/* Right: Agency / Supplier & Bill Details */}
                   <div className="space-y-1 sm:text-right">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block font-sans">
-                      એજન્સી / સપ્લાયર / Agency &amp; Invoice:
+                      એજન્સી / સપ્લાયર / Supplier &amp; Invoice:
                     </span>
-                    <div className="font-extrabold text-sm text-[#005A9C]">
+                    <div className="font-extrabold text-sm text-slate-900">
                       {printingBill.agencyName || printingBill.supplierName}
                     </div>
                     <div className="text-slate-700 text-xs font-mono">
@@ -2254,23 +2414,33 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                     </div>
                   </div>
 
-                  {/* Signatures */}
-                  <div className="grid grid-cols-2 gap-8 pt-8 mt-4 border-t border-slate-300 text-xs text-center font-sans">
+                  {/* Commercial Signatory Lines */}
+                  <div className="grid grid-cols-2 gap-8 pt-10 mt-4 border-t border-slate-300 text-xs text-center font-sans">
                     <div>
-                      <div className="border-t border-dashed border-slate-400 pt-1.5 font-bold text-slate-700">
-                        Agency / Distributor Signature
+                      <div className="border-t border-dashed border-slate-500 pt-1.5 font-bold text-slate-800">
+                        Receiver Signature
                       </div>
-                      <div className="text-[10px] text-slate-500 font-medium">એજન્સી / ડિસ્ટ્રીબ્યુટર સહી</div>
+                      <div className="text-[10px] text-slate-500 font-medium">માલ સ્વીકારનારની સહી / Supplier / Receiver</div>
                     </div>
                     <div>
-                      <div className="border-t border-dashed border-slate-400 pt-1.5 font-bold text-slate-700">
-                        Authorized Parlour Receiver Signature
+                      <div className="border-t border-dashed border-slate-500 pt-1.5 font-bold text-slate-800">
+                        Authorized Signatory
                       </div>
-                      <div className="text-[10px] text-slate-500 font-medium">માલ સ્વીકારનાર પાર્લર પ્રતિનિધિ સહી</div>
+                      <div className="text-[10px] text-slate-500 font-medium">
+                        For {shopIdentity.displayName}
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Subtle Text-Only Footer Attribution (No Logo Image) */}
+                  <div className="mt-5 pt-2 border-t border-slate-200 flex items-center justify-between text-[9px] text-slate-400 font-sans">
+                    <span>Official Purchase Voucher — {shopIdentity.displayName}</span>
+                    <span>{PDF_FOOTER_BRAND_CREDIT}</span>
                   </div>
                 </div>
               </div>
+                );
+              })()}
             </div>
 
             {/* Sticky Bottom Actions Bar (Guarantees BILL PRINT is permanently accessible on all laptop/mobile viewports) */}

@@ -29,7 +29,8 @@ import {
   Wifi,
   WifiOff,
   ClipboardList,
-  Sparkles
+  Sparkles,
+  RefreshCw
 } from 'lucide-react';
 import { Shop } from '../../types/index.ts';
 import { AuthSession } from '../../storage/auth.ts';
@@ -67,6 +68,8 @@ interface HeaderProps {
   onOpenAdminLogin: () => void;
   theme?: Theme;
   onToggleTheme?: () => void;
+  onSyncCloudData?: () => void;
+  isCloudSyncing?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -81,7 +84,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenShopLogin,
   onOpenAdminLogin,
   theme = 'light',
-  onToggleTheme
+  onToggleTheme,
+  onSyncCloudData,
+  isCloudSyncing = false
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN';
   const showAiAssistant = isAiAccessAllowedForSession(currentUser, currentShop);
@@ -91,24 +96,26 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="bg-[#005A9C] dark:bg-slate-900 text-white shadow-md border-b-2 border-[#E31837] dark:border-rose-600 no-print transition-colors duration-200">
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16 gap-3">
-          {/* Brand Logo & Title */}
+          {/* Brand Title (Shop Dashboard: clean ParlourPro POS text only alongside Shop Name; Admin HQ keeps round logo) */}
           <div className="flex items-center gap-2.5 shrink-0">
-            <div className="bg-white/95 p-1 rounded-full border border-white/40 dark:border-slate-700 shadow-xs flex items-center justify-center shrink-0">
-              <img
-                src={LOGO_ROUND_URL}
-                alt="ParlourPro POS"
-                className="h-9 w-9 sm:h-10 sm:w-10 rounded-full object-contain"
-                loading="eager"
-              />
-            </div>
+            {isAdmin && (
+              <div className="bg-white/95 p-1 rounded-full border border-white/40 dark:border-slate-700 shadow-xs flex items-center justify-center shrink-0">
+                <img
+                  src={LOGO_ROUND_URL}
+                  alt="ParlourPro POS"
+                  className="h-9 w-9 sm:h-10 sm:w-10 rounded-full object-contain"
+                  loading="eager"
+                />
+              </div>
+            )}
 
-            <div className="hidden sm:block leading-tight">
-              <div className="font-extrabold text-sm tracking-tight text-white flex items-center gap-1">
+            <div className="leading-tight">
+              <div className="font-extrabold text-sm sm:text-base tracking-tight text-white flex items-center gap-1">
                 <span>ParlourPro</span>
                 <span className="text-amber-300">POS</span>
               </div>
-              <div className="text-[10px] font-medium text-blue-100/90 hidden xl:block">
-                Smart Billing &amp; Inventory
+              <div className="text-[10px] font-semibold text-blue-100/90 truncate max-w-[165px]">
+                {!isAdmin && currentShop?.name ? currentShop.name : 'Smart Billing & Inventory'}
               </div>
             </div>
           </div>
@@ -359,6 +366,21 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="truncate max-w-[140px]">{currentShop.shopCode}</span>
                 </div>
               )
+            )}
+
+            {/* Manual Cloud Data Sync / Recovery Button */}
+            {currentShop && onSyncCloudData && (
+              <button
+                type="button"
+                onClick={onSyncCloudData}
+                disabled={isCloudSyncing}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold bg-emerald-500/20 hover:bg-emerald-500/35 border border-emerald-300/40 text-emerald-100 transition cursor-pointer disabled:opacity-60 whitespace-nowrap"
+                title="Sync Cloud Data / જૂનો ડેટા રિફ્રેશ કરો"
+                aria-label="Sync Cloud Data / જૂનો ડેટા રિફ્રેશ કરો"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-emerald-200 ${isCloudSyncing ? 'animate-spin' : ''}`} />
+                <span className="hidden lg:inline">{isCloudSyncing ? 'Syncing...' : 'Sync Cloud Data'}</span>
+              </button>
             )}
 
             {/* Network / Cloud Sync Status Pill */}

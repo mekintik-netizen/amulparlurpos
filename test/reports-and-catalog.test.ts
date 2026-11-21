@@ -86,7 +86,7 @@ describe('Product Image Presets & Catalog Photos', () => {
     });
   });
 
-  it('verifies ParlourPro POS banner and round logos are integrated across LoginPage, Header and Reports', async () => {
+  it('verifies ParlourPro POS logos in app UI while reports strictly use white-label shop identity (zero software logos)', async () => {
     const fs = await import('fs');
     const path = await import('path');
 
@@ -95,20 +95,25 @@ describe('Product Image Presets & Catalog Photos', () => {
     expect(fs.existsSync(path.resolve(process.cwd(), 'public/logo-round.png'))).toBe(true);
     expect(fs.existsSync(path.resolve(process.cwd(), 'src/assets/logo.ts'))).toBe(true);
 
+    // App UI keeps ParlourPro POS logos
     const loginContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/auth/LoginPage.tsx'), 'utf8');
     expect(loginContent).toContain('LOGO_BANNER_URL');
-
-    const reportHeaderContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/common/BrandedReportHeader.tsx'), 'utf8');
-    expect(reportHeaderContent).toContain('LOGO_ROUND_URL');
 
     const headerContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/layout/Header.tsx'), 'utf8');
     expect(headerContent).toContain('LOGO_ROUND_URL');
 
+    // Printable reports & PDF headers must NEVER include software logos; they use shop-only identity
+    const reportHeaderContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/common/BrandedReportHeader.tsx'), 'utf8');
+    expect(reportHeaderContent).not.toContain('LOGO_ROUND_URL');
+    expect(reportHeaderContent).toContain('getShopPdfIdentity');
+
     const salesContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/reports/DailySalesReport.tsx'), 'utf8');
-    expect(salesContent).toContain('LOGO_ROUND_URL');
+    expect(salesContent).not.toContain('LOGO_ROUND_URL');
+    expect(salesContent).toContain('getShopPdfIdentity');
 
     const stockContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/reports/DailyStockReport.tsx'), 'utf8');
-    expect(stockContent).toContain('LOGO_ROUND_URL');
+    expect(stockContent).not.toContain('LOGO_ROUND_URL');
+    expect(stockContent).toContain('getShopPdfIdentity');
   });
 
   it('provides at least 65 authentic Amul products with valid EAN-13 barcodes and positive margins', () => {

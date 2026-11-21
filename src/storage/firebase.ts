@@ -225,8 +225,70 @@ export const authReady: Promise<void> = new Promise<void>((resolve) => {
   }
 });
 
-export function ensureAnonymousAuth(): Promise<boolean> {
-  return authReady.then(() => authAuthenticated || Boolean(auth?.currentUser));
+let retryAuthPromise: Promise<boolean> | null = null;
+
+export async function ensureAnonymousAuth(): Promise<boolean> {
+  await authReady;
+
+  if (authAuthenticated || Boolean(auth?.currentUser)) {
+    authAuthenticated = true;
+    if (!networkEnabled && (typeof navigator === 'undefined' || navigator.onLine)) {
+      networkEnabled = true;
+      try {
+        await enableNetwork(db);
+      } catch {
+        // ignore
+      }
+    }
+    return true;
+  }
+
+  // If offline, stay local-first without throwing
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return false;
+  }
+
+  // Retry silent anonymous auth cleanly if initial startup auth timed out or was deferred
+  if (!retryAuthPromise) {
+    retryAuthPromise = (async () => {
+      try {
+        if (!networkEnabled) {
+          networkEnabled = true;
+          try {
+            await enableNetwork(db);
+          } catch {
+            // ignore
+          }
+        }
+        await signInAnonymously(auth);
+        authAuthenticated = true;
+        return true;
+      } catch {
+        authAuthenticated = false;
+        return false;
+      } finally {
+        retryAuthPromise = null;
+      }
+    })();
+  }
+
+  return retryAuthPromise;
+}
+
+/**
+ * Forces Firestore network re-enable + anonymous auth recovery (used by manual "Sync Cloud Data" and login hydration).
+ */
+export async function reconnectFirestoreCloud(): Promise<boolean> {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) {
+    return false;
+  }
+  networkEnabled = true;
+  try {
+    await enableNetwork(db);
+  } catch {
+    // ignore
+  }
+  return ensureAnonymousAuth();
 }
 
 /**
@@ -238,7 +300,7 @@ export async function validateFirestoreConnection(): Promise<boolean> {
     await setFirestoreOfflineCleanly();
     return false;
   }
-  await authReady;
+  await ensureAnonymousAuth();
   const reachable = await syncNetworkStateWithConnectivity();
   if (!reachable) return false;
   return networkEnabled;

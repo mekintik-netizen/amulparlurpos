@@ -17,6 +17,12 @@ import {
   SmartOrderCycleDays,
   SmartOrderSuggestion
 } from '../types/index.ts';
+import {
+  drawShopPdfHeader,
+  drawCommercialSignatoryFooter,
+  getShopFileSlug,
+  getShopPdfIdentity
+} from './shopPdfBranding.ts';
 
 export interface CalculateSmartOrderInput {
   products: Product[];
@@ -173,11 +179,12 @@ export function formatSmartOrderWhatsAppText(params: {
   const totalUnits = activeItems.reduce((sum, i) => sum + i.orderQty, 0);
   const estimatedValue = activeItems.reduce((sum, i) => sum + i.orderQty * i.purchaseRate, 0);
 
+  const identity = getShopPdfIdentity(shop);
   const lines: string[] = [
-    `*PARLOURPRO POS - SMART PURCHASE ORDER (ઓર્ડર લિસ્ટ)*`,
-    `Parlour: ${shop.name} (${shop.shopCode})`,
-    shop.phone ? `Contact: ${shop.phone}` : '',
-    `Supplier / Agency: ${supplierName || 'Authorized Dairy Distributor'}`,
+    `*${identity.displayName} — PURCHASE ORDER (ઓર્ડર લિસ્ટ)*`,
+    `Shop: ${shop.name}${identity.shopCode ? ` (${identity.shopCode})` : ''}`,
+    identity.phoneLine ? `Contact: ${identity.phoneLine}` : '',
+    `Supplier / Agency: ${supplierName || 'Authorized Distributor'}`,
     `Cycle: ${cycleLabel}${bufferPercent > 0 ? ` (+${bufferPercent}% Buffer)` : ''}`,
     `Date: ${dateLabel}`,
     `--------------------------------`,
@@ -209,10 +216,11 @@ export function buildWhatsAppShareUrl(phone: string | undefined, message: string
 }
 
 /**
- * Generates and downloads a clean A4 Purchase Order PDF using jsPDF.
+ * Generates and downloads an authentic commercial A4 Purchase Order PDF issued
+ * directly by the shop (100% white-label — zero third-party software branding).
  */
 export function downloadSmartOrderPdf(params: {
-  shop: Pick<Shop, 'name' | 'shopCode' | 'phone' | 'address' | 'gstNumber'>;
+  shop: Partial<Shop> & Pick<Shop, 'name' | 'shopCode'>;
   supplierName: string;
   cycleDays: SmartOrderCycleDays;
   bufferPercent: SmartOrderBufferPercent;
@@ -228,73 +236,77 @@ export function downloadSmartOrderPdf(params: {
     format: 'a4'
   });
 
+  const identity = getShopPdfIdentity(shop);
   const todayStr = new Date().toISOString().slice(0, 10);
+  const poRef = `PO-${todayStr.replace(/-/g, '')}`;
   const cycleText =
     cycleDays === 7 ? 'Weekly (7 Days)' : cycleDays === 15 ? 'Fortnightly (15 Days)' : 'Monthly (30 Days)';
 
-  const drawHeader = (pageNum: number) => {
-    doc.setFillColor(0, 90, 156);
-    doc.rect(0, 0, 210, 24, 'F');
-    doc.setFillColor(227, 24, 55);
-    doc.rect(0, 24, 210, 1.5, 'F');
+  const drawPageHeader = (pageNum: number): number =>
+    drawShopPdfHeader(doc, shop, {
+      documentTitle: 'PURCHASE ORDER',
+      documentSubtitle: `Ref: ${poRef}`,
+      metaRightLines: [
+        `Order Date: ${todayStr}`,
+        `Cycle: ${cycleText}${bufferPercent > 0 ? ` (+${bufferPercent}%)` : ''}`,
+        `Page ${pageNum}`
+      ],
+      accentRgb: [15, 23, 42]
+    });
 
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(14);
-    doc.text('PARLOURPRO POS - SMART PURCHASE ORDER', 14, 11);
+  let y = drawPageHeader(1);
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
-    doc.text(`Replenishment Cycle: ${cycleText}  |  Safety Buffer: +${bufferPercent}%  |  Date: ${todayStr}`, 14, 18);
-    doc.text(`Page ${pageNum}`, 195, 18, { align: 'right' });
-  };
-
-  drawHeader(1);
-
-  // Shop & Supplier summary card
-  doc.setFillColor(248, 250, 252);
-  doc.roundedRect(14, 30, 182, 22, 2, 2, 'F');
-  doc.setDrawColor(226, 232, 240);
-  doc.roundedRect(14, 30, 182, 22, 2, 2, 'S');
-
-  doc.setTextColor(0, 90, 156);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(10.5);
-  doc.text(shop.name || 'ParlourPro POS', 18, 37);
-
-  doc.setTextColor(51, 65, 85);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.text(`Code: ${shop.shopCode}  |  Phone: ${shop.phone || 'N/A'}`, 18, 43);
-  doc.text(`To Supplier / Agency: ${supplierName || 'Authorized Dairy Distributor'}`, 18, 48);
-
+  // Commercial Supplier & Order Summary Box
   const totalUnits = activeItems.reduce((sum, i) => sum + i.orderQty, 0);
   const grandTotal = activeItems.reduce((sum, i) => sum + i.orderQty * i.purchaseRate, 0);
+
+  doc.setFillColor(248, 250, 252);
+  doc.roundedRect(14, y, 182, 18, 2, 2, 'F');
+  doc.setDrawColor(203, 213, 225);
+  doc.roundedRect(14, y, 182, 18, 2, 2, 'S');
+
+  doc.setTextColor(71, 85, 105);
   doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.text('TO SUPPLIER / DISTRIBUTOR:', 18, y + 5.5);
+
   doc.setTextColor(15, 23, 42);
-  doc.text(`Est. Total: INR ${grandTotal.toFixed(2)}`, 192, 43, { align: 'right' });
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.text(supplierName || 'Authorized Supplier / Distributor', 18, y + 11);
+
   doc.setFont('helvetica', 'normal');
-  doc.text(`Items: ${activeItems.length} SKUs (${Math.round(totalUnits * 1000) / 1000} units)`, 192, 48, {
+  doc.setFontSize(8);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Issued By: ${identity.displayName}`, 18, y + 15.5);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Est. Order Value: INR ${grandTotal.toFixed(2)}`, 192, y + 8, { align: 'right' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(71, 85, 105);
+  doc.text(`Items: ${activeItems.length} SKUs  |  Qty: ${Math.round(totalUnits * 1000) / 1000} units`, 192, y + 14, {
     align: 'right'
   });
 
-  // Table header
-  let y = 58;
+  y += 23;
+
+  // Commercial Line-Items Table Header
   const drawTableHeader = (topY: number) => {
-    doc.setFillColor(241, 245, 249);
+    doc.setFillColor(15, 23, 42);
     doc.rect(14, topY, 182, 8, 'F');
-    doc.setDrawColor(203, 213, 225);
-    doc.rect(14, topY, 182, 8, 'S');
-    doc.setTextColor(30, 41, 59);
+    doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8);
     doc.text('#', 17, topY + 5.2);
-    doc.text('PRODUCT NAME', 25, topY + 5.2);
+    doc.text('ITEM DESCRIPTION', 25, topY + 5.2);
     doc.text('STOCK', 108, topY + 5.2, { align: 'right' });
     doc.text('AVG/DAY', 126, topY + 5.2, { align: 'right' });
     doc.text('ORDER QTY', 148, topY + 5.2, { align: 'right' });
     doc.text('RATE (INR)', 170, topY + 5.2, { align: 'right' });
-    doc.text('TOTAL (INR)', 193, topY + 5.2, { align: 'right' });
+    doc.text('AMOUNT (INR)', 193, topY + 5.2, { align: 'right' });
   };
 
   drawTableHeader(y);
@@ -302,11 +314,10 @@ export function downloadSmartOrderPdf(params: {
 
   let pageNum = 1;
   activeItems.forEach((item, index) => {
-    if (y > 272) {
+    if (y > 258) {
       doc.addPage();
       pageNum += 1;
-      drawHeader(pageNum);
-      y = 32;
+      y = drawPageHeader(pageNum);
       drawTableHeader(y);
       y += 8;
     }
@@ -333,7 +344,7 @@ export function downloadSmartOrderPdf(params: {
     doc.text(`${item.avgDailySales.toFixed(2)}`, 126, y + 5, { align: 'right' });
 
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(0, 90, 156);
+    doc.setTextColor(15, 23, 42);
     doc.text(`${item.orderQty} ${item.unit}`, 148, y + 5, { align: 'right' });
 
     doc.setFont('helvetica', 'normal');
@@ -346,22 +357,28 @@ export function downloadSmartOrderPdf(params: {
     y += 7.5;
   });
 
-  // Total Footer
-  if (y > 268) {
+  // Grand Total Box + Commercial Signatory Lines (kept cleanly on page)
+  if (y > 240) {
     doc.addPage();
     pageNum += 1;
-    drawHeader(pageNum);
-    y = 34;
+    y = drawPageHeader(pageNum);
   }
   y += 4;
-  doc.setFillColor(0, 90, 156);
+  doc.setFillColor(15, 23, 42);
   doc.roundedRect(115, y, 81, 12, 2, 2, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
-  doc.text('ESTIMATED TOTAL:', 119, y + 7.5);
+  doc.text('ESTIMATED ORDER TOTAL:', 119, y + 7.5);
   doc.text(`INR ${grandTotal.toFixed(2)}`, 192, y + 7.5, { align: 'right' });
 
-  const safeCode = (shop.shopCode || 'SHOP').replace(/[^a-zA-Z0-9_-]/g, '');
-  doc.save(`Smart-Order-${safeCode}-${todayStr}.pdf`);
+  drawCommercialSignatoryFooter(doc, {
+    shopName: identity.displayName,
+    leftLabel: 'Receiver Signature',
+    rightLabel: 'Authorized Signatory',
+    noteLine: `Purchase Order issued by ${identity.displayName}  |  Ref: ${poRef}`
+  });
+
+  const shopSlug = getShopFileSlug(shop);
+  doc.save(`Purchase-Order-${shopSlug}-${todayStr}.pdf`);
 }

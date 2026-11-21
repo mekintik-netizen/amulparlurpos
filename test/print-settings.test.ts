@@ -76,9 +76,9 @@ describe('Admin Print Settings & Receipt Customizer Tests', () => {
     }
   });
 
-  it('1. verifies official ParlourPro POS default print settings configuration values', () => {
+  it('1. verifies white-label shop-only default print settings configuration values', () => {
     expect(DEFAULT_PRINT_SETTINGS_CONFIG.showHeaderLogo).toBe(true);
-    expect(DEFAULT_PRINT_SETTINGS_CONFIG.headerTitle).toBe('PARLOURPRO POS');
+    expect(DEFAULT_PRINT_SETTINGS_CONFIG.headerTitle).toBe('');
     expect(DEFAULT_PRINT_SETTINGS_CONFIG.showShopName).toBe(true);
     expect(DEFAULT_PRINT_SETTINGS_CONFIG.showAddress).toBe(true);
     expect(DEFAULT_PRINT_SETTINGS_CONFIG.showPhone).toBe(true);
@@ -86,7 +86,7 @@ describe('Admin Print Settings & Receipt Customizer Tests', () => {
     expect(DEFAULT_PRINT_SETTINGS_CONFIG.showGstFssai).toBe(true);
 
     expect(DEFAULT_PRINT_SETTINGS_CONFIG.footerNote1).toBe('Thank you! Please visit again');
-    expect(DEFAULT_PRINT_SETTINGS_CONFIG.footerNote2).toBe('Smart Billing & Inventory • ParlourPro POS');
+    expect(DEFAULT_PRINT_SETTINGS_CONFIG.footerNote2).toBe('We value your business!');
     expect(DEFAULT_PRINT_SETTINGS_CONFIG.footerNote3).toBe('Goods once sold will not be taken back');
 
     expect(DEFAULT_PRINT_SETTINGS_CONFIG.compactMode).toBe(true);
@@ -98,13 +98,13 @@ describe('Admin Print Settings & Receipt Customizer Tests', () => {
   it('2. loads and seeds default configuration in Firestore if none exists', async () => {
     const config = await getPrintSettingsConfig();
     expect(config).toBeDefined();
-    expect(config.headerTitle).toBe('PARLOURPRO POS');
+    expect(config.headerTitle).toBe('');
     expect(config.compactMode).toBe(true);
 
     // Verify document was seeded in mock Firestore
     const stored = mockAdminSettings.get('adminSettings/printConfig');
     expect(stored).toBeDefined();
-    expect(stored.headerTitle).toBe('PARLOURPRO POS');
+    expect(stored.headerTitle).toBe('');
   });
 
   it('3. saves custom header overrides and footer notes to Firestore adminSettings/printConfig', async () => {
@@ -147,7 +147,7 @@ describe('Admin Print Settings & Receipt Customizer Tests', () => {
 
     // Reset
     const reset = await resetPrintSettingsConfig('Master Admin');
-    expect(reset.headerTitle).toBe('PARLOURPRO POS');
+    expect(reset.headerTitle).toBe('');
     expect(reset.headerSpacing).toBe('tight');
     expect(reset.compactMode).toBe(true);
     expect(reset.footerNote1).toBe('Thank you! Please visit again');

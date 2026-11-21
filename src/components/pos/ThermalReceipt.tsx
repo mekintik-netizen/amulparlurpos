@@ -29,6 +29,11 @@ import {
 } from 'lucide-react';
 import { SaleBill, Shop, PrintSettingsConfig } from '../../types/index.ts';
 import { getCachedPrintSettings, subscribeToPrintSettings } from '../../storage/printSettings.ts';
+import {
+  getShopPdfIdentity,
+  stripSoftwareBranding,
+  RECEIPT_FOOTER_BRAND_CREDIT
+} from '../../utils/shopPdfBranding.ts';
 
 interface ThermalReceiptProps {
   bill: SaleBill | null;
@@ -275,56 +280,82 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
               paperWidth === '58mm' ? 'receipt-58mm' : 'receipt-80mm'
             }`}
           >
-            {/* Header (Dynamically customized by Master Admin) */}
-            <div
-              className={`text-center border-b border-dashed border-black ${
-                printConfig.headerSpacing === 'tight'
-                  ? 'pb-1 space-y-0.5'
-                  : printConfig.headerSpacing === 'relaxed'
-                  ? 'pb-3 space-y-1.5'
-                  : 'pb-2 space-y-1'
-              }`}
-            >
-              {printConfig.showHeaderLogo && (
-                <div className="font-extrabold text-sm uppercase tracking-tight text-black">
-                  {printConfig.headerTitle || 'PARLOURPRO POS'}
-                </div>
-              )}
-              {printConfig.showShopName && (
-                <div className="font-bold text-xs mt-0.5 text-black">
-                  {printConfig.customShopName || shop.name}
-                </div>
-              )}
-              {printConfig.showAddress && (
-                <div className="text-[10px] text-black mt-0.5 leading-tight">
-                  {printConfig.customAddress || `${shop.address}, ${shop.city}`}
-                </div>
-              )}
-              {printConfig.showPhone && (
-                <div className="text-[10px] text-black">
-                  Phone: {printConfig.customPhone || shop.phone}
-                </div>
-              )}
-              {printConfig.showShopId && (
-                <div className="text-[10px] font-semibold text-black mt-0.5">
-                  Shop ID: {shop.shopCode}
-                </div>
-              )}
-              {printConfig.showGstFssai && (
-                <>
-                  {(printConfig.customGst || shop.gstNumber) && (
-                    <div className="text-[10px] text-black">
-                      GSTIN: {printConfig.customGst || shop.gstNumber}
+            {/* Header (100% Shop Identity Only — Zero Software Branding) */}
+            {(() => {
+              const shopIdentity = getShopPdfIdentity(shop);
+              const safeHeaderTitle = stripSoftwareBranding(printConfig.headerTitle, '');
+              const effectiveShopName = stripSoftwareBranding(printConfig.customShopName, '') || shopIdentity.displayName;
+              const effectiveAddress = printConfig.customAddress || shopIdentity.addressLine;
+              const effectivePhone = printConfig.customPhone || shopIdentity.phoneLine;
+              const effectiveGst = printConfig.customGst || shopIdentity.gstNumber;
+              const effectiveFssai = printConfig.customFssai || shopIdentity.fssaiNumber;
+
+              return (
+                <div
+                  className={`text-center border-b border-dashed border-black ${
+                    printConfig.headerSpacing === 'tight'
+                      ? 'pb-1 space-y-0.5'
+                      : printConfig.headerSpacing === 'relaxed'
+                      ? 'pb-3 space-y-1.5'
+                      : 'pb-2 space-y-1'
+                  }`}
+                >
+                  {printConfig.showHeaderLogo && shopIdentity.logoUrl && (
+                    <div className="flex justify-center pb-0.5">
+                      <img
+                        src={shopIdentity.logoUrl}
+                        alt={effectiveShopName}
+                        className="h-10 w-10 object-contain"
+                      />
                     </div>
                   )}
-                  {(printConfig.customFssai || shop.fssaiNumber) && (
-                    <div className="text-[10px] text-black">
-                      FSSAI: {printConfig.customFssai || shop.fssaiNumber}
+                  {printConfig.showHeaderLogo && safeHeaderTitle && safeHeaderTitle.toUpperCase() !== effectiveShopName.toUpperCase() && (
+                    <div className="font-extrabold text-sm uppercase tracking-tight text-black">
+                      {safeHeaderTitle}
                     </div>
                   )}
-                </>
-              )}
-            </div>
+                  {printConfig.showShopName && (
+                    <div className="font-extrabold text-sm uppercase tracking-tight text-black">
+                      {effectiveShopName}
+                    </div>
+                  )}
+                  {shopIdentity.regionalName && (
+                    <div className="text-[10px] font-bold text-black">
+                      {shopIdentity.regionalName}
+                    </div>
+                  )}
+                  {printConfig.showAddress && effectiveAddress && (
+                    <div className="text-[10px] text-black mt-0.5 leading-tight">
+                      {effectiveAddress}
+                    </div>
+                  )}
+                  {printConfig.showPhone && effectivePhone && (
+                    <div className="text-[10px] text-black">
+                      Phone: {effectivePhone}
+                    </div>
+                  )}
+                  {printConfig.showShopId && shopIdentity.shopCode && (
+                    <div className="text-[10px] font-semibold text-black mt-0.5">
+                      Shop ID: {shopIdentity.shopCode}
+                    </div>
+                  )}
+                  {printConfig.showGstFssai && (
+                    <>
+                      {effectiveGst && (
+                        <div className="text-[10px] text-black">
+                          GSTIN: {effectiveGst}
+                        </div>
+                      )}
+                      {effectiveFssai && (
+                        <div className="text-[10px] text-black">
+                          FSSAI: {effectiveFssai}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Bill Meta */}
             <div className="py-2 text-[10px] border-b border-dashed border-black space-y-0.5 text-black">
@@ -452,15 +483,23 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
                   * {activeBill.billNumber} *
                 </div>
               )}
-              {(printConfig.footerNote1 || printConfig.footerNote2 || printConfig.footerNote3) && (
-                <div className="text-[9px] text-black pt-1 leading-tight space-y-0.5">
-                  {printConfig.footerNote1 && <div>{printConfig.footerNote1}</div>}
-                  {printConfig.footerNote2 && <div>{printConfig.footerNote2}</div>}
-                  {printConfig.footerNote3 && (
-                    <div className="text-[8px] text-slate-700 italic">{printConfig.footerNote3}</div>
-                  )}
-                </div>
-              )}
+              {(() => {
+                const note1 = stripSoftwareBranding(printConfig.footerNote1, '');
+                const note2 = stripSoftwareBranding(printConfig.footerNote2, '');
+                const note3 = stripSoftwareBranding(printConfig.footerNote3, '');
+                return (
+                  <div className="text-[9px] text-black pt-1 leading-tight space-y-0.5">
+                    {note1 && <div>{note1}</div>}
+                    {note2 && <div>{note2}</div>}
+                    {note3 && (
+                      <div className="text-[8px] text-slate-700 italic">{note3}</div>
+                    )}
+                    <div className="text-[8px] text-slate-500 pt-1">
+                      {RECEIPT_FOOTER_BRAND_CREDIT}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         </div>

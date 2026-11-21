@@ -22,11 +22,13 @@ import {
   Trash2, 
   AlertCircle,
   Receipt,
-  PieChart
+  PieChart,
+  Printer
 } from 'lucide-react';
 import { DailyFinancialSummary, Expense, ExpenseCategory, PaymentMode, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
+import { getShopPdfIdentity, PDF_FOOTER_BRAND_CREDIT } from '../../utils/shopPdfBranding.ts';
 
 interface ExpenseManagementProps {
   currentShop: Shop;
@@ -142,20 +144,60 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
         </div>
       )}
 
+      {/* Dedicated Print-Only Shop Header (100% Shop Identity Only) */}
+      {(() => {
+        const shopIdentity = getShopPdfIdentity(currentShop);
+        return (
+          <div className="hidden print:flex items-start justify-between gap-4 pb-4 mb-4 border-b-2 border-slate-900 text-slate-900">
+            <div className="flex items-start gap-3">
+              {shopIdentity.logoUrl && (
+                <img
+                  src={shopIdentity.logoUrl}
+                  alt={shopIdentity.displayName}
+                  className="h-14 w-14 rounded-lg object-contain border border-slate-200 p-1 shrink-0"
+                />
+              )}
+              <div>
+                <h1 className="text-xl font-black uppercase tracking-wide text-slate-900">
+                  {shopIdentity.displayName}
+                </h1>
+                {shopIdentity.regionalName && (
+                  <div className="text-xs font-bold text-slate-700">{shopIdentity.regionalName}</div>
+                )}
+                {shopIdentity.addressLine && (
+                  <div className="text-[11px] text-slate-600 mt-0.5">{shopIdentity.addressLine}</div>
+                )}
+                <div className="text-[11px] text-slate-600 font-mono mt-0.5 flex flex-wrap gap-x-3">
+                  {shopIdentity.phoneLine && <span>Mob: {shopIdentity.phoneLine}</span>}
+                  {shopIdentity.gstNumber && <span>GSTIN: {shopIdentity.gstNumber}</span>}
+                  {shopIdentity.fssaiNumber && <span>FSSAI: {shopIdentity.fssaiNumber}</span>}
+                </div>
+              </div>
+            </div>
+            <div className="text-right shrink-0">
+              <div className="inline-block border-2 border-slate-900 px-3 py-1 text-xs font-black uppercase tracking-widest">
+                EXPENSES &amp; CASH REPORT
+              </div>
+              <div className="text-xs font-mono text-slate-600 mt-1">Date: {targetDate}</div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Top Controls & Financial KPI Summary */}
-      <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
+      <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 print:rounded-none print:border-0 print:p-0">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 no-print">
           <div>
             <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
               <Calculator className="w-5 h-5 text-blue-600" />
-              Daily Financial Summary & Profit / Loss Reconciliation
+              Daily Financial Summary &amp; Profit / Loss Reconciliation
             </h2>
             <p className="text-xs text-slate-500 mt-0.5">
               Strictly distinguishes sales revenue from true operating profit based on Cost of Goods Sold (COGS) and operational costs.
             </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5">
             <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5">
               <Calendar className="w-4 h-4 text-slate-500" />
               <input
@@ -165,6 +207,16 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
                 className="bg-transparent text-xs font-semibold text-slate-800 focus:outline-hidden"
               />
             </div>
+
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="Print / Save Expenses & Cash Report PDF"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print / PDF</span>
+            </button>
 
             <button
               onClick={() => {
@@ -334,6 +386,25 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
               * Cash receipts from sales minus any cash operating expenses paid out of the counter drawer today.
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Print-Only Commercial Signatory & Subtle Text-Only Footer Attribution (No Logo Image) */}
+      <div className="hidden print:block pt-10 mt-6 border-t border-slate-300 text-xs text-slate-700">
+        <div className="flex items-end justify-between">
+          <div className="w-44 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
+            Prepared By
+          </div>
+          <div className="w-48 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
+            Authorized Signatory
+            <div className="text-[10px] font-normal text-slate-500">
+              For {getShopPdfIdentity(currentShop).displayName}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 pt-2 border-t border-slate-200 flex items-center justify-between text-[9px] text-slate-400">
+          <span>Expenses &amp; Cash Statement — {getShopPdfIdentity(currentShop).displayName}</span>
+          <span>{PDF_FOOTER_BRAND_CREDIT}</span>
         </div>
       </div>
 

@@ -116,11 +116,20 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
   // Real-time Firestore Sync for products and inventory collections scoped to currentShop.id
   useEffect(() => {
     loadProducts();
-    const syncListeners = startShopRealtimeSync(currentShop.id, () => {
+    const syncListeners = startShopRealtimeSync(
+      currentShop.id,
+      () => {
+        loadProducts();
+      },
+      currentShop
+    );
+    const handleCloudSynced = () => {
       loadProducts();
-    });
+    };
+    window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
     return () => {
       syncListeners.unsubscribeAll();
+      window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
     };
   }, [currentShop.id]);
 

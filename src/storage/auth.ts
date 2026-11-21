@@ -14,7 +14,7 @@
 import { openAppDatabase, getAllShops, getShopById, saveShop, prefillMasterAmulCatalogWithZeroStock } from './db.ts';
 import { db, getAdminAuthConfig, updateAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig, ensureAnonymousAuth } from './firebase.ts';
 import { collection, doc, getDoc, getDocs, query, where } from 'firebase/firestore';
-import { syncShopToCloud } from './firestoreSync.ts';
+import { syncShopToCloud, normalizeRemoteShop } from './firestoreSync.ts';
 import { Shop } from '../types/index.ts';
 import { isShopSubscriptionActive } from './subscription.ts';
 import { constantTimeEqual, generateSalt, hashPasswordWithSalt } from '../utils/cryptoHash.ts';
@@ -62,6 +62,89 @@ export interface AuthSession {
 }
 
 const SESSION_KEY = 'amul_pos_active_session';
+
+const LEGACY_KEY_PAIRS: ReadonlyArray<[string, string]> = [
+  ['parlourpro_pos_active_session', 'amul_pos_active_session'],
+  ['parlourpro_active_session', 'amul_pos_active_session'],
+  ['amul_parlour_active_session', 'amul_pos_active_session'],
+  ['parlourpro_pos_theme', 'amul_pos_theme'],
+  ['parlourpro_theme', 'amul_pos_theme'],
+  ['parlourpro_pos_print_settings', 'amul_pos_print_settings'],
+  ['parlourpro_pos_subscription_settings', 'amul_pos_subscription_settings'],
+  ['parlourpro_pos_deleted_products', 'amul_pos_deleted_products'],
+  ['parlourpro_pos_deleted_suppliers', 'amul_pos_deleted_suppliers'],
+  ['parlourpro_pos_deleted_purchases', 'amul_pos_deleted_purchases'],
+  ['parlourpro_admin_otp_last_sent_ms', 'amul_admin_otp_last_sent_ms'],
+  ['parlourpro_admin_otp_lockout', 'amul_admin_otp_lockout']
+];
+
+const LEGACY_PREFIX_MAP: ReadonlyArray<[string, string]> = [
+  ['parlourpro_last_cloud_sync_', 'amul_last_cloud_sync_'],
+  ['parlourpro_pos_sup_seeded_', 'amul_pos_sup_seeded_'],
+  ['parlourpro_pos_prod_seeded_', 'amul_pos_prod_seeded_'],
+  ['parlourpro_pos_morning_greeting_', 'amul_pos_morning_greeting_'],
+  ['amul_parlour_last_cloud_sync_', 'amul_last_cloud_sync_'],
+  ['amul_parlour_pos_', 'amul_pos_']
+];
+
+/**
+ * Safely scans browser storage for legacy (`amul*`, `amul_parlour*`) or rebranded (`parlourpro*`)
+ * keys and ensures all canonical original storage keys are preserved without deleting or overwriting
+ * any existing values.
+ */
+export function migrateLegacyLocalStorageKeys(): { migratedKeys: string[]; scannedKeys: number } {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return { migratedKeys: [], scannedKeys: 0 };
+  }
+
+  const migratedKeys: string[] = [];
+  let scannedKeys = 0;
+
+  try {
+    const storages: Storage[] = [window.localStorage];
+    if (window.sessionStorage) {
+      storages.push(window.sessionStorage);
+    }
+
+    for (const storage of storages) {
+      // 1. Exact pair restoration (never overwrites an existing canonical key, never deletes source)
+      for (const [altKey, canonicalKey] of LEGACY_KEY_PAIRS) {
+        const canonicalVal = storage.getItem(canonicalKey);
+        const altVal = storage.getItem(altKey);
+        if ((canonicalVal === null || canonicalVal === '') && altVal !== null && altVal !== '') {
+          storage.setItem(canonicalKey, altVal);
+          migratedKeys.push(`${altKey}->${canonicalKey}`);
+        }
+      }
+
+      // 2. Dynamic prefix scan (e.g., per-shop sync timestamps, seed flags, greeting flags)
+      const keys: string[] = [];
+      for (let i = 0; i < storage.length; i++) {
+        const k = storage.key(i);
+        if (k) keys.push(k);
+      }
+      scannedKeys += keys.length;
+
+      for (const key of keys) {
+        for (const [altPrefix, canonicalPrefix] of LEGACY_PREFIX_MAP) {
+          if (key.startsWith(altPrefix)) {
+            const targetKey = canonicalPrefix + key.slice(altPrefix.length);
+            const existingTarget = storage.getItem(targetKey);
+            const sourceVal = storage.getItem(key);
+            if ((existingTarget === null || existingTarget === '') && sourceVal !== null && sourceVal !== '') {
+              storage.setItem(targetKey, sourceVal);
+              migratedKeys.push(`${key}->${targetKey}`);
+            }
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Storage] Legacy localStorage migration check notice:', err);
+  }
+
+  return { migratedKeys, scannedKeys };
+}
 
 // Salted SHA-256 helpers are shared from ../utils/cryptoHash.ts and re-exported above.
 
@@ -246,14 +329,16 @@ export async function authenticateShopCounterFromFirestore(params: {
       const qPhoneExact = query(collection(db, 'shops'), where('phone', '==', rawInput));
       const snapPhoneExact = await getDocs(qPhoneExact);
       if (!snapPhoneExact.empty) {
-        matchedShop = snapPhoneExact.docs[0].data() as Shop;
+        const docSnap = snapPhoneExact.docs[0];
+        matchedShop = normalizeRemoteShop(docSnap.data() as Record<string, any>, docSnap.id);
       }
 
       if (!matchedShop && last10Digits.length === 10) {
         const qPhoneWithPrefix = query(collection(db, 'shops'), where('phone', '==', `+91 ${last10Digits}`));
         const snapPhoneWithPrefix = await getDocs(qPhoneWithPrefix);
         if (!snapPhoneWithPrefix.empty) {
-          matchedShop = snapPhoneWithPrefix.docs[0].data() as Shop;
+          const docSnap = snapPhoneWithPrefix.docs[0];
+          matchedShop = normalizeRemoteShop(docSnap.data() as Record<string, any>, docSnap.id);
         }
       }
     }
@@ -263,7 +348,7 @@ export async function authenticateShopCounterFromFirestore(params: {
       const shopDocRef = doc(db, 'shops', rawInput);
       const shopDocSnap = await getDoc(shopDocRef);
       if (shopDocSnap.exists()) {
-        matchedShop = shopDocSnap.data() as Shop;
+        matchedShop = normalizeRemoteShop(shopDocSnap.data() as Record<string, any>, shopDocSnap.id);
       }
     }
 
@@ -272,7 +357,8 @@ export async function authenticateShopCounterFromFirestore(params: {
       const qCodeUpper = query(collection(db, 'shops'), where('shopCode', '==', rawInput.toUpperCase()));
       const snapCodeUpper = await getDocs(qCodeUpper);
       if (!snapCodeUpper.empty) {
-        matchedShop = snapCodeUpper.docs[0].data() as Shop;
+        const docSnap = snapCodeUpper.docs[0];
+        matchedShop = normalizeRemoteShop(docSnap.data() as Record<string, any>, docSnap.id);
       }
     }
 
@@ -281,7 +367,8 @@ export async function authenticateShopCounterFromFirestore(params: {
       const qCashier = query(collection(db, 'shops'), where('cashierUsername', '==', cleanLower));
       const snapCashier = await getDocs(qCashier);
       if (!snapCashier.empty) {
-        matchedShop = snapCashier.docs[0].data() as Shop;
+        const docSnap = snapCashier.docs[0];
+        matchedShop = normalizeRemoteShop(docSnap.data() as Record<string, any>, docSnap.id);
       }
     }
 
@@ -289,12 +376,13 @@ export async function authenticateShopCounterFromFirestore(params: {
     if (!matchedShop) {
       const allShopsSnap = await getDocs(collection(db, 'shops'));
       for (const d of allShopsSnap.docs) {
-        const s = d.data() as Shop;
+        const rawData = d.data() as Record<string, any>;
+        const s = normalizeRemoteShop(rawData, d.id);
         const sId = (s.id || d.id || '').toLowerCase();
         const sCode = (s.shopCode || '').toLowerCase();
         const sCodeClean = sCode.replace(/[^a-z0-9]/g, '');
         const sCashier = (s.cashierUsername || '').toLowerCase();
-        const sPhone = (s.phone || '').trim();
+        const sPhone = String(s.phone || rawData.shopMobile || rawData.mobile || '').trim();
         const sPhoneDigits = sPhone.replace(/\D/g, '');
         const sPhoneLast10 = sPhoneDigits.length >= 10 ? sPhoneDigits.slice(-10) : sPhoneDigits;
         const sName = (s.name || '').toLowerCase();
@@ -706,6 +794,7 @@ export async function authenticateLocalUser(params: {
 export function getActiveSession(): AuthSession | null {
   if (typeof window === 'undefined') return null;
   try {
+    migrateLegacyLocalStorageKeys();
     let raw = sessionStorage.getItem(SESSION_KEY);
     // Check localStorage only if trusted device persisted session exists
     if (!raw) {
@@ -1018,7 +1107,7 @@ export async function adminResetShopPassword(params: {
       const snap = await getDocs(q);
       if (!snap.empty) {
         const docSnap = snap.docs[0];
-        const s = docSnap.data() as Shop;
+        const s = normalizeRemoteShop(docSnap.data() as Record<string, any>, docSnap.id);
         s.salt = newSalt;
         s.passwordHash = newHash;
         delete s.cashierPassword;

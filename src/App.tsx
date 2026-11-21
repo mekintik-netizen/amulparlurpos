@@ -17,7 +17,7 @@
  * - Automated daily 8:00 PM backup snapshots with missed backup detection
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Header, ActiveTab } from './components/layout/Header.tsx';
 import { LocalModeNotice } from './components/common/LocalModeNotice.tsx';
 import { MissedBackupBanner } from './components/common/MissedBackupBanner.tsx';
@@ -55,11 +55,17 @@ import {
   clearActiveSession,
   ensureDefaultAccountsSeeded,
   getShopPasswordAgeDays,
-  changeShopOwnPassword
+  changeShopOwnPassword,
+  migrateLegacyLocalStorageKeys
 } from './storage/auth.ts';
 import { checkAndSendMonthlyAdminResetReminder } from './storage/adminEmailOtp.ts';
 import { isShopSubscriptionActive } from './storage/subscription.ts';
-import { startShopRealtimeSync, startAdminShopsRealtimeSync } from './storage/firestoreSync.ts';
+import {
+  startShopRealtimeSync,
+  startAdminShopsRealtimeSync,
+  syncAllShopDataFromCloud,
+  CloudShopSyncSummary
+} from './storage/firestoreSync.ts';
 import { subscribeToAdminAuthConfig, updateAdminAuthConfig } from './storage/firebase.ts';
 import {
   clearAiSessionMemory,
@@ -105,6 +111,13 @@ export default function App() {
   const [rotationError, setRotationError] = useState<string | null>(null);
   const [rotationSuccess, setRotationSuccess] = useState<string | null>(null);
 
+  // Cloud Firestore Hydration & Manual Refresh State
+  const [cloudSyncVersion, setCloudSyncVersion] = useState(0);
+  const [isCloudSyncing, setIsCloudSyncing] = useState(false);
+  const [cloudSyncToast, setCloudSyncToast] = useState<{ text: string; type: 'success' | 'info' } | null>(null);
+  const syncDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const loadShops = async () => {
     try {
       setLoading(true);
@@ -148,7 +161,64 @@ export default function App() {
     }
   };
 
+  const refreshShopsSilently = useCallback(async () => {
+    try {
+      const list = await AppRepository.shops.getAll();
+      if (list.length > 0) {
+        setShops(list);
+        setCurrentShop((prev) => {
+          if (!prev) return list[0];
+          const found = list.find((s) => s.id === prev.id);
+          return found || prev;
+        });
+      }
+    } catch {
+      // ignore background refresh error
+    }
+  }, []);
+
+  const handleManualCloudSync = useCallback(
+    async (shopOverride?: Shop, opts?: { silent?: boolean }): Promise<CloudShopSyncSummary | null> => {
+      const targetShop = shopOverride || currentShop;
+      if (!targetShop?.id) return null;
+
+      setIsCloudSyncing(true);
+      try {
+        migrateLegacyLocalStorageKeys();
+        const summary = await syncAllShopDataFromCloud(targetShop, { forceReconnect: true });
+        await refreshShopsSilently();
+        setCloudSyncVersion((v) => v + 1);
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('parlourpro-cloud-synced', { detail: summary }));
+        }
+        if (!opts?.silent) {
+          if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+          setCloudSyncToast(
+            summary.authOk
+              ? {
+                  text: `Cloud Data Synced (જૂનો ડેટા રિફ્રેશ થઈ ગયો): ${summary.purchases} Purchases, ${summary.sales} Sales, ${summary.products} Products`,
+                  type: 'success'
+                }
+              : {
+                  text: 'Cloud Firestore unreachable right now. Showing local saved data.',
+                  type: 'info'
+                }
+          );
+          toastTimeoutRef.current = setTimeout(() => setCloudSyncToast(null), 5000);
+        }
+        return summary;
+      } catch (err) {
+        console.warn('[Cloud Sync] Manual refresh notice:', err);
+        return null;
+      } finally {
+        setIsCloudSyncing(false);
+      }
+    },
+    [currentShop, refreshShopsSilently]
+  );
+
   useEffect(() => {
+    migrateLegacyLocalStorageKeys();
     loadShops();
     // Non-blocking 1st-of-month automatic EmailJS reminder check (sent at most once per month)
     checkAndSendMonthlyAdminResetReminder().catch(() => {});
@@ -198,6 +268,7 @@ export default function App() {
 
   // Sync user shop when user session changes
   const handleLoginSuccess = async (session: AuthSession) => {
+    migrateLegacyLocalStorageKeys();
     setCurrentUser(session);
     if (session.role === 'ADMIN') {
       setActiveTab('ADMIN');
@@ -217,6 +288,8 @@ export default function App() {
             if (prev.some(s => s.id === boundShop!.id)) return prev;
             return [...prev, boundShop!];
           });
+          // Immediately pull historical bills, purchases, sales & stock from Cloud Firestore
+          handleManualCloudSync(boundShop, { silent: true }).catch(() => {});
         }
       }
     }
@@ -328,11 +401,29 @@ export default function App() {
   // Real-time Firestore sync for active shop data (bills, inventory, expenses, bank statements)
   useEffect(() => {
     if (!currentUser || !currentShop?.id) return;
-    const unsubShop = startShopRealtimeSync(currentShop.id, () => {
-      loadShops();
-    });
-    return () => unsubShop.unsubscribeAll();
-  }, [currentUser?.username, currentShop?.id]);
+    const unsubShop = startShopRealtimeSync(
+      currentShop.id,
+      () => {
+        if (syncDebounceRef.current) {
+          clearTimeout(syncDebounceRef.current);
+        }
+        syncDebounceRef.current = setTimeout(() => {
+          refreshShopsSilently();
+          setCloudSyncVersion((v) => v + 1);
+          if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('parlourpro-cloud-synced'));
+          }
+        }, 250);
+      },
+      currentShop
+    );
+    return () => {
+      if (syncDebounceRef.current) {
+        clearTimeout(syncDebounceRef.current);
+      }
+      unsubShop.unsubscribeAll();
+    };
+  }, [currentUser?.username, currentShop?.id, refreshShopsSilently]);
 
   // Real-time Firestore sync for Admin HQ shops collection
   useEffect(() => {
@@ -451,7 +542,24 @@ export default function App() {
         onOpenAdminLogin={() => setLoginModal({ isOpen: true, initialRole: 'ADMIN' })}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        onSyncCloudData={() => {
+          handleManualCloudSync();
+        }}
+        isCloudSyncing={isCloudSyncing}
       />
+
+      {cloudSyncToast && (
+        <div
+          className={`no-print px-4 py-2 text-xs font-bold flex items-center justify-center gap-2 border-b ${
+            cloudSyncToast.type === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800'
+              : 'bg-blue-50 dark:bg-blue-950/70 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-800'
+          }`}
+        >
+          <CheckCircle2 className="w-4 h-4 shrink-0" />
+          <span>{cloudSyncToast.text}</span>
+        </div>
+      )}
 
       {/* Missed Daily Backup Alert Banner (Only fires if an 8:00 PM snapshot was missed) */}
       <MissedBackupBanner
@@ -481,6 +589,7 @@ export default function App() {
 
               {activeTab === 'PURCHASES' && (
                 <PurchaseManagement
+                  key={`purchases-${currentShop.id}-${cloudSyncVersion}`}
                   currentShop={currentShop}
                   onStockUpdated={loadShops}
                 />
@@ -488,6 +597,7 @@ export default function App() {
 
               {activeTab === 'SMART_ORDER' && (
                 <SmartOrderManagement
+                  key={`smart-order-${currentShop.id}-${cloudSyncVersion}`}
                   currentShop={currentShop}
                   onOpenPurchases={() => setActiveTab('PURCHASES')}
                 />
@@ -506,26 +616,37 @@ export default function App() {
               )}
 
               {activeTab === 'STOCK' && (
-                <DailyStockReport currentShop={currentShop} />
+                <DailyStockReport
+                  key={`stock-${currentShop.id}-${cloudSyncVersion}`}
+                  currentShop={currentShop}
+                />
               )}
 
               {activeTab === 'SALES' && (
                 <DailySalesReport
+                  key={`sales-${currentShop.id}-${cloudSyncVersion}`}
                   currentShop={currentShop}
                   onReprintBill={(bill) => setActiveReceiptBill(bill)}
                 />
               )}
 
               {activeTab === 'REPORTS' && (
-                <ReportsHub currentShop={currentShop} />
+                <ReportsHub
+                  key={`reports-${currentShop.id}-${cloudSyncVersion}`}
+                  currentShop={currentShop}
+                />
               )}
 
               {activeTab === 'EXPENSES' && (
-                <ExpenseManagement currentShop={currentShop} />
+                <ExpenseManagement
+                  key={`expenses-${currentShop.id}-${cloudSyncVersion}`}
+                  currentShop={currentShop}
+                />
               )}
 
               {activeTab === 'BANK' && (
                 <BankStatementManagement
+                  key={`bank-${currentShop.id}-${cloudSyncVersion}`}
                   currentShop={currentShop}
                   onOpenProfileTab={() => setActiveTab('PROFILE')}
                 />
@@ -533,6 +654,7 @@ export default function App() {
 
               {activeTab === 'PROFILE' && (
                 <ShopProfileManagement
+                  key={`profile-${currentShop.id}-${cloudSyncVersion}`}
                   currentShop={currentShop}
                   onShopUpdated={(updated) => {
                     setCurrentShop(updated);
@@ -542,13 +664,18 @@ export default function App() {
               )}
 
               {activeTab === 'CATALOG' && (
-                <CatalogManagement currentShop={currentShop} />
+                <CatalogManagement
+                  key={`catalog-${currentShop.id}-${cloudSyncVersion}`}
+                  currentShop={currentShop}
+                />
               )}
 
               {activeTab === 'BACKUP' && (
                 <BackupManagementView
                   currentShop={currentShop}
                   onDataReload={loadShops}
+                  onSyncCloudData={() => handleManualCloudSync()}
+                  isCloudSyncing={isCloudSyncing}
                 />
               )}
 

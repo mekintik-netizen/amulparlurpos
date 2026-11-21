@@ -115,7 +115,7 @@ describe('Windows .ico Binary Builder & Official Brand Assets', () => {
     const headerTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/components/layout/Header.tsx'), 'utf8');
     expect(headerTsx).toContain('LOGO_ROUND_URL');
     expect(headerTsx).toContain('ParlourPro POS');
-    expect(headerTsx).toContain('Smart Billing &amp; Inventory');
+    expect(headerTsx).toContain('Smart Billing & Inventory');
 
     const posTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/components/pos/BarcodePOS.tsx'), 'utf8');
     expect(posTsx).toContain('Search parlour products, SKU or name...');

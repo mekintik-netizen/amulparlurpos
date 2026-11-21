@@ -32,6 +32,11 @@ import {
 } from 'lucide-react';
 import { BankEntry, BankEntryCategory, BankEntryType, BankStatementSummary, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
+import {
+  getShopFileSlug,
+  getShopPdfIdentity,
+  PDF_FOOTER_BRAND_CREDIT
+} from '../../utils/shopPdfBranding.ts';
 
 interface BankStatementManagementProps {
   currentShop: Shop;
@@ -243,7 +248,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `ParlourPro_Bank_Statement_${currentShop.shopCode}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `${getShopFileSlug(currentShop)}_Bank_Statement_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -280,7 +285,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
               Bank Passbook
             </span>
             <span className="text-xs font-mono font-bold text-slate-500">
-              {currentShop.bankName || 'ParlourPro Settlement Account'}
+              {currentShop.bankName || 'Settlement Bank Account'}
             </span>
           </div>
           <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
@@ -501,24 +506,39 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
         id="bank-passbook-print-root" 
         className="passbook-printable-area bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-xs overflow-hidden print:border-none print:shadow-none print:rounded-none"
       >
-        {/* Dedicated Print-Only Header for Passbook A4 Statement */}
+        {/* Dedicated Print-Only Header for Passbook A4 Statement (100% Shop Identity Only) */}
+        {(() => {
+          const shopIdentity = getShopPdfIdentity(currentShop);
+          return (
         <div className="hidden print:block p-6 border-b-2 border-slate-800 mb-4 bg-white text-slate-900">
           <div className="flex justify-between items-start pb-4 border-b border-slate-300">
-            <div>
-              <div className="text-xl font-black uppercase tracking-wider text-blue-900">
-                {currentShop.name || 'PARLOURPRO POS'}
-              </div>
-              {currentShop.regionalName && (
-                <div className="text-sm font-semibold text-slate-700">
-                  {currentShop.regionalName}
-                </div>
+            <div className="flex items-start gap-3">
+              {shopIdentity.logoUrl && (
+                <img
+                  src={shopIdentity.logoUrl}
+                  alt={shopIdentity.displayName}
+                  className="h-14 w-14 rounded-lg object-contain border border-slate-200 p-1 shrink-0"
+                />
               )}
-              <div className="text-xs text-slate-600 mt-1 max-w-md">
-                {currentShop.address ? `${currentShop.address}, ${currentShop.city || ''} ${currentShop.pincode || ''}` : 'ParlourPro Retail Store'}
-              </div>
-              <div className="text-xs text-slate-600">
-                {currentShop.phone && `ફોન: ${currentShop.phone}`}
-                {currentShop.gstNumber && ` | GSTIN: ${currentShop.gstNumber}`}
+              <div>
+                <div className="text-xl font-black uppercase tracking-wider text-slate-900">
+                  {shopIdentity.displayName}
+                </div>
+                {shopIdentity.regionalName && (
+                  <div className="text-sm font-semibold text-slate-700">
+                    {shopIdentity.regionalName}
+                  </div>
+                )}
+                {shopIdentity.addressLine && (
+                  <div className="text-xs text-slate-600 mt-1 max-w-md">
+                    {shopIdentity.addressLine}
+                  </div>
+                )}
+                <div className="text-xs text-slate-600 font-mono mt-0.5 flex flex-wrap gap-x-2">
+                  {shopIdentity.phoneLine && <span>ફોન: {shopIdentity.phoneLine}</span>}
+                  {shopIdentity.gstNumber && <span>| GSTIN: {shopIdentity.gstNumber}</span>}
+                  {shopIdentity.fssaiNumber && <span>| FSSAI: {shopIdentity.fssaiNumber}</span>}
+                </div>
               </div>
             </div>
             <div className="text-right">
@@ -552,6 +572,8 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
             </div>
           </div>
         </div>
+          );
+        })()}
 
         <div className="overflow-x-auto">
           <table className="passbook-table-print w-full text-left text-xs">
@@ -638,6 +660,25 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Print-Only Commercial Signatory & Subtle Text-Only Footer Attribution (No Logo Image) */}
+        <div className="hidden print:block px-6 pt-8 pb-4 mt-4 border-t border-slate-300 text-xs text-slate-700">
+          <div className="flex items-end justify-between">
+            <div className="w-44 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
+              Prepared By
+            </div>
+            <div className="w-48 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
+              Authorized Signatory
+              <div className="text-[10px] font-normal text-slate-500">
+                For {getShopPdfIdentity(currentShop).displayName}
+              </div>
+            </div>
+          </div>
+          <div className="mt-4 pt-2 border-t border-slate-200 flex items-center justify-between text-[9px] text-slate-400">
+            <span>Bank Passbook Statement — {getShopPdfIdentity(currentShop).displayName}</span>
+            <span>{PDF_FOOTER_BRAND_CREDIT}</span>
+          </div>
         </div>
       </div>
 

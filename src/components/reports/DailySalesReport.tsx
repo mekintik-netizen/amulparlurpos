@@ -27,8 +27,12 @@ import {
 } from 'lucide-react';
 import { DailySalesReportSummary, SaleBill, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
-import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 import { exportDataToExcel } from '../../utils/excelEngine.ts';
+import {
+  getShopFileSlug,
+  getShopPdfIdentity,
+  PDF_FOOTER_BRAND_CREDIT
+} from '../../utils/shopPdfBranding.ts';
 
 interface DailySalesReportProps {
   currentShop: Shop;
@@ -106,34 +110,44 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
     }));
 
     exportDataToExcel({
-      filename: `ParlourPro_Daily_Sales_Register_${currentShop.shopCode}_${targetDate}.xlsx`,
+      filename: `${getShopFileSlug(currentShop)}_Daily_Sales_Register_${targetDate}.xlsx`,
       sheetName: 'Daily Cash Register',
       data: excelData
     });
   };
 
+  const shopIdentity = getShopPdfIdentity(currentShop);
+
   return (
     <div className="space-y-6">
-      {/* Top Header & Date Filter */}
-      <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
-          <div className="flex items-center gap-3.5">
-            <div className="bg-white p-1 rounded-full border border-slate-200 shadow-2xs shrink-0">
-              <img
-                src={LOGO_ROUND_URL}
-                alt="ParlourPro POS"
-                className="h-11 w-11 sm:h-12 sm:w-12 rounded-full object-contain print:h-14 print:w-14"
-                loading="eager"
-              />
-            </div>
+      {/* Top Header & Date Filter (100% Shop Identity Only in Print/PDF) */}
+      <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 print:rounded-none print:border-0 print:p-0">
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 print:border-b-2 print:border-slate-900">
+          <div className="flex items-start gap-3.5">
+            {shopIdentity.logoUrl && (
+              <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-2xs shrink-0">
+                <img
+                  src={shopIdentity.logoUrl}
+                  alt={shopIdentity.displayName}
+                  className="h-11 w-11 sm:h-12 sm:w-12 rounded-lg object-contain print:h-14 print:w-14"
+                  loading="eager"
+                />
+              </div>
+            )}
             <div>
-              <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
-                <Receipt className="w-5 h-5 text-blue-600" />
-                Daily Sales & Cash Counter Report
+              <div className="text-base sm:text-lg font-black uppercase tracking-wide text-slate-900">
+                {shopIdentity.displayName}
+              </div>
+              <h2 className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5 mt-0.5">
+                <Receipt className="w-4 h-4 text-blue-600 no-print" />
+                <span>Daily Sales &amp; Cash Counter Report · {targetDate}</span>
               </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {currentShop.name} ({currentShop.shopCode}) · Audited retail invoices, collections, and rankings.
-              </p>
+              <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+                {shopIdentity.addressLine && <span>{shopIdentity.addressLine}</span>}
+                {shopIdentity.phoneLine && <span className="font-mono">Mob: {shopIdentity.phoneLine}</span>}
+                {shopIdentity.gstNumber && <span className="font-mono">GSTIN: {shopIdentity.gstNumber}</span>}
+                {shopIdentity.fssaiNumber && <span className="font-mono">FSSAI: {shopIdentity.fssaiNumber}</span>}
+              </div>
             </div>
           </div>
 
@@ -491,6 +505,25 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
           </div>
         </div>
       )}
+
+      {/* Print-Only Commercial Signatory & Subtle Text-Only Footer Attribution (No Logo Image) */}
+      <div className="hidden print:block mt-8 pt-6 border-t border-slate-300 text-xs text-slate-700">
+        <div className="flex items-end justify-between">
+          <div className="w-44 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
+            Prepared By
+          </div>
+          <div className="w-48 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
+            Authorized Signatory
+            <div className="text-[10px] font-normal text-slate-500">
+              For {shopIdentity.displayName}
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 pt-2 border-t border-slate-200 flex items-center justify-between text-[9px] text-slate-400">
+          <span>Daily Sales Report — {shopIdentity.displayName}</span>
+          <span>{PDF_FOOTER_BRAND_CREDIT}</span>
+        </div>
+      </div>
     </div>
   );
 };

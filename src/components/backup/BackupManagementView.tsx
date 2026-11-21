@@ -33,17 +33,23 @@ import {
 } from 'lucide-react';
 import { Shop, BackupSettings, LocalDatabaseExport, StoredBackupRecord, BackupManifest } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
+import { syncAllShopDataFromCloud, CloudShopSyncSummary } from '../../storage/firestoreSync.ts';
+import { migrateLegacyLocalStorageKeys } from '../../storage/auth.ts';
 
 interface BackupManagementViewProps {
   currentShop: Shop | null;
   onDataReload: () => void;
+  onSyncCloudData?: () => Promise<CloudShopSyncSummary | null>;
+  isCloudSyncing?: boolean;
 }
 
 type SubTab = 'EXPORT' | 'RESTORE' | 'HISTORY' | 'AUTOMATION';
 
 export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
   currentShop,
-  onDataReload
+  onDataReload,
+  onSyncCloudData,
+  isCloudSyncing = false
 }) => {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>('EXPORT');
   const [settings, setSettings] = useState<BackupSettings>({
@@ -55,6 +61,8 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [localCloudSyncing, setLocalCloudSyncing] = useState(false);
+  const cloudSyncBusy = isCloudSyncing || localCloudSyncing;
 
   // Export scope
   const [exportScope, setExportScope] = useState<'CURRENT' | 'ALL'>('CURRENT');
@@ -87,6 +95,48 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
   useEffect(() => {
     loadState();
   }, [currentShop?.id]);
+
+  // Manual Cloud Firestore Data Sync / Recovery
+  const handleManualCloudRefresh = async () => {
+    if (!currentShop) {
+      setStatusMessage({ text: 'Please select an active shop to sync cloud records.', type: 'error' });
+      return;
+    }
+
+    try {
+      setLocalCloudSyncing(true);
+      setStatusMessage(null);
+      migrateLegacyLocalStorageKeys();
+
+      const summary = onSyncCloudData
+        ? await onSyncCloudData()
+        : await syncAllShopDataFromCloud(currentShop, { forceReconnect: true });
+
+      if (!onSyncCloudData) {
+        onDataReload();
+      }
+      await loadState();
+
+      if (summary && summary.authOk) {
+        setStatusMessage({
+          text: `Cloud Sync Complete (જૂનો ડેટા રિફ્રેશ થઈ ગયો)! Loaded ${summary.purchases} Purchases, ${summary.sales} Sales, ${summary.products} Products, ${summary.suppliers} Suppliers, ${summary.expenses} Expenses, ${summary.bankEntries} Bank Entries.`,
+          type: 'success'
+        });
+      } else {
+        setStatusMessage({
+          text: 'Could not reach Cloud Firestore right now. Local browser data remains safe — please check internet and retry.',
+          type: 'info'
+        });
+      }
+    } catch (err: any) {
+      setStatusMessage({
+        text: err?.message || 'Cloud sync failed. Local data was not modified.',
+        type: 'error'
+      });
+    } finally {
+      setLocalCloudSyncing(false);
+    }
+  };
 
   // Handle Manual JSON Export
   const handleDownloadBackup = async () => {
@@ -289,16 +339,30 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
             </div>
           </div>
 
-          {/* Quick Snapshot Action */}
+          {/* Quick Cloud Sync & Snapshot Actions */}
           {currentShop && (
-            <button
-              onClick={handleDownloadBackup}
-              disabled={isProcessing}
-              className="bg-[#005A9C] hover:bg-blue-800 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs disabled:opacity-50 shrink-0"
-            >
-              {isProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-              <span>Download Backup Now (.json)</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleManualCloudRefresh}
+                disabled={cloudSyncBusy || isProcessing}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs disabled:opacity-50"
+                title="Re-fetch all existing shop bills, sales, stock & khata from Cloud Firestore"
+              >
+                <RefreshCw className={`w-4 h-4 ${cloudSyncBusy ? 'animate-spin' : ''}`} />
+                <span>{cloudSyncBusy ? 'Syncing Cloud Data...' : 'Sync Cloud Data / જૂનો ડેટા રિફ્રેશ કરો'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleDownloadBackup}
+                disabled={isProcessing}
+                className="bg-[#005A9C] hover:bg-blue-800 text-white px-4 py-2.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition cursor-pointer shadow-xs disabled:opacity-50"
+              >
+                {isProcessing ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                <span>Download Backup Now (.json)</span>
+              </button>
+            </div>
           )}
         </div>
 

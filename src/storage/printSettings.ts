@@ -11,11 +11,30 @@
 import { doc, getDoc, setDoc, onSnapshot, Unsubscribe } from 'firebase/firestore';
 import { db, ensureAnonymousAuth } from './firebase.ts';
 import { PrintSettingsConfig, DEFAULT_PRINT_SETTINGS_CONFIG } from '../types/index.ts';
+import { stripSoftwareBranding } from '../utils/shopPdfBranding.ts';
 
 const LOCAL_STORAGE_KEY = 'amul_pos_print_settings';
 const CUSTOM_EVENT_KEY = 'amul-print-settings-changed';
 
 let inMemoryConfig: PrintSettingsConfig | null = null;
+
+/**
+ * Strips any legacy third-party software branding from cached or remote print configs
+ * so customer receipts always remain 100% white-labeled to the shop.
+ */
+export function sanitizePrintSettings(raw: Partial<PrintSettingsConfig>): PrintSettingsConfig {
+  const merged: PrintSettingsConfig = {
+    ...DEFAULT_PRINT_SETTINGS_CONFIG,
+    ...raw
+  };
+  return {
+    ...merged,
+    headerTitle: stripSoftwareBranding(merged.headerTitle, ''),
+    footerNote1: stripSoftwareBranding(merged.footerNote1, DEFAULT_PRINT_SETTINGS_CONFIG.footerNote1),
+    footerNote2: stripSoftwareBranding(merged.footerNote2, DEFAULT_PRINT_SETTINGS_CONFIG.footerNote2),
+    footerNote3: stripSoftwareBranding(merged.footerNote3, DEFAULT_PRINT_SETTINGS_CONFIG.footerNote3 || '')
+  };
+}
 
 /**
  * Cleanly reads the cached print settings from LocalStorage or returns defaults.
@@ -28,7 +47,7 @@ export function getCachedPrintSettings(): PrintSettingsConfig {
       const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        inMemoryConfig = { ...DEFAULT_PRINT_SETTINGS_CONFIG, ...parsed };
+        inMemoryConfig = sanitizePrintSettings(parsed);
         return inMemoryConfig!;
       }
     }
@@ -44,11 +63,12 @@ export function getCachedPrintSettings(): PrintSettingsConfig {
  * Saves configuration to local cache and dispatches cross-tab event.
  */
 function cacheLocally(config: PrintSettingsConfig): void {
-  inMemoryConfig = config;
+  const sanitized = sanitizePrintSettings(config);
+  inMemoryConfig = sanitized;
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(config));
-      window.dispatchEvent(new CustomEvent(CUSTOM_EVENT_KEY, { detail: config }));
+      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sanitized));
+      window.dispatchEvent(new CustomEvent(CUSTOM_EVENT_KEY, { detail: sanitized }));
     }
   } catch (err) {
     console.warn('[PrintSettings] Failed to update local storage:', err);
@@ -67,10 +87,7 @@ export async function getPrintSettingsConfig(): Promise<PrintSettingsConfig> {
 
     if (snap.exists()) {
       const remote = snap.data() as Partial<PrintSettingsConfig>;
-      const merged: PrintSettingsConfig = {
-        ...DEFAULT_PRINT_SETTINGS_CONFIG,
-        ...remote
-      };
+      const merged = sanitizePrintSettings(remote);
       cacheLocally(merged);
       return merged;
     } else {
@@ -98,12 +115,12 @@ export async function savePrintSettingsConfig(
   updatedBy: string = 'Master Admin'
 ): Promise<PrintSettingsConfig> {
   const current = getCachedPrintSettings();
-  const updated: PrintSettingsConfig = {
+  const updated: PrintSettingsConfig = sanitizePrintSettings({
     ...current,
     ...updates,
     updatedAt: new Date().toISOString(),
     updatedBy
-  };
+  });
 
   // 1. Immediately update cache for local responsive UI
   cacheLocally(updated);
@@ -122,7 +139,7 @@ export async function savePrintSettingsConfig(
 }
 
 /**
- * Resets print settings back to official Amul default recommendations.
+ * Resets print settings back to clean white-label shop defaults.
  */
 export async function resetPrintSettingsConfig(updatedBy: string = 'Master Admin'): Promise<PrintSettingsConfig> {
   return savePrintSettingsConfig(DEFAULT_PRINT_SETTINGS_CONFIG, updatedBy);
@@ -147,10 +164,7 @@ export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig)
       firestoreUnsub = onSnapshot(docRef, (snap) => {
         if (snap.exists()) {
           const remote = snap.data() as Partial<PrintSettingsConfig>;
-          const merged: PrintSettingsConfig = {
-            ...DEFAULT_PRINT_SETTINGS_CONFIG,
-            ...remote
-          };
+          const merged = sanitizePrintSettings(remote);
           cacheLocally(merged);
           callback(merged);
         }
@@ -166,7 +180,7 @@ export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig)
   const handleCustomEvent = (e: Event) => {
     const custom = e as CustomEvent<PrintSettingsConfig>;
     if (custom.detail) {
-      callback(custom.detail);
+      callback(sanitizePrintSettings(custom.detail));
     }
   };
 
@@ -175,7 +189,7 @@ export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig)
     if (e.key === LOCAL_STORAGE_KEY && e.newValue) {
       try {
         const parsed = JSON.parse(e.newValue);
-        callback({ ...DEFAULT_PRINT_SETTINGS_CONFIG, ...parsed });
+        callback(sanitizePrintSettings(parsed));
       } catch (err) {
         // Ignore parse error
       }
