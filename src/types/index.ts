@@ -13,6 +13,21 @@
 export type ShopApprovalStatus = 'PENDING' | 'APPROVED' | 'SUSPENDED';
 export type SubscriptionStatus = 'INACTIVE' | 'ACTIVE' | 'EXPIRED';
 export type SubscriptionPlanId = 'TRIAL' | 'BASIC' | 'PRO';
+export type ShopPlanType = 'FREE_TRIAL' | 'PAID';
+
+export interface ShopPlanHistoryEntry {
+  previousPlanId: SubscriptionPlanId;
+  newPlanId: SubscriptionPlanId;
+  previousPlanType: ShopPlanType;
+  newPlanType: ShopPlanType;
+  previousPlanLabel: string;
+  newPlanLabel: string;
+  note: string;
+  changedBy: string;
+  changedAt: string; // ISO string
+  preservedStartDate?: string;
+  preservedExpiryDate?: string;
+}
 
 export interface SubscriptionPlan {
   id: SubscriptionPlanId;
@@ -81,6 +96,11 @@ export interface Shop {
   subscriptionExpiryDate?: string; // ISO string
   planStartDate?: string; // ISO string
   planEndDate?: string; // ISO string
+  planType?: ShopPlanType; // 'FREE_TRIAL' | 'PAID'
+  planName?: string; // Friendly display name of assigned plan
+  isTrial?: boolean; // Explicit flag indicating Free Trial vs Paid Plan
+  trialEndDate?: string; // Preserved trial expiry date if present
+  planHistory?: ShopPlanHistoryEntry[]; // Audit log of admin plan corrections
   status?: 'active' | 'expired' | 'suspended';
   cashierUsername?: string;
   cashierPassword?: string;

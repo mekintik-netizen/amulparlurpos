@@ -43,14 +43,22 @@ import {
   Download,
   Monitor,
   FlaskConical,
-  Mail
+  Mail,
+  Edit3,
+  History
 } from 'lucide-react';
 import { Shop, ShopApprovalStatus, SubscriptionPlanId, SubscriptionStatus, SUBSCRIPTION_PLANS } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { AuthSession, canUserCreateShops, isMasterAdminInitialized, registerShopCashierAccount, adminResetShopPassword, clearActiveSession, generateSalt, hashPasswordWithSalt } from '../../storage/auth.ts';
-import { isShopSubscriptionActive, activateOneMonthSubscription, renewShopSubscription } from '../../storage/subscription.ts';
+import {
+  isShopSubscriptionActive,
+  activateOneMonthSubscription,
+  renewShopSubscription,
+  correctShopPlanPreservingExpiry,
+  getShopPlanDisplayInfo
+} from '../../storage/subscription.ts';
 import { getAdminAuthConfig, updateAdminAuthConfig, subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/firebase.ts';
-import { startAdminShopsRealtimeSync } from '../../storage/firestoreSync.ts';
+import { startAdminShopsRealtimeSync, syncShopToCloud } from '../../storage/firestoreSync.ts';
 import {
   AiConfigSummary,
   saveAdminAiConfig,
@@ -102,6 +110,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   // Quick Plan & Verification Modal
   const [quickVerifyShop, setQuickVerifyShop] = useState<Shop | null>(null);
   const [selectedPlanForQuickVerify, setSelectedPlanForQuickVerify] = useState<SubscriptionPlanId>('TRIAL');
+
+  // Edit Plan Modal (Strictly Preserves Existing Start Date, Expiry Date & Remaining Days)
+  const [editPlanShop, setEditPlanShop] = useState<Shop | null>(null);
+  const [selectedCorrectedPlanId, setSelectedCorrectedPlanId] = useState<SubscriptionPlanId>('TRIAL');
+  const [isSavingEditedPlan, setIsSavingEditedPlan] = useState(false);
+  const [editPlanError, setEditPlanError] = useState<string | null>(null);
 
   // Form State
   const [shopName, setShopName] = useState('');
@@ -626,6 +640,39 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setQuickVerifyShop(null);
     } catch (err: any) {
       alert(`Verification failed: ${err.message}`);
+    }
+  };
+
+  // Edit Plan Action — Strictly Preserves Existing Start Date, Expiry Date & Remaining Days
+  const handleSaveEditedPlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editPlanShop) return;
+
+    setEditPlanError(null);
+    setIsSavingEditedPlan(true);
+    try {
+      const updatedShop = correctShopPlanPreservingExpiry(
+        editPlanShop,
+        selectedCorrectedPlanId,
+        currentUser?.username || 'admin'
+      );
+
+      await AppRepository.shops.save(updatedShop);
+      await syncShopToCloud(updatedShop);
+      await loadShops();
+      if (onShopsUpdated) onShopsUpdated();
+
+      const nextDisplay = getShopPlanDisplayInfo(updatedShop);
+      const subInfo = isShopSubscriptionActive(updatedShop);
+      setToastMessage(
+        `Plan updated to ${nextDisplay.fullLabel} for ${updatedShop.name} (${updatedShop.shopCode}) — Expiry Date (${subInfo.formattedExpiryDate || 'Preserved'}) unchanged.`
+      );
+      setTimeout(() => setToastMessage(null), 5000);
+      setEditPlanShop(null);
+    } catch (err: any) {
+      setEditPlanError(err?.message || 'Failed to save corrected plan.');
+    } finally {
+      setIsSavingEditedPlan(false);
     }
   };
 
@@ -1271,8 +1318,28 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         )}
                       </td>
                       <td className="py-3 px-2 text-center">
-                        <div className="font-bold text-slate-800 text-xs">{shop.subscriptionPlanId || '1-MONTH'}</div>
-                        <div className="text-[10px] text-slate-400 capitalize">{shop.subscriptionStatus?.toLowerCase() || 'active'}</div>
+                        {(() => {
+                          const planInfo = getShopPlanDisplayInfo(shop);
+                          return (
+                            <div className="inline-flex flex-col items-center">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                                  planInfo.isTrial
+                                    ? 'bg-sky-50 text-sky-700 border-sky-200'
+                                    : 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                                }`}
+                              >
+                                {planInfo.shortBadge}
+                              </span>
+                              <div className="font-bold text-slate-700 text-[11px] mt-0.5">
+                                {planInfo.planId}
+                              </div>
+                              <div className="text-[10px] text-slate-400 capitalize">
+                                {shop.subscriptionStatus?.toLowerCase() || 'active'}
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="py-3 px-2 text-center">
                         <button
@@ -1332,6 +1399,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                           >
                             <RefreshCw className="w-3 h-3 text-emerald-100" />
                             <span>Renew (+30 Days)</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditPlanShop(shop);
+                              setSelectedCorrectedPlanId(shop.subscriptionPlanId || 'TRIAL');
+                              setEditPlanError(null);
+                            }}
+                            className="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1 shadow-2xs"
+                            title="Edit subscription plan type without changing expiry date or remaining days"
+                          >
+                            <Edit3 className="w-3 h-3 text-indigo-600" />
+                            <span>Edit Plan</span>
                           </button>
                           <button
                             onClick={() => {
@@ -1457,6 +1537,199 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           </div>
         </div>
       )}
+
+      {/* Edit Plan Modal — Preserves Existing Start Date, Expiry Date & Remaining Days */}
+      {editPlanShop && (() => {
+        const currentPlanInfo = getShopPlanDisplayInfo(editPlanShop);
+        const subStatus = isShopSubscriptionActive(editPlanShop);
+        const rawStartDate = editPlanShop.planStartDate || editPlanShop.subscriptionStartDate;
+        const formattedStartDate = rawStartDate
+          ? new Date(rawStartDate).toLocaleDateString('en-IN', {
+              day: 'numeric',
+              month: 'short',
+              year: 'numeric'
+            })
+          : 'Not set';
+        const recentHistory = [...(editPlanShop.planHistory || [])].reverse().slice(0, 3);
+        const isUnchanged = selectedCorrectedPlanId === (editPlanShop.subscriptionPlanId || 'TRIAL');
+
+        return (
+          <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-6 my-8 animate-in fade-in zoom-in-95 duration-200">
+              <div className="flex items-start justify-between gap-3 mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-2xl bg-indigo-50 border border-indigo-200 flex items-center justify-center shrink-0">
+                    <Edit3 className="w-4 h-4 text-indigo-700" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-base text-slate-900">
+                      Edit Plan (પ્લાન સુધારો)
+                    </h3>
+                    <p className="text-[11px] text-slate-500">
+                      Correct subscription plan type without resetting remaining days
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditPlanShop(null)}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                  aria-label="Close Edit Plan modal"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEditedPlan} className="space-y-4">
+                {/* Read-only Shop Identity */}
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Shop Name &amp; Mobile ID (Read-Only)
+                    </div>
+                    <div className="font-extrabold text-sm text-slate-900 mt-0.5">
+                      {editPlanShop.name}
+                    </div>
+                    <div className="text-xs text-slate-600 font-mono mt-0.5">
+                      Mobile: {editPlanShop.phone || '—'} · ID: {editPlanShop.shopCode}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                      Current Plan
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1 mt-1 px-2.5 py-1 rounded-full text-xs font-bold border ${
+                        currentPlanInfo.isTrial
+                          ? 'bg-sky-50 text-sky-800 border-sky-200'
+                          : 'bg-indigo-50 text-indigo-800 border-indigo-200'
+                      }`}
+                    >
+                      {currentPlanInfo.fullLabel}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Locked / Preserved Timeline Summary */}
+                <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200/80 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-extrabold text-amber-900 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-amber-700" />
+                      Preserved Subscription Timeline
+                    </span>
+                    <span className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-300">
+                      Locked · Unchanged
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="bg-white/90 rounded-xl p-2.5 border border-amber-200/70">
+                      <div className="text-[10px] font-semibold text-slate-500">Start Date</div>
+                      <div className="text-xs font-mono font-bold text-slate-900 mt-0.5">
+                        {formattedStartDate}
+                      </div>
+                    </div>
+                    <div className="bg-white/90 rounded-xl p-2.5 border border-amber-200/70">
+                      <div className="text-[10px] font-semibold text-slate-500">Expiry Date</div>
+                      <div className="text-xs font-mono font-bold text-slate-900 mt-0.5">
+                        {subStatus.formattedExpiryDate || 'Not activated'}
+                      </div>
+                    </div>
+                    <div className="bg-white/90 rounded-xl p-2.5 border border-amber-200/70">
+                      <div className="text-[10px] font-semibold text-slate-500">Remaining Days</div>
+                      <div
+                        className={`text-xs font-mono font-extrabold mt-0.5 ${
+                          subStatus.isActive ? 'text-emerald-700' : 'text-rose-700'
+                        }`}
+                      >
+                        {subStatus.isActive ? `${subStatus.daysRemaining} Days` : '0 Days (Expired)'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Select Corrected Plan Dropdown */}
+                <div>
+                  <label
+                    htmlFor="admin-edit-plan-select"
+                    className="block text-xs font-bold text-slate-800 mb-1.5"
+                  >
+                    Select Corrected Plan
+                  </label>
+                  <select
+                    id="admin-edit-plan-select"
+                    value={selectedCorrectedPlanId}
+                    onChange={(e) => setSelectedCorrectedPlanId(e.target.value as SubscriptionPlanId)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                  >
+                    <option value="TRIAL">
+                      Free Trial — {SUBSCRIPTION_PLANS.TRIAL.name} (₹{SUBSCRIPTION_PLANS.TRIAL.price})
+                    </option>
+                    <option value="BASIC">
+                      Paid Plan — {SUBSCRIPTION_PLANS.BASIC.name} (₹{SUBSCRIPTION_PLANS.BASIC.price} / Monthly)
+                    </option>
+                    <option value="PRO">
+                      Paid Plan — {SUBSCRIPTION_PLANS.PRO.name} (₹{SUBSCRIPTION_PLANS.PRO.price} / Monthly)
+                    </option>
+                  </select>
+                </div>
+
+                {/* Exact Gujarati Confirmation Notice Badge */}
+                <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-start gap-2.5">
+                  <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <span className="font-semibold leading-relaxed">
+                    નોંધ: આ ફેરફારથી ફક્ત પ્લાનનો પ્રકાર બદલાશે — બાકી રહેલા દિવસોની ગણતરી (Expiry Date) માં કોઈ ફેરફાર થશે નહીં.
+                  </span>
+                </div>
+
+                {editPlanError && (
+                  <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                    <span>{editPlanError}</span>
+                  </div>
+                )}
+
+                {/* Recent Audit Trail if available */}
+                {recentHistory.length > 0 && (
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5">
+                    <div className="text-[11px] font-bold text-slate-600 flex items-center gap-1.5">
+                      <History className="w-3.5 h-3.5 text-slate-500" />
+                      Recent Plan Correction Audit Log
+                    </div>
+                    <div className="space-y-1">
+                      {recentHistory.map((entry, idx) => (
+                        <div key={`${entry.changedAt}-${idx}`} className="text-[11px] text-slate-600 flex flex-col">
+                          <span className="font-medium text-slate-800">{entry.note}</span>
+                          <span className="text-[10px] text-slate-400">
+                            By {entry.changedBy} · {new Date(entry.changedAt).toLocaleString('en-IN')}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditPlanShop(null)}
+                    className="px-4 py-2 text-slate-600 hover:text-slate-900 text-xs font-semibold rounded-xl cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingEditedPlan || isUnchanged}
+                    className="bg-gradient-to-r from-indigo-600 to-blue-700 hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white px-5 py-2 rounded-xl text-xs font-bold shadow-md cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{isSavingEditedPlan ? 'Saving Plan...' : 'Save Corrected Plan'}</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Register / Edit Shop Modal */}
       {isModalOpen && (
