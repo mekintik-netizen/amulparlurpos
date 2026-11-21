@@ -10,7 +10,7 @@
 import React from 'react';
 import { Shop } from '../../types/index.ts';
 import { Calendar, Clock, MapPin, Phone, ShieldCheck, FileText } from 'lucide-react';
-import amulLogo from '../../assets/logo.ts';
+import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 
 interface BrandedReportHeaderProps {
   currentShop: Shop | null;
@@ -52,20 +52,20 @@ export const BrandedReportHeader: React.FC<BrandedReportHeaderProps> = ({
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 mb-5 shadow-xs transition-colors">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200 dark:border-slate-800">
-        {/* Left: Official Amul Brand Badge & Shop Details */}
+        {/* Left: ParlourPro POS Brand Badge & Shop Details */}
         <div className="flex items-start gap-4">
-          {/* Official Amul Brand Artwork */}
+          {/* ParlourPro Round Brand Emblem */}
           <div className="shrink-0 flex flex-col items-center">
-            <div className="bg-white p-1.5 rounded-xl border border-slate-200 dark:border-slate-700 shadow-xs">
+            <div className="bg-white p-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-xs">
               <img
-                src={amulLogo}
-                alt="Amul - The Taste of India"
-                className="h-14 sm:h-16 w-auto object-contain print:h-16"
+                src={LOGO_ROUND_URL}
+                alt="ParlourPro POS — Smart Billing & Inventory"
+                className="h-14 w-14 sm:h-16 sm:w-16 rounded-full object-contain print:h-16 print:w-16"
                 loading="eager"
               />
             </div>
-            <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-widest font-mono">
-              The Taste of India
+            <span className="text-[9px] font-bold text-slate-500 dark:text-slate-400 mt-1 uppercase tracking-wider font-mono">
+              Smart Billing &amp; Inventory
             </span>
           </div>
 
@@ -73,7 +73,7 @@ export const BrandedReportHeader: React.FC<BrandedReportHeaderProps> = ({
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-base font-extrabold text-slate-900 dark:text-white">
-                {currentShop?.name || 'Amul Preferred Outlet'}
+                {currentShop?.name || 'ParlourPro POS'}
               </h2>
               {currentShop?.shopCode && (
                 <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
@@ -136,11 +136,11 @@ export const BrandedReportHeader: React.FC<BrandedReportHeaderProps> = ({
       {/* Subtitle / Notice strip */}
       <div className="mt-2.5 flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-sans">
         <div>
-          {reportSubtitle || 'Official Audit Record · Authorized by Gujarat Co-operative Milk Marketing Federation (GCMMF)'}
+          {reportSubtitle || 'Official Audit Record · Powered by ParlourPro POS (Smart Billing & Inventory)'}
         </div>
         <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold font-mono text-[10px]">
           <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Certified Parlour Register</span>
+          <span>ParlourPro Certified Register</span>
         </div>
       </div>
     </div>

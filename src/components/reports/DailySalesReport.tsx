@@ -27,7 +27,7 @@ import {
 } from 'lucide-react';
 import { DailySalesReportSummary, SaleBill, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
-import amulLogo from '../../assets/logo.ts';
+import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 import { exportDataToExcel } from '../../utils/excelEngine.ts';
 
 interface DailySalesReportProps {
@@ -106,7 +106,7 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
     }));
 
     exportDataToExcel({
-      filename: `Amul_Daily_Sales_Register_${currentShop.shopCode}_${targetDate}.xlsx`,
+      filename: `ParlourPro_Daily_Sales_Register_${currentShop.shopCode}_${targetDate}.xlsx`,
       sheetName: 'Daily Cash Register',
       data: excelData
     });
@@ -118,11 +118,11 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
       <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80">
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
           <div className="flex items-center gap-3.5">
-            <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-2xs shrink-0">
+            <div className="bg-white p-1 rounded-full border border-slate-200 shadow-2xs shrink-0">
               <img
-                src={amulLogo}
-                alt="Amul"
-                className="h-10 sm:h-12 w-auto object-contain print:h-14"
+                src={LOGO_ROUND_URL}
+                alt="ParlourPro POS"
+                className="h-11 w-11 sm:h-12 sm:w-12 rounded-full object-contain print:h-14 print:w-14"
                 loading="eager"
               />
             </div>

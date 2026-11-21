@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { DailyStockReportRow, Product, Shop, StockMovement } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
-import amulLogo from '../../assets/logo.ts';
+import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 import { exportDataToExcel } from '../../utils/excelEngine.ts';
 
 interface DailyStockReportProps {
@@ -156,7 +156,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
     link.setAttribute('href', url);
     link.setAttribute(
       'download',
-      `Amul_Stock_Report_${currentShop.shopCode}_${targetDate}.csv`
+      `ParlourPro_Stock_Report_${currentShop.shopCode}_${targetDate}.csv`
     );
     document.body.appendChild(link);
     link.click();
@@ -181,7 +181,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
     }));
 
     exportDataToExcel({
-      filename: `Amul_Stock_Report_${currentShop.shopCode}_${targetDate}.xlsx`,
+      filename: `ParlourPro_Stock_Report_${currentShop.shopCode}_${targetDate}.xlsx`,
       sheetName: 'Stock Audit Report',
       data: excelData
     });
@@ -212,11 +212,11 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
       <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80">
         <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
           <div className="flex items-center gap-3.5">
-            <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-2xs shrink-0">
+            <div className="bg-white p-1 rounded-full border border-slate-200 shadow-2xs shrink-0">
               <img
-                src={amulLogo}
-                alt="Amul"
-                className="h-10 sm:h-12 w-auto object-contain print:h-14"
+                src={LOGO_ROUND_URL}
+                alt="ParlourPro POS"
+                className="h-11 w-11 sm:h-12 sm:w-12 rounded-full object-contain print:h-14 print:w-14"
                 loading="eager"
               />
             </div>
@@ -614,7 +614,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
                   <option value="Physical count reconciliation">Physical count reconciliation / Audit</option>
                   <option value="Unrecorded delivery batch">Unrecorded delivery batch arrival</option>
                   <option value="Damaged or expired pouch write-off">Damaged or expired pouch write-off</option>
-                  <option value="Rate revision by Amul / GCMMF">Rate revision by Amul / GCMMF</option>
+                  <option value="Rate revision by Distributor / Company">Rate revision by Distributor / Company</option>
                   <option value="Manual stock correction">Manual stock count correction</option>
                 </select>
               </div>

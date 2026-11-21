@@ -92,7 +92,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     }));
 
     exportDataToExcel({
-      filename: `${currentShop.shopCode}_Amul_Products_Catalog_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      filename: `${currentShop.shopCode}_ParlourPro_Products_Catalog_${new Date().toISOString().slice(0, 10)}.xlsx`,
       sheetName: 'Products Catalog',
       data
     });
@@ -508,7 +508,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
         <div>
           <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
             <Package className="w-5 h-5 text-blue-600" />
-            Amul Product Catalog & Shelf Management
+            ParlourPro Product Catalog &amp; Shelf Management
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Configure product SKUs, assign barcodes for USB scanners, update retail MRPs and minimum stock thresholds.
@@ -542,7 +542,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
           <button
             onClick={() => {
               if (products.length > 0) {
-                if (window.confirm('તમામ 65+ અમુલ પ્રોડક્ટ્સને 0 શરૂઆત સ્ટોક (Zero Stock) સાથે રીસેટ/અપડેટ કરવા માંગો છો?')) {
+                if (window.confirm('તમામ 65+ સ્ટાર્ટર પાર્લર પ્રોડક્ટ્સને 0 શરૂઆત સ્ટોક (Zero Stock) સાથે રીસેટ/અપડેટ કરવા માંગો છો?')) {
                   handlePrefillZeroStock(true);
                 }
               } else {
@@ -551,7 +551,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
             }}
             disabled={loading}
             className="bg-slate-700 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50"
-            title="Populate complete official Amul product lineup with 0 stock and barcodes"
+            title="Populate starter parlour product lineup with 0 stock and barcodes"
           >
             <Sparkles className="w-4 h-4" />
             <span>Pre-Fill (0 Stock)</span>
@@ -1213,7 +1213,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
               </h3>
               <p className="text-xs text-slate-500 max-w-md mx-auto mt-1 mb-4">
                 {products.length === 0
-                  ? 'તમારી દુકાનમાં 65+ અમુલ આઇટમ્સ (દૂધ, દહીં, ઘી, બટર, ચીઝ, આઈસ્ક્રીમ) 0 નંગ સ્ટોક સાથે ઉમેરો જેથી માલ ખરીદી (Purchase) અને બિલિંગમાં સરળતા રહે.'
+                  ? 'તમારી દુકાનમાં 65+ સ્ટાર્ટર આઇટમ્સ (દૂધ, દહીં, ઘી, બટર, ચીઝ, આઈસ્ક્રીમ) 0 નંગ સ્ટોક સાથે ઉમેરો જેથી માલ ખરીદી (Purchase) અને બિલિંગમાં સરળતા રહે.'
                   : 'કૃપા કરીને સર્ચ ટર્મ અથવા કેટેગરી ફિલ્ટર બદલીને ફરી તપાસો.'}
               </p>
               {products.length === 0 && (
@@ -1223,7 +1223,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2.5 rounded-xl shadow-sm transition inline-flex items-center gap-2 cursor-pointer"
                 >
                   <Sparkles className="w-4 h-4" />
-                  <span>Pre-fill Master Amul Catalog (0 Stock) • 65+ આઇટમ્સ ભરો</span>
+                  <span>Pre-fill Starter Catalog (0 Stock) • 65+ આઇટમ્સ ભરો</span>
                 </button>
               )}
             </div>
@@ -1238,7 +1238,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 my-6">
             <h3 className="font-extrabold text-base text-slate-900 mb-1">
-              {editingProduct ? `Edit Product: ${editingProduct.name}` : 'Add New Amul Product to Catalog'}
+              {editingProduct ? `Edit Product: ${editingProduct.name}` : 'Add New Parlour Product to Catalog'}
             </h3>
             <p className="text-xs text-slate-500 mb-4">
               Enter product barcode, pricing, packaging unit, and stock alerts.
@@ -1302,7 +1302,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                 {/* Quick Dairy Presets */}
                 <div>
                   <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-1">
-                    Choose Amul Preset:
+                    Choose Dairy Preset:
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {Object.entries(AMUL_PRODUCT_IMAGE_PRESETS).map(([key, preset]) => (

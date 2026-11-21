@@ -40,6 +40,7 @@ import {
   CartesianGrid 
 } from 'recharts';
 import { jsPDF } from 'jspdf';
+import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 import { Shop, SaleBill, Expense } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 
@@ -220,7 +221,7 @@ export const SalesProfitAnalytics: React.FC<SalesProfitAnalyticsProps> = ({ curr
   }, [sales, expenses]);
 
   // PDF Export Generator
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     try {
       setPdfGenerating(true);
       const doc = new jsPDF({
@@ -229,23 +230,44 @@ export const SalesProfitAnalytics: React.FC<SalesProfitAnalyticsProps> = ({ curr
         format: 'a4'
       });
 
-      const primaryColor = [0, 90, 156]; // Amul Blue
-      const redColor = [227, 24, 55]; // Amul Red
+      const primaryColor = [0, 90, 156]; // ParlourPro Blue
+      const redColor = [227, 24, 55];
       const darkColor = [30, 41, 59];
 
       // 1. Header Banner
       doc.setFillColor(0, 90, 156);
       doc.rect(0, 0, 210, 26, 'F');
 
+      // Embed round emblem (logo-round.png) into PDF header if loadable
+      let textStartX = 14;
+      try {
+        const res = await fetch(LOGO_ROUND_URL);
+        if (res.ok) {
+          const blob = await res.blob();
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(String(reader.result || ''));
+            reader.onerror = reject;
+            reader.readAsDataURL(blob);
+          });
+          if (dataUrl.startsWith('data:image/')) {
+            doc.addImage(dataUrl, 'PNG', 12, 3, 20, 20);
+            textStartX = 36;
+          }
+        }
+      } catch {
+        // Non-blocking fallback if image fetch unavailable
+      }
+
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
-      doc.text('AMUL PREFERRED PARLOUR', 14, 12);
+      doc.text('PARLOURPRO POS', textStartX, 11);
 
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
-      doc.text('Official Sales & Net Profit Performance Audit Report', 14, 18);
-      doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, 14, 23);
+      doc.text('Smart Billing & Inventory · Sales & Net Profit Audit Report', textStartX, 17);
+      doc.text(`Generated: ${new Date().toLocaleString('en-IN')}`, textStartX, 22.5);
 
       // 2. Shop Details Card
       doc.setFillColor(248, 250, 252);
@@ -266,8 +288,8 @@ export const SalesProfitAnalytics: React.FC<SalesProfitAnalyticsProps> = ({ curr
       doc.setTextColor(darkColor[0], darkColor[1], darkColor[2]);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8.5);
-      doc.text(`Parlour Code: ${currentShop.shopCode}  |  Owner: ${currentShop.ownerName || 'Amul Franchisee'}  |  Phone: ${currentShop.phone || 'N/A'}`, 18, 46);
-      doc.text(`Address: ${currentShop.address || 'Amul Outlet'}`, 18, 51);
+      doc.text(`Parlour Code: ${currentShop.shopCode}  |  Owner: ${currentShop.ownerName || 'Parlour Owner'}  |  Phone: ${currentShop.phone || 'N/A'}`, 18, 46);
+      doc.text(`Address: ${currentShop.address || 'ParlourPro Outlet'}`, 18, 51);
       doc.text(`GSTIN: ${currentShop.gstNumber || 'N/A'}  |  FSSAI: ${currentShop.fssaiNumber || 'N/A'}`, 18, 56);
 
       // 3. Today vs Yesterday Comparison Table
@@ -415,11 +437,11 @@ export const SalesProfitAnalytics: React.FC<SalesProfitAnalyticsProps> = ({ curr
 
       doc.setFontSize(8);
       doc.setTextColor(148, 163, 184);
-      doc.text('Confidential - Generated exclusively for Amul Preferred Franchisee internal records and audit.', 14, 281);
-      doc.text(`Page 1 of 1 · Amul POS Engine`, 170, 281);
+      doc.text('Confidential - Generated exclusively by ParlourPro POS (Smart Billing & Inventory) for internal records.', 14, 281);
+      doc.text(`Page 1 of 1 · ParlourPro POS`, 170, 281);
 
       // Save PDF
-      doc.save(`Amul_Report_${currentShop.shopCode}_${todayStr}.pdf`);
+      doc.save(`ParlourPro_Report_${currentShop.shopCode}_${todayStr}.pdf`);
     } catch (err) {
       console.error('Failed to generate PDF:', err);
       alert('PDF generation failed. Please try again.');

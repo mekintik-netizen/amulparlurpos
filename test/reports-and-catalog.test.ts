@@ -86,28 +86,29 @@ describe('Product Image Presets & Catalog Photos', () => {
     });
   });
 
-  it('verifies official Amul logo artwork is integrated across LoginPage, Header and Reports', async () => {
+  it('verifies ParlourPro POS banner and round logos are integrated across LoginPage, Header and Reports', async () => {
     const fs = await import('fs');
     const path = await import('path');
 
-    // Verify logo assets exist
-    expect(fs.existsSync(path.resolve(process.cwd(), 'src/assets/amul-logo.jpg'))).toBe(true);
+    // Verify custom logo assets exist in public/ and are exported in logo.ts
+    expect(fs.existsSync(path.resolve(process.cwd(), 'public/logo-banner.png'))).toBe(true);
+    expect(fs.existsSync(path.resolve(process.cwd(), 'public/logo-round.png'))).toBe(true);
     expect(fs.existsSync(path.resolve(process.cwd(), 'src/assets/logo.ts'))).toBe(true);
 
     const loginContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/auth/LoginPage.tsx'), 'utf8');
-    expect(loginContent).toContain('amulLogo');
+    expect(loginContent).toContain('LOGO_BANNER_URL');
 
     const reportHeaderContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/common/BrandedReportHeader.tsx'), 'utf8');
-    expect(reportHeaderContent).toContain('amulLogo');
+    expect(reportHeaderContent).toContain('LOGO_ROUND_URL');
 
     const headerContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/layout/Header.tsx'), 'utf8');
-    expect(headerContent).toContain('amulLogo');
+    expect(headerContent).toContain('LOGO_ROUND_URL');
 
     const salesContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/reports/DailySalesReport.tsx'), 'utf8');
-    expect(salesContent).toContain('amulLogo');
+    expect(salesContent).toContain('LOGO_ROUND_URL');
 
     const stockContent = fs.readFileSync(path.resolve(process.cwd(), 'src/components/reports/DailyStockReport.tsx'), 'utf8');
-    expect(stockContent).toContain('amulLogo');
+    expect(stockContent).toContain('LOGO_ROUND_URL');
   });
 
   it('provides at least 65 authentic Amul products with valid EAN-13 barcodes and positive margins', () => {

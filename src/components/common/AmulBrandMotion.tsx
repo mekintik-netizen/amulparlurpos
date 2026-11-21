@@ -12,7 +12,7 @@
  */
 
 import React from 'react';
-import amulLogo from '../../assets/logo.ts';
+import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 
 export interface AmulBrandLogoMotionProps {
   size?: 'sm' | 'md' | 'lg' | 'xl' | 'hero';
@@ -31,11 +31,11 @@ export const AmulBrandLogoMotion: React.FC<AmulBrandLogoMotionProps> = ({
 }) => {
   // Dimension tokens
   const dimensions = {
-    sm: { plaque: 'w-16 h-12', logo: 'h-8 max-w-[100px]', rings: 'w-24 h-24', text: 'text-[10px]' },
-    md: { plaque: 'w-24 h-16', logo: 'h-10 max-w-[130px]', rings: 'w-32 h-32', text: 'text-xs' },
-    lg: { plaque: 'w-32 h-20', logo: 'h-12 max-w-[160px]', rings: 'w-44 h-44', text: 'text-sm' },
-    xl: { plaque: 'w-40 h-24', logo: 'h-16 max-w-[200px]', rings: 'w-56 h-56', text: 'text-base' },
-    hero: { plaque: 'w-52 h-32', logo: 'h-20 max-w-[260px]', rings: 'w-72 h-72', text: 'text-lg' }
+    sm: { plaque: 'w-14 h-14', logo: 'h-10 w-10', rings: 'w-24 h-24', text: 'text-[10px]' },
+    md: { plaque: 'w-20 h-20', logo: 'h-14 w-14', rings: 'w-32 h-32', text: 'text-xs' },
+    lg: { plaque: 'w-24 h-24', logo: 'h-20 w-20', rings: 'w-44 h-44', text: 'text-sm' },
+    xl: { plaque: 'w-28 h-28', logo: 'h-24 w-24', rings: 'w-56 h-56', text: 'text-base' },
+    hero: { plaque: 'w-36 h-36', logo: 'h-32 w-32', rings: 'w-72 h-72', text: 'text-lg' }
   }[size];
 
   return (
@@ -44,11 +44,11 @@ export const AmulBrandLogoMotion: React.FC<AmulBrandLogoMotionProps> = ({
         @keyframes amul-breathe {
           0%, 100% {
             transform: scale(1);
-            filter: drop-shadow(0 4px 12px rgba(227, 24, 55, 0.25));
+            filter: drop-shadow(0 4px 12px rgba(0, 90, 156, 0.25));
           }
           50% {
             transform: scale(1.035);
-            filter: drop-shadow(0 8px 24px rgba(227, 24, 55, 0.45));
+            filter: drop-shadow(0 8px 24px rgba(0, 90, 156, 0.45));
           }
         }
         @keyframes amul-ripple {
@@ -77,11 +77,6 @@ export const AmulBrandLogoMotion: React.FC<AmulBrandLogoMotionProps> = ({
             opacity: 0;
           }
         }
-        @keyframes amul-golden-shimmer {
-          0% { opacity: 0.6; transform: rotate(0deg); }
-          50% { opacity: 1; transform: rotate(180deg); }
-          100% { opacity: 0.6; transform: rotate(360deg); }
-        }
         .amul-motion-breathe {
           animation: amul-breathe 3.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
         }
@@ -106,40 +101,29 @@ export const AmulBrandLogoMotion: React.FC<AmulBrandLogoMotionProps> = ({
           <>
             {/* Concentric Ripple 1 */}
             <div
-              className={`absolute ${dimensions.rings} rounded-full border-2 border-[#E31837]/25 dark:border-[#E31837]/35 amul-motion-ripple-1 pointer-events-none`}
+              className={`absolute ${dimensions.rings} rounded-full border-2 border-[#005A9C]/25 dark:border-sky-400/35 amul-motion-ripple-1 pointer-events-none`}
             />
             {/* Concentric Ripple 2 */}
             <div
-              className={`absolute ${dimensions.rings} rounded-full border border-blue-500/20 dark:border-blue-400/25 amul-motion-ripple-2 pointer-events-none`}
+              className={`absolute ${dimensions.rings} rounded-full border border-amber-400/25 dark:border-amber-300/25 amul-motion-ripple-2 pointer-events-none`}
             />
             {/* Ambient Radial Soft Glow */}
-            <div className="absolute -inset-4 bg-gradient-to-r from-[#E31837]/20 via-[#FDB813]/15 to-[#005A9C]/20 rounded-full blur-xl pointer-events-none" />
+            <div className="absolute -inset-4 bg-gradient-to-r from-[#005A9C]/20 via-sky-400/15 to-amber-400/20 rounded-full blur-xl pointer-events-none" />
           </>
         )}
 
-        {/* Central Logo Plaque with Dairy Crest Accent */}
+        {/* Central Round Emblem */}
         <div
-          className={`relative z-10 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700/80 rounded-2xl p-2.5 sm:p-3 shadow-md flex flex-col items-center justify-center ${
+          className={`relative z-10 bg-white dark:bg-slate-900 border-2 border-slate-200 dark:border-slate-700/80 rounded-full p-1.5 shadow-md flex items-center justify-center ${
             isPulsing ? 'amul-motion-breathe' : ''
           }`}
         >
-          {/* Top Golden Crown Dots (Amul Cooperative Crest Motif) */}
-          <div className="flex items-center gap-1 mb-1">
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 dark:bg-amber-300 shadow-2xs" />
-            <span className="w-2 h-2 rounded-full bg-amber-500 dark:bg-amber-400 shadow-2xs" />
-            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 dark:bg-amber-300 shadow-2xs" />
-          </div>
-
-          {/* Authentic Amul Brand Image Asset */}
           <img
-            src={amulLogo}
-            alt="Amul - The Taste of India"
-            className={`${dimensions.logo} w-auto object-contain transition-transform duration-300`}
+            src={LOGO_ROUND_URL}
+            alt="ParlourPro POS — Smart Billing & Inventory"
+            className={`${dimensions.logo} rounded-full object-contain transition-transform duration-300`}
             loading="eager"
           />
-
-          {/* Red underline accent */}
-          <div className="w-12 h-0.5 bg-gradient-to-r from-transparent via-[#E31837] to-transparent mt-1 rounded-full opacity-80" />
         </div>
       </div>
 
@@ -147,17 +131,17 @@ export const AmulBrandLogoMotion: React.FC<AmulBrandLogoMotionProps> = ({
       {showTagline && (
         <div className="text-center mt-3 space-y-0.5">
           <div className={`font-black text-slate-900 dark:text-white tracking-tight ${dimensions.text}`}>
-            Amul Preferred Parlour
+            ParlourPro POS
           </div>
           <div className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
-            The Taste of India · સ્વાદ ભારતનો
+            Smart Billing &amp; Inventory
           </div>
         </div>
       )}
 
       {showRegionalText && (
         <div className="mt-1 text-[11px] font-semibold text-blue-700 dark:text-blue-400 font-sans">
-          આણંદ ડેરી પ્રોડક્ટ્સ - ડિજિટલ કાઉન્ટર POS
+          પાર્લરપ્રો POS - સ્માર્ટ બિલિંગ અને ઇન્વેન્ટરી
         </div>
       )}
     </div>
@@ -166,7 +150,6 @@ export const AmulBrandLogoMotion: React.FC<AmulBrandLogoMotionProps> = ({
 
 /**
  * Startup Splash Component shown during app boot.
- * Replaces generic loading spinner with an authentic dairy themed entrance.
  */
 export interface AmulStartupSplashProps {
   statusText?: string;
@@ -174,14 +157,14 @@ export interface AmulStartupSplashProps {
 }
 
 export const AmulStartupSplash: React.FC<AmulStartupSplashProps> = ({
-  statusText = 'Opening Amul Parlour POS...',
-  subText = 'સત્તાવાર અમૂલ પ્રોડક્ટ કેટાલોગ અને કાઉન્ટર શરૂ થઈ રહ્યું છે'
+  statusText = 'Opening ParlourPro POS...',
+  subText = 'સ્માર્ટ બિલિંગ અને ઇન્વેન્ટરી કાઉન્ટર શરૂ થઈ રહ્યું છે'
 }) => {
   return (
     <div
       className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col items-center justify-center p-6 text-center font-sans select-none animate-fadeIn"
       role="status"
-      aria-label="Amul POS Initializing"
+      aria-label="ParlourPro POS Initializing"
     >
       <div className="relative max-w-sm w-full bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 rounded-3xl p-8 sm:p-9 shadow-xl backdrop-blur-md">
         {/* Animated Brand Emblem */}
@@ -198,11 +181,11 @@ export const AmulStartupSplash: React.FC<AmulStartupSplashProps> = ({
 
         {/* Smooth loading bar indicator */}
         <div className="mt-5 w-48 mx-auto h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-[#E31837] via-[#FDB813] to-[#005A9C] rounded-full animate-pulse w-full" />
+          <div className="h-full bg-gradient-to-r from-[#005A9C] via-sky-400 to-amber-400 rounded-full animate-pulse w-full" />
         </div>
 
         <div className="mt-3 text-[10px] text-slate-400 dark:text-slate-500 font-mono">
-          GCMMF · Anand Depot Cloud Sync
+          ParlourPro POS · Smart Billing &amp; Inventory
         </div>
       </div>
     </div>
@@ -210,7 +193,7 @@ export const AmulStartupSplash: React.FC<AmulStartupSplashProps> = ({
 };
 
 /**
- * Celebratory Transition Screen shown for ~350ms on successful login
+ * Celebratory Transition Screen shown on successful login
  * before seamless handoff into the active POS dashboard.
  */
 export interface AmulLoginSuccessTransitionProps {
@@ -220,7 +203,7 @@ export interface AmulLoginSuccessTransitionProps {
 
 export const AmulLoginSuccessTransition: React.FC<AmulLoginSuccessTransitionProps> = ({
   userName = 'Authorized Cashier',
-  shopName = 'Amul Preferred Parlour'
+  shopName = 'ParlourPro POS'
 }) => {
   return (
     <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col items-center justify-center p-4 animate-fadeIn select-none">

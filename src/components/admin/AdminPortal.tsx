@@ -240,8 +240,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       setAiConfigSummary(updated);
       setAiConfigToast(
         updated.aiGlobalEnabled
-          ? 'Amul AI globally enabled across approved parlours.'
-          : 'Amul AI globally paused by Master Admin.'
+          ? 'ParlourPro AI globally enabled across approved parlours.'
+          : 'ParlourPro AI globally paused by Master Admin.'
       );
       setTimeout(() => setAiConfigToast(null), 4000);
     } catch (err: unknown) {
@@ -263,7 +263,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       await loadShops();
       if (onShopsUpdated) onShopsUpdated();
       setToastMessage(
-        `${shop.name} (${shop.shopCode}) માટે Amul AI ${nextEnabled ? 'ચાલુ (Active)' : 'બંધ (Suspended)'} કરવામાં આવ્યું.`
+        `${shop.name} (${shop.shopCode}) માટે ParlourPro AI ${nextEnabled ? 'ચાલુ (Active)' : 'બંધ (Suspended)'} કરવામાં આવ્યું.`
       );
       setTimeout(() => setToastMessage(null), 4000);
     } catch (err: unknown) {
@@ -332,8 +332,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
   const handleDownloadDesktopIco = async () => {
     try {
-      await downloadIcoFile(adminAuthConfig?.desktopIconIcoBase64, 'amul-parlour-pos.ico');
-      setIcoToast('Downloaded amul-parlour-pos.ico to your computer!');
+      await downloadIcoFile(adminAuthConfig?.desktopIconIcoBase64, 'parlourpro-pos.ico');
+      setIcoToast('Downloaded parlourpro-pos.ico to your computer!');
       setTimeout(() => setIcoToast(null), 3500);
     } catch (err: any) {
       alert(`Failed to download .ico file: ${err?.message || err}`);
@@ -732,7 +732,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           <div className="w-12 h-12 bg-neutral-100 dark:bg-neutral-900 text-slate-800 dark:text-neutral-200 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-slate-200 dark:border-neutral-800">
             <Lock className="w-6 h-6" />
           </div>
-          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">Amul Admin Verification</h3>
+          <h3 className="text-lg font-bold text-slate-900 dark:text-white mb-1">ParlourPro Admin Verification</h3>
           <p className="text-xs text-slate-500 dark:text-neutral-400 mb-6">
             Enter Admin PIN to manage parlour franchises, approve shops, and configure subscription plans.
           </p>
@@ -803,21 +803,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           {/* Top Bar with Register Shop Action & Official Brand Artwork */}
           <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3.5">
-              <div className="bg-slate-50 p-1.5 rounded-xl border border-slate-200 shadow-2xs shrink-0 hidden sm:block">
+              <div className="bg-white p-1 rounded-full border border-slate-200 shadow-2xs shrink-0 hidden sm:block">
                 <img
                   src={amulLogo}
-                  alt="Amul"
-                  className="h-10 w-auto object-contain"
+                  alt="ParlourPro POS"
+                  className="h-11 w-11 rounded-full object-contain"
                   loading="eager"
                 />
               </div>
               <div>
                 <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
                   <Store className="w-5 h-5 text-blue-600" />
-                  Amul Parlour Franchise & Shop Management
+                  ParlourPro POS — Shop &amp; Franchise Management
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Register new shops as Admin, assign plans, and verify shop owner credentials.
+                  Smart Billing &amp; Inventory · Register shops, assign plans, and verify owner credentials.
                 </p>
               </div>
             </div>
@@ -1051,7 +1051,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-1 max-w-2xl">
-                        Download the multi-size Windows <code className="font-mono bg-slate-100 px-1 rounded">amul-parlour-pos.ico</code> file for shopkeeper desktop shortcuts, or upload a new PNG logo to auto-convert it to <code className="font-mono bg-slate-100 px-1 rounded">.ico</code> and persist it in Cloud Firestore across all terminals.
+                        Download the multi-size Windows <code className="font-mono bg-slate-100 px-1 rounded">parlourpro-pos.ico</code> file for shopkeeper desktop shortcuts, or upload a new PNG logo to auto-convert it to <code className="font-mono bg-slate-100 px-1 rounded">.ico</code> and persist it in Cloud Firestore across all terminals.
                       </p>
                       {icoToast && (
                         <div className="mt-2 text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
@@ -1125,7 +1125,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                         </span>
                       </h3>
                       <p className="text-xs text-slate-500 mt-0.5">
-                        Save or update the Master Gemini API Key securely into Cloud Firestore (<code className="font-mono bg-slate-100 px-1 rounded">adminSettings/aiConfig</code>, obfuscated &amp; never stored in plain source files). Only logged-in shops with <strong>AI Active</strong> enabled can access Amul AI.
+                        Save or update the Master Gemini API Key securely into Cloud Firestore (<code className="font-mono bg-slate-100 px-1 rounded">adminSettings/aiConfig</code>, obfuscated &amp; never stored in plain source files). Only logged-in shops with <strong>AI Active</strong> enabled can access ParlourPro AI.
                       </p>
                       {aiConfigToast && (
                         <div className="mt-2 text-xs font-bold text-emerald-700 flex items-center gap-1.5 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
@@ -1162,7 +1162,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       placeholder={
                         aiConfigSummary.hasApiKey
                           ? `Enter new Master Gemini API Key to replace ${aiConfigSummary.maskedKey}...`
-                          : 'Enter Master Gemini API Key (AIza...) to enable Amul AI across shops'
+                          : 'Enter Master Gemini API Key (AIza...) to enable ParlourPro AI across shops'
                       }
                       className="w-full pl-9 pr-10 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs font-mono focus:ring-2 focus:ring-[#005A9C] focus:outline-hidden"
                     />
@@ -1267,7 +1267,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     <tr key={shop.id} className="hover:bg-slate-50 transition">
                       <td className="py-3 px-3">
                         <div className="font-mono font-bold text-blue-700">{shop.shopCode || shop.id}</div>
-                        <div className="font-bold text-slate-900 mt-0.5">{shop.name || 'Amul Parlour'}</div>
+                        <div className="font-bold text-slate-900 mt-0.5">{shop.name || 'ParlourPro Outlet'}</div>
                         <div className="text-[10px] text-slate-400">
                           {[shop.city, shop.state].filter(Boolean).join(', ') || 'Gujarat, India'}
                         </div>
@@ -1350,7 +1350,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                               ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
                               : 'bg-slate-100 text-slate-600 border-slate-300 hover:bg-slate-200'
                           }`}
-                          title="Toggle Amul AI access for this shop"
+                          title="Toggle ParlourPro AI access for this shop"
                         >
                           <Sparkles
                             className={`w-3 h-3 ${
@@ -1736,7 +1736,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-3xl shadow-2xl max-w-xl w-full p-6 my-8 animate-in fade-in duration-200">
             <h3 className="font-extrabold text-base text-slate-900 mb-1">
-              {editingShop ? `Edit Shop: ${editingShop.shopCode}` : 'Admin: Register New Amul Franchise Parlour'}
+              {editingShop ? `Edit Shop: ${editingShop.shopCode}` : 'Admin: Register New ParlourPro Shop'}
             </h3>
             <p className="text-xs text-slate-500 mb-4">
               Enter franchisee owner details, select subscription tier, and verify owner identity.
@@ -1769,7 +1769,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <input
                     type="text"
                     required
-                    placeholder="e.g. Amul Anand Main Parlour"
+                    placeholder="e.g. ParlourPro Main Outlet"
                     value={shopName}
                     onChange={(e) => setShopName(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500"
@@ -1804,7 +1804,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   <label className="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
                   <input
                     type="email"
-                    placeholder="shop@amulparlour.in"
+                    placeholder="shop@parlourpro.in"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-blue-500"

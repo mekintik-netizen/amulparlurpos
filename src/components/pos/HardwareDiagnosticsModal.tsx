@@ -128,7 +128,7 @@ export const HardwareDiagnosticsModal: React.FC<HardwareDiagnosticsModalProps> =
       <!DOCTYPE html>
       <html>
       <head>
-        <title>Amul POS Thermal Printer Test</title>
+        <title>ParlourPro POS Thermal Printer Test</title>
         <style>
           @page {
             size: auto;
@@ -158,9 +158,9 @@ export const HardwareDiagnosticsModal: React.FC<HardwareDiagnosticsModalProps> =
       </head>
       <body>
         <div class="ticket">
-          <div class="center double">*** AMUL PARLOUR ***</div>
+          <div class="center double">*** PARLOURPRO POS ***</div>
           <div class="center bold">HARDWARE TEST TICKET</div>
-          <div class="center">The Taste of India</div>
+          <div class="center">Smart Billing &amp; Inventory</div>
           <div class="divider"></div>
           <div>Outlet: ${shopName}</div>
           <div>Code  : ${shopCode}</div>
@@ -275,7 +275,7 @@ export const HardwareDiagnosticsModal: React.FC<HardwareDiagnosticsModalProps> =
                   Live Scanner Gun Detector
                 </h4>
                 <p className="text-xs text-slate-600 dark:text-neutral-400 mt-1 max-w-md mx-auto">
-                  Hold your barcode gun, point it at any Amul product barcode (or test code below), and pull the trigger.
+                  Hold your barcode gun, point it at any product barcode (or test code below), and pull the trigger.
                 </p>
 
                 {/* Scanned Feedback */}
@@ -317,7 +317,7 @@ export const HardwareDiagnosticsModal: React.FC<HardwareDiagnosticsModalProps> =
 
                 {/* Quick Test Barcode to Scan from Screen */}
                 <div className="mt-4 pt-3 border-t border-slate-200 dark:border-neutral-800 flex flex-wrap items-center justify-center gap-4 text-xs">
-                  <span className="text-slate-500 font-medium">Sample Amul Barcodes for Screen Test:</span>
+                  <span className="text-slate-500 font-medium">Sample Product Barcodes for Screen Test:</span>
                   <code className="bg-slate-200 dark:bg-neutral-800 px-2 py-1 rounded font-bold font-mono text-slate-800 dark:text-slate-200">
                     8901262010014 (Taaza 500ml)
                   </code>

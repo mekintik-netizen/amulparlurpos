@@ -204,12 +204,12 @@ export function getUpiQrCodeUrl(
     return config.upiQrImageUrl.trim();
   }
 
-  const payeeName = config.payeeName || 'Amul HQ Admin';
-  const upiId = config.upiId || 'amulparlour.admin@okhdfcbank';
+  const payeeName = config.payeeName || 'ParlourPro HQ Admin';
+  const upiId = config.upiId || 'parlourpro.admin@okhdfcbank';
   const shopRef = shop?.shopCode ? ` (${shop.shopCode})` : '';
   const note = (isNewShopParam || amount >= 3000)
-    ? `Amul POS Setup & 1st Month${shopRef}`
-    : `Amul POS Renewal${shopRef}`;
+    ? `ParlourPro POS Setup & 1st Month${shopRef}`
+    : `ParlourPro POS Renewal${shopRef}`;
 
   const upiUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(
     payeeName
@@ -234,16 +234,16 @@ export function getWhatsAppPaymentLink(
   const rawNumber = config.whatsappNumber || '+919173598234';
   const cleanNumber = rawNumber.replace(/[^0-9]/g, '');
 
-  const shopName = shop?.name || 'અમૂલ પાર્લર (Amul Parlour)';
+  const shopName = shop?.name || 'પાર્લરપ્રો POS (ParlourPro POS)';
   const shopCode = shop?.shopCode || 'AP-SHOP';
   const amount = customAmount !== undefined ? customAmount : (config.monthlyFee || 500);
 
   let message = '';
   if (isNewShopParam || amount >= 3000) {
-    message = `નમસ્તે એડમિન, મેં અમુલ પાર્લર (${shopName} - ${shopCode}) માટે સેટઅપ ચાર્જ ₹૨૫૦૦ + સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦ મળીને પહેલા મહિનાના કુલ ₹૩,૦૦૦ નું પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને એકાઉન્ટ સક્રિય કરી આપશો.`;
+    message = `નમસ્તે એડમિન, મેં પાર્લરપ્રો POS (${shopName} - ${shopCode}) માટે સેટઅપ ચાર્જ ₹૨૫૦૦ + સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦ મળીને પહેલા મહિનાના કુલ ₹૩,૦૦૦ નું પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને એકાઉન્ટ સક્રિય કરી આપશો.`;
   } else {
     message = config.whatsappMessageTemplate ||
-      'નમસ્તે એડમિન, મેં અમુલ પાર્લર ({shopName} - {shopCode}) માટે ₹{amount} નું સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને સબ્સ્ક્રિપ્શન રિન્યુ કરી આપશો.';
+      'નમસ્તે એડમિન, મેં પાર્લરપ્રો POS ({shopName} - {shopCode}) માટે ₹{amount} નું સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને સબ્સ્ક્રિપ્શન રિન્યુ કરી આપશો.';
     message = message
       .replace('{shopName}', shopName)
       .replace('{shopCode}', shopCode)

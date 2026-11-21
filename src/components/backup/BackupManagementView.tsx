@@ -104,7 +104,7 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
 
       const todayStr = new Date().toISOString().slice(0, 10);
       const shopCodeSlug = exportScope === 'CURRENT' && currentShop ? currentShop.shopCode.replace(/[^a-zA-Z0-9_-]/g, '') : 'ALL_SHOPS';
-      const filename = `AmulParlour_Backup_${shopCodeSlug}_${todayStr}.json`;
+      const filename = `ParlourPro_Backup_${shopCodeSlug}_${todayStr}.json`;
 
       const jsonStr = JSON.stringify(backupData, null, 2);
       const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -515,7 +515,7 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
                 Target Filename:
               </span>
               <div className="font-mono font-bold text-slate-900 dark:text-white mt-0.5">
-                AmulParlour_Backup_{exportScope === 'CURRENT' && currentShop ? currentShop.shopCode.replace(/[^a-zA-Z0-9_-]/g, '') : 'ALL_SHOPS'}_{new Date().toISOString().slice(0, 10)}.json
+                ParlourPro_Backup_{exportScope === 'CURRENT' && currentShop ? currentShop.shopCode.replace(/[^a-zA-Z0-9_-]/g, '') : 'ALL_SHOPS'}_{new Date().toISOString().slice(0, 10)}.json
               </div>
             </div>
 
@@ -541,7 +541,7 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
                 The exported backup contains only your commercial shop registers. Plaintext passwords, authentication sessions, and production API secrets are strictly omitted.
               </p>
               <div className="p-2.5 bg-slate-50 dark:bg-slate-800 rounded-xl text-[10px] text-slate-600 dark:text-slate-400 font-mono">
-                Generator: Amul Parlour Local-First IndexedDB Engine v2.0
+                Generator: ParlourPro POS Local-First IndexedDB Engine v2.0
               </div>
             </div>
 
@@ -591,7 +591,7 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
                 {selectedFile ? selectedFile.name : 'Click to select or drag backup .json file'}
               </div>
               <div className="text-[11px] text-slate-400">
-                {selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB` : 'Supports all authentic Amul Parlour JSON backup formats'}
+                {selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB` : 'Supports all ParlourPro POS JSON backup formats'}
               </div>
             </label>
           </div>
@@ -768,7 +768,7 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
                               const url = URL.createObjectURL(blob);
                               const a = document.createElement('a');
                               a.href = url;
-                              a.download = `Amul_Snapshot_${bkp.id}.json`;
+                              a.download = `ParlourPro_Snapshot_${bkp.id}.json`;
                               a.click();
                             }}
                             className="p-1.5 rounded-lg text-slate-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950 transition cursor-pointer"
@@ -911,7 +911,7 @@ export const BackupManagementView: React.FC<BackupManagementViewProps> = ({
                     <strong>Missed Backup Detection:</strong> If you close the PC before 8:00 PM, the system detects this when you reopen the browser next morning and displays an instant snapshot prompt.
                   </li>
                   <li>
-                    <strong>Windows Startup Shortcut:</strong> Press <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">Win + R</code>, type <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">shell:startup</code>, and drag the Amul POS website shortcut here so it launches automatically on power-on.
+                    <strong>Windows Startup Shortcut:</strong> Press <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">Win + R</code>, type <code className="bg-slate-100 dark:bg-slate-800 px-1 py-0.5 rounded font-mono">shell:startup</code>, and drag the ParlourPro POS website shortcut here so it launches automatically on power-on.
                   </li>
                   <li>
                     <strong>External Drive Copy:</strong> Download the weekly backup JSON file to a USB thumb drive to protect against hardware damage.

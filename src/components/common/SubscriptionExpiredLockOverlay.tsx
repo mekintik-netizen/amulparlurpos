@@ -151,15 +151,15 @@ export const SubscriptionExpiredLockOverlay: React.FC<SubscriptionExpiredLockOve
         {/* Top Header Badge & Logo */}
         <div className="flex items-center justify-between mb-3 border-b border-slate-100 dark:border-slate-800 pb-3">
           <div className="flex items-center gap-2">
-            <div className="bg-slate-50 dark:bg-slate-800 p-1 rounded-xl border border-slate-200 dark:border-slate-700 shadow-2xs">
+            <div className="bg-white dark:bg-slate-800 p-1 rounded-full border border-slate-200 dark:border-slate-700 shadow-2xs">
               <img
                 src={amulLogo}
-                alt="Amul"
-                className="h-8 w-auto object-contain"
+                alt="ParlourPro POS"
+                className="h-9 w-9 rounded-full object-contain"
               />
             </div>
             <div className="text-left">
-              <div className="text-xs font-black text-blue-900 dark:text-blue-400">AMUL PARLOUR POS</div>
+              <div className="text-xs font-black text-blue-900 dark:text-blue-400">PARLOURPRO POS</div>
               <div className="text-[10px] text-slate-400 font-mono">
                 {isNew ? 'નવું પાર્લર (New Shop Onboarding)' : 'ચાલુ પાર્લર (Regular Shop Renewal)'}
               </div>

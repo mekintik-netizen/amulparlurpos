@@ -84,10 +84,11 @@ describe('Windows .ico Binary Builder & Official Brand Assets', () => {
     });
   });
 
-  it('verifies public/icon-192.png, public/icon-512.png exist and in-app UI uses the original official Amul logo', () => {
+  it('verifies public/logo-round.png, public/logo-banner.png, public/icon-192.png, and public/icon-512.png exist and are wired into ParlourPro POS UI', () => {
     const icon192 = fs.readFileSync(path.resolve(process.cwd(), 'public/icon-192.png'));
     const icon512 = fs.readFileSync(path.resolve(process.cwd(), 'public/icon-512.png'));
-    const originalInAppLogo = fs.readFileSync(path.resolve(process.cwd(), 'src/assets/amul-logo.jpg'));
+    const logoRound = fs.readFileSync(path.resolve(process.cwd(), 'public/logo-round.png'));
+    const logoBanner = fs.readFileSync(path.resolve(process.cwd(), 'public/logo-banner.png'));
 
     // Check PNG signature and IHDR dimensions for PWA / Desktop icons
     expect(icon192.subarray(0, 4).toString('hex')).toBe('89504e47');
@@ -98,26 +99,40 @@ describe('Windows .ico Binary Builder & Official Brand Assets', () => {
     expect(icon512.readUInt32BE(16)).toBe(512);
     expect(icon512.readUInt32BE(20)).toBe(512);
 
-    // Original official Amul logo must remain the sole in-app logo
-    expect(originalInAppLogo.length).toBeGreaterThan(1000);
+    expect(logoRound.subarray(0, 4).toString('hex')).toBe('89504e47');
+    expect(logoBanner.subarray(0, 4).toString('hex')).toBe('89504e47');
+
+    // logo.ts exports both ParlourPro POS round emblem and login banner
     const logoTs = fs.readFileSync(path.resolve(process.cwd(), 'src/assets/logo.ts'), 'utf8');
-    expect(logoTs).toContain('./amul-logo.jpg');
-    expect(logoTs).not.toContain('amul-parlour-logo.png');
+    expect(logoTs).toContain('logo-round.png');
+    expect(logoTs).toContain('logo-banner.png');
 
     const loginPage = fs.readFileSync(path.resolve(process.cwd(), 'src/components/auth/LoginPage.tsx'), 'utf8');
-    expect(loginPage).toContain('src={amulLogo}');
+    expect(loginPage).toContain('src={LOGO_BANNER_URL}');
+    expect(loginPage).toContain('max-h-24');
     expect(loginPage).not.toContain('brandLogoPngBase64');
+
+    const headerTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/components/layout/Header.tsx'), 'utf8');
+    expect(headerTsx).toContain('LOGO_ROUND_URL');
+    expect(headerTsx).toContain('ParlourPro POS');
+    expect(headerTsx).toContain('Smart Billing &amp; Inventory');
+
+    const posTsx = fs.readFileSync(path.resolve(process.cwd(), 'src/components/pos/BarcodePOS.tsx'), 'utf8');
+    expect(posTsx).toContain('Search parlour products, SKU or name...');
   });
 
-  it('verifies index.html and public/manifest.json use GitHub Pages-compatible relative links', () => {
+  it('verifies index.html and public/manifest.json use ParlourPro POS branding with GitHub Pages-compatible relative links', () => {
     const indexHtml = fs.readFileSync(path.resolve(process.cwd(), 'index.html'), 'utf8');
     expect(indexHtml).toContain('href="./favicon.ico"');
+    expect(indexHtml).toContain('href="./logo-round.png"');
     expect(indexHtml).toContain('href="./icon-192.png"');
     expect(indexHtml).toContain('href="./manifest.json"');
+    expect(indexHtml).toContain('ParlourPro POS');
+    expect(indexHtml).toContain('Smart Billing &amp; Inventory');
 
     const manifest = JSON.parse(fs.readFileSync(path.resolve(process.cwd(), 'public/manifest.json'), 'utf8'));
-    expect(manifest.short_name).toBe('Amul POS');
-    expect(manifest.name).toBe('Amul Parlour POS & Management');
+    expect(manifest.short_name).toBe('ParlourPro POS');
+    expect(manifest.name).toBe('ParlourPro POS — Smart Billing & Inventory');
     expect(manifest.start_url).toBe('.');
     expect(manifest.display).toBe('standalone');
     expect(manifest.theme_color).toBe('#005A9C');
@@ -136,11 +151,11 @@ describe('Windows .ico Binary Builder & Official Brand Assets', () => {
 
     const adminPortal = fs.readFileSync(path.resolve(process.cwd(), 'src/components/admin/AdminPortal.tsx'), 'utf8');
     expect(adminPortal).toContain('Download Windows Desktop Icon (.ico)');
-    expect(adminPortal).toContain('amul-parlour-pos.ico');
+    expect(adminPortal).toContain('parlourpro-pos.ico');
     expect(adminPortal).toContain('convertImageToIco');
 
     const shopProfile = fs.readFileSync(path.resolve(process.cwd(), 'src/components/profile/ShopProfileManagement.tsx'), 'utf8');
     expect(shopProfile).toContain('Download Windows Desktop Icon (.ico)');
-    expect(shopProfile).toContain('amul-parlour-pos.ico');
+    expect(shopProfile).toContain('parlourpro-pos.ico');
   });
 });

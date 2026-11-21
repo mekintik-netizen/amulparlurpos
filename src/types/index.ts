@@ -550,7 +550,7 @@ export interface PrintSettingsConfig {
 
 export const DEFAULT_PRINT_SETTINGS_CONFIG: PrintSettingsConfig = {
   showHeaderLogo: true,
-  headerTitle: 'AMUL PARLOUR',
+  headerTitle: 'PARLOURPRO POS',
   showShopName: true,
   customShopName: '',
   showAddress: true,
@@ -563,7 +563,7 @@ export const DEFAULT_PRINT_SETTINGS_CONFIG: PrintSettingsConfig = {
   customFssai: '',
 
   footerNote1: 'Thank you! Please visit again',
-  footerNote2: 'The Taste of India • Pure Milk Products',
+  footerNote2: 'Smart Billing & Inventory • ParlourPro POS',
   footerNote3: 'Goods once sold will not be taken back',
   showPaymentMode: true,
   showBarcodeSimulation: true,
@@ -613,12 +613,12 @@ export const DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG: SubscriptionSettingsConfig = 
   newShopMessageGujarati: '⚠️ તમારું ૧ મહિનાનું ફ્રી ટ્રાયલ પૂરું થયું છે. સેટઅપ ચાર્જ ₹૨૫૦૦ + સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦ મળીને પહેલા મહિને કુલ ₹૩૦૦૦ નું પેમેન્ટ કરવાનું રહેશે. ત્યારપછીના મહિનાથી દર મહિને માત્ર ₹૫૦૦ સબ્સ્ક્રિપ્શન ચાર્જ આવશે.',
   newShopWarningMessageGujarati: '⚠️ તમારું ૧ મહિનાનું ફ્રી ટ્રાયલ પૂરું થયું છે. સેટઅપ ચાર્જ ₹૨૫૦૦ + સબ્સ્ક્રિપ્શન ચાર્જ ₹૫૦૦ મળીને પહેલા મહિને કુલ ₹૩૦૦૦ નું પેમેન્ટ કરવાનું રહેશે. ત્યારપછીના મહિનાથી દર મહિને માત્ર ₹૫૦૦ સબ્સ્ક્રિપ્શન ચાર્જ આવશે.',
   warningDaysThreshold: 10,
-  upiId: 'amulparlour.admin@okhdfcbank',
-  payeeName: 'Amul HQ Admin',
+  upiId: 'parlourpro.admin@okhdfcbank',
+  payeeName: 'ParlourPro HQ Admin',
   upiQrImageUrl: '',
   adminPhone: '+919173598234',
   whatsappNumber: '+919173598234',
-  whatsappMessageTemplate: 'નમસ્તે એડમિન, મેં અમુલ પાર્લર ({shopName} - {shopCode}) માટે ₹{amount} નું સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને સબ્સ્ક્રિપ્શન રિન્યુ કરી આપશો.'
+  whatsappMessageTemplate: 'નમસ્તે એડમિન, મેં પાર્લરપ્રો POS ({shopName} - {shopCode}) માટે ₹{amount} નું સબ્સ્ક્રિપ્શન રિન્યુઅલ પેમેન્ટ કર્યું છે. કૃપા કરીને સ્ક્રીનશોટ ચકાસીને સબ્સ્ક્રિપ્શન રિન્યુ કરી આપશો.'
 };
 
 // ==========================================

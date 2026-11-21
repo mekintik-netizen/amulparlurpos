@@ -330,7 +330,7 @@ export const AdminCredentialsRecoveryModal: React.FC<AdminCredentialsRecoveryMod
               <p className="text-[11px] text-blue-200">
                 {isMonthlyReset
                   ? 'Mandatory Monthly Password & 6-Digit PIN Rotation'
-                  : 'Amul Headquarters Master Account Access'}
+                  : 'ParlourPro POS Master Account Access'}
               </p>
             </div>
           </div>

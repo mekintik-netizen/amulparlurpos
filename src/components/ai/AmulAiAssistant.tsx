@@ -76,7 +76,7 @@ async function callGeminiRestDirectly(params: {
       : 'Respond primarily in polite, clear Gujarati (ગુજરાતી) with exact ₹ currency figures and concise bullet points (•). Include English product names where helpful.';
 
   const systemText = [
-    'You are "Amul AI (અમૂલ બિઝનેસ સહાયક)", a retail Amul Parlour business advisor.',
+    'You are "ParlourPro AI (બિઝનેસ સહાયક)", a retail parlour business advisor.',
     'Answer STRICTLY from the LIVE SHOP DATA JSON below. Never fabricate sales numbers, stock quantities, or dues.',
     langRule,
     '',
@@ -690,7 +690,7 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
 
         {/* Centered Top Pill Badge */}
         <div className="hidden sm:flex items-center justify-center px-4 py-1.5 rounded-full bg-white/20 backdrop-blur-md border border-white/35 shadow-xs text-xs font-semibold text-white whitespace-nowrap shrink-0">
-          ✨ Amul AI • તમારા બિઝનેસનો સ્માર્ટ સહાયક
+          ✨ ParlourPro AI • તમારા બિઝનેસનો સ્માર્ટ સહાયક
         </div>
 
         {/* Top-Right Subtle API Key & Utility Buttons */}
@@ -740,7 +740,7 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
       {/* Mobile Pill Badge Fallback */}
       <div className="relative z-10 sm:hidden px-4 pb-1 flex justify-center">
         <div className="px-3.5 py-1 rounded-full bg-white/20 backdrop-blur-md border border-white/35 text-[11px] font-semibold text-white whitespace-nowrap">
-          ✨ Amul AI • તમારા બિઝનેસનો સ્માર્ટ સહાયક
+          ✨ ParlourPro AI • તમારા બિઝનેસનો સ્માર્ટ સહાયક
         </div>
       </div>
 
@@ -819,7 +819,7 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
         <div className="relative z-10 flex-1 flex items-center justify-center p-6 text-center">
           <div className="max-w-md bg-[#0f2952]/65 backdrop-blur-xl border border-white/35 rounded-3xl p-6 space-y-2.5 shadow-xl">
             <ShieldAlert className="w-10 h-10 text-amber-300 mx-auto" />
-            <h3 className="text-base font-bold text-white">Amul AI સુવિધા હાલમાં બંધ છે</h3>
+            <h3 className="text-base font-bold text-white">ParlourPro AI સુવિધા હાલમાં બંધ છે</h3>
             <p className="text-xs text-blue-100 leading-relaxed">
               આ શોપ માટે AI સહાયક Master Admin દ્વારા બંધ (Suspend) કરવામાં આવેલ છે. કૃપા કરીને Admin નો સંપર્ક કરો.
             </p>
@@ -902,7 +902,7 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
                             ) : (
                               <>
                                 <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                                <span>Amul AI સલાહ (Gemini AI)</span>
+                                <span>ParlourPro AI સલાહ (Gemini AI)</span>
                               </>
                             )}
                           </span>
@@ -1083,7 +1083,7 @@ export const AmulAiAssistant: React.FC<AmulAiAssistantProps> = ({
       <div
         className="fixed inset-0 z-50 flex justify-end bg-black/45 backdrop-blur-[2px] no-print"
         role="dialog"
-        aria-label="Amul AI Business Assistant Drawer"
+        aria-label="ParlourPro AI Business Assistant Drawer"
       >
         <div className="flex-1" onClick={onClose} />
         <div className="w-full max-w-2xl h-full shadow-2xl border-l border-white/30">

@@ -129,7 +129,7 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
       setIsSyncingCatalog(true);
       const res = await AppRepository.products.syncPreFilledCatalog(currentShop.id);
       await loadProducts();
-      setScanMessage({ text: `Catalog Synced! ${res.total} Amul products ready with barcodes.`, type: 'success' });
+      setScanMessage({ text: `Catalog Synced! ${res.total} parlour products ready with barcodes.`, type: 'success' });
       setTimeout(() => setScanMessage(null), 3500);
     } catch (err: any) {
       alert(`Failed to sync catalog: ${err.message}`);
@@ -577,7 +577,7 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
               ⚠️ 1-Month Subscription Plan Expired — Read-Only Mode
             </span>
             <p className="text-amber-900 mt-0.5 leading-relaxed">
-              {subCheck.message} All previous shop sales, customer receipts, and stock data are completely preserved. Work can only be done after the plan is activated. Contact Amul Admin to renew.
+              {subCheck.message} All previous shop sales, customer receipts, and stock data are completely preserved. Work can only be done after the plan is activated. Contact ParlourPro Admin to renew.
             </p>
           </div>
         </div>
@@ -811,10 +811,10 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
                   onClick={handleSyncCatalog}
                   disabled={isSyncingCatalog}
                   className="text-[11px] font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-2.5 py-1 rounded-lg flex items-center gap-1 cursor-pointer transition shadow-2xs"
-                  title="Load full 65+ official Amul products with barcodes"
+                  title="Load starter parlour product catalog with barcodes"
                 >
                   <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>{isSyncingCatalog ? 'Syncing...' : 'Pre-Fill 65+ Amul Items'}</span>
+                  <span>{isSyncingCatalog ? 'Syncing...' : 'Pre-Fill 65+ Starter Items'}</span>
                 </button>
               )}
 
@@ -891,7 +891,7 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search Amul products, SKU or name..."
+                placeholder="Search parlour products, SKU or name..."
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
               />
             </div>
@@ -1279,7 +1279,7 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
                   {currentShop.regionalName || currentShop.name}
                 </h4>
                 <p className="text-[11px] text-slate-500 font-medium">
-                  {currentShop.bankName || 'Amul Preferred Outlet'}
+                  {currentShop.bankName || 'ParlourPro POS'}
                 </p>
               </div>
 

@@ -174,10 +174,10 @@ export function formatSmartOrderWhatsAppText(params: {
   const estimatedValue = activeItems.reduce((sum, i) => sum + i.orderQty * i.purchaseRate, 0);
 
   const lines: string[] = [
-    `*AMUL PARLOUR - SMART PURCHASE ORDER (ઓર્ડર લિસ્ટ)*`,
+    `*PARLOURPRO POS - SMART PURCHASE ORDER (ઓર્ડર લિસ્ટ)*`,
     `Parlour: ${shop.name} (${shop.shopCode})`,
     shop.phone ? `Contact: ${shop.phone}` : '',
-    `Supplier / Agency: ${supplierName || 'Amul Dairy Depot'}`,
+    `Supplier / Agency: ${supplierName || 'Authorized Dairy Distributor'}`,
     `Cycle: ${cycleLabel}${bufferPercent > 0 ? ` (+${bufferPercent}% Buffer)` : ''}`,
     `Date: ${dateLabel}`,
     `--------------------------------`,
@@ -241,7 +241,7 @@ export function downloadSmartOrderPdf(params: {
     doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(14);
-    doc.text('AMUL PARLOUR - SMART PURCHASE ORDER', 14, 11);
+    doc.text('PARLOURPRO POS - SMART PURCHASE ORDER', 14, 11);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
@@ -260,13 +260,13 @@ export function downloadSmartOrderPdf(params: {
   doc.setTextColor(0, 90, 156);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10.5);
-  doc.text(shop.name || 'Amul Parlour', 18, 37);
+  doc.text(shop.name || 'ParlourPro POS', 18, 37);
 
   doc.setTextColor(51, 65, 85);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.text(`Code: ${shop.shopCode}  |  Phone: ${shop.phone || 'N/A'}`, 18, 43);
-  doc.text(`To Supplier / Agency: ${supplierName || 'Amul Dairy Depot'}`, 18, 48);
+  doc.text(`To Supplier / Agency: ${supplierName || 'Authorized Dairy Distributor'}`, 18, 48);
 
   const totalUnits = activeItems.reduce((sum, i) => sum + i.orderQty, 0);
   const grandTotal = activeItems.reduce((sum, i) => sum + i.orderQty * i.purchaseRate, 0);

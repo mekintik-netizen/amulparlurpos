@@ -514,7 +514,7 @@ export const MonthlyRevenueChart: React.FC<MonthlyRevenueChartProps> = ({ shops,
           <div className="flex items-center gap-3">
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-[#005A9C]"></span>
-              <span>Amul Franchise Sales Revenue</span>
+              <span>ParlourPro Shop Sales Revenue</span>
             </span>
             <span className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-amber-500"></span>

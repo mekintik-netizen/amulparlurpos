@@ -13,6 +13,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Sparkles, ArrowRight } from 'lucide-react';
+import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 
 interface AmulLaunchAnimationProps {
   onComplete: () => void;
@@ -51,40 +52,28 @@ export const AmulLaunchAnimation: React.FC<AmulLaunchAnimationProps> = ({ onComp
         fadingOut ? 'opacity-0 pointer-events-none' : 'opacity-100'
       }`}
       role="dialog"
-      aria-label="Amul Launch Screen"
+      aria-label="ParlourPro POS Launch Screen"
     >
       {/* Background radial glow */}
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.15)_0%,transparent_70%)] animate-pulse" />
 
-      {/* Decorative swirling dairy ripple rings */}
+      {/* Decorative swirling ripple rings */}
       <div className="absolute w-[440px] h-[440px] rounded-full border border-white/10 animate-ping opacity-20 pointer-events-none" />
       <div className="absolute w-[320px] h-[320px] rounded-full border-2 border-amber-300/20 animate-spin opacity-40 pointer-events-none [animation-duration:12s]" />
 
       {/* Center Branding Card */}
       <div className="relative z-10 flex flex-col items-center max-w-sm px-6 text-center transform transition-transform duration-700 ease-out scale-100 animate-in fade-in zoom-in-95">
         
-        {/* Amul Red Badge & Seal */}
+        {/* ParlourPro Round Emblem */}
         <div className="relative mb-6">
-          {/* Outer glow ring */}
-          <div className="absolute -inset-2 bg-gradient-to-r from-[#E31837] via-[#FF4D6D] to-[#FDB813] rounded-3xl blur-md opacity-75 animate-pulse" />
-          
-          <div className="relative w-28 h-28 bg-[#E31837] rounded-3xl shadow-2xl flex flex-col items-center justify-center border-2 border-white/30 transform hover:scale-105 transition-transform duration-300">
-            {/* Top golden crown dots */}
-            <div className="flex gap-1 mb-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-300" />
-              <span className="w-2 h-2 rounded-full bg-amber-200" />
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-300" />
-            </div>
-
-            {/* Amul Wordmark */}
-            <span className="text-4xl font-black tracking-tight text-white drop-shadow-md font-serif italic">
-              Amul
-            </span>
-
-            {/* Sub-label */}
-            <span className="text-[9px] uppercase tracking-widest font-extrabold text-amber-200 mt-0.5">
-              PARLOUR
-            </span>
+          <div className="absolute -inset-2 bg-gradient-to-r from-sky-400 via-blue-500 to-amber-400 rounded-full blur-md opacity-70 animate-pulse" />
+          <div className="relative w-32 h-32 bg-white rounded-full shadow-2xl flex items-center justify-center p-1.5 border-2 border-white/40 transform hover:scale-105 transition-transform duration-300">
+            <img
+              src={LOGO_ROUND_URL}
+              alt="ParlourPro POS — Smart Billing & Inventory"
+              className="w-full h-full rounded-full object-contain"
+              loading="eager"
+            />
           </div>
         </div>
 
@@ -92,20 +81,20 @@ export const AmulLaunchAnimation: React.FC<AmulLaunchAnimationProps> = ({ onComp
         <div className="space-y-1 mb-8">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-white/10 backdrop-blur-md rounded-full text-xs font-medium text-amber-200 border border-white/15">
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>The Taste of India</span>
+            <span>Smart Billing &amp; Inventory</span>
           </div>
           <h1 className="text-xl font-bold tracking-tight text-white mt-2">
-            Amul Franchise POS & Portal
+            ParlourPro POS
           </h1>
           <p className="text-xs text-blue-100/80 max-w-xs">
-            Official Anand Milk Union Limited Digital Counter & Retail System
+            Smart Billing, Real-Time Stock Tracking &amp; Parlour Management Portal
           </p>
         </div>
 
         {/* Loading Progress Bar & Skip Button */}
         <div className="w-full max-w-[200px] flex flex-col items-center gap-3">
           <div className="w-full h-1.5 bg-white/20 rounded-full overflow-hidden p-0.5 backdrop-blur">
-            <div className="h-full bg-gradient-to-r from-amber-300 via-rose-300 to-white rounded-full animate-[progress_2s_ease-in-out_forwards] w-full" />
+            <div className="h-full bg-gradient-to-r from-amber-300 via-sky-300 to-white rounded-full animate-[progress_2s_ease-in-out_forwards] w-full" />
           </div>
 
           <button
@@ -122,7 +111,7 @@ export const AmulLaunchAnimation: React.FC<AmulLaunchAnimationProps> = ({ onComp
 
       {/* Bottom credits */}
       <div className="absolute bottom-6 text-center text-[10px] text-blue-200/60 font-mono tracking-wider">
-        GCMMF • GUJARAT COOPERATIVE MILK MARKETING FEDERATION
+        PARLOURPRO POS • SMART BILLING &amp; INVENTORY
       </div>
     </div>
   );

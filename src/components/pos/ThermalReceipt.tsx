@@ -287,7 +287,7 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
             >
               {printConfig.showHeaderLogo && (
                 <div className="font-extrabold text-sm uppercase tracking-tight text-black">
-                  {printConfig.headerTitle || 'AMUL PARLOUR'}
+                  {printConfig.headerTitle || 'PARLOURPRO POS'}
                 </div>
               )}
               {printConfig.showShopName && (

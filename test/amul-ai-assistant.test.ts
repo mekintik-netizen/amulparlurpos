@@ -383,13 +383,13 @@ describe('Amul AI Business Assistant - Security, Context & UI Integration', () =
     const aiIdx = navContent.indexOf("key: 'AMUL_AI'");
     expect(smartIdx).toBeGreaterThan(-1);
     expect(aiIdx).toBeGreaterThan(smartIdx);
-    expect(navContent).toContain("label: 'Amul AI'");
+    expect(navContent).toContain("label: 'ParlourPro AI'");
     expect(navContent).toContain("sub: 'AI સહાયક & બિઝનેસ સલાહ'");
     expect(navContent).toContain('showAiAssistant');
 
     const headerContent = fs.readFileSync(path.join(rootDir, 'src/components/layout/Header.tsx'), 'utf-8');
     const headerSmartIdx = headerContent.indexOf('<span>Smart Order</span>');
-    const headerAiIdx = headerContent.indexOf('<span>✨ Amul AI</span>');
+    const headerAiIdx = headerContent.indexOf('<span>✨ ParlourPro AI</span>');
     expect(headerSmartIdx).toBeGreaterThan(-1);
     expect(headerAiIdx).toBeGreaterThan(headerSmartIdx);
     expect(headerContent).toContain('showAiAssistant');
@@ -413,7 +413,7 @@ describe('Amul AI Business Assistant - Security, Context & UI Integration', () =
     expect(assistantContent).toContain('⚙️ API Key');
     expect(assistantContent).toContain('from-[#3b82f6] via-[#60a5fa] to-[#dbeafe]');
     expect(assistantContent).toContain('તમારા પાર્લરનો');
-    expect(assistantContent).toContain('✨ Amul AI • તમારા બિઝનેસનો સ્માર્ટ સહાયક');
+    expect(assistantContent).toContain('✨ ParlourPro AI • તમારા બિઝનેસનો સ્માર્ટ સહાયક');
     expect(assistantContent).toContain('Clear / નવો પ્રશ્ન');
     expect(assistantContent).toContain('generateLocalGujaratiBusinessAnswer');
     expect(assistantContent).toContain('AbortController');
@@ -424,7 +424,7 @@ describe('Amul AI Business Assistant - Security, Context & UI Integration', () =
     expect(indexContent).toContain('name="apple-mobile-web-app-capable"');
 
     const profileContent = fs.readFileSync(path.join(rootDir, 'src/components/profile/ShopProfileManagement.tsx'), 'utf-8');
-    expect(profileContent).toContain('Amul AI — Gemini API Key');
+    expect(profileContent).toContain('ParlourPro AI — Gemini API Key');
     expect(profileContent).toContain('encodedGeminiApiKey');
   });
 

@@ -88,7 +88,7 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
       const link = document.createElement('a');
       link.setAttribute('href', url);
       const todayStr = new Date().toISOString().slice(0, 10);
-      link.setAttribute('download', `Amul_POS_Backup_${currentShop.shopCode}_${todayStr}.json`);
+      link.setAttribute('download', `ParlourPro_POS_Backup_${currentShop.shopCode}_${todayStr}.json`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -111,7 +111,7 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `Amul_Historical_Backup_${rec.shopId}_${rec.backupDate}.json`);
+    link.setAttribute('download', `ParlourPro_Historical_Backup_${rec.shopId}_${rec.backupDate}.json`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -278,7 +278,7 @@ export const BackupRestoreModal: React.FC<BackupRestoreModalProps> = ({
                   Restore from JSON Backup File
                 </h4>
                 <p className="text-[11px] text-slate-500">
-                  Select a previously downloaded Amul POS JSON backup file to restore into this browser.
+                  Select a previously downloaded ParlourPro POS JSON backup file to restore into this browser.
                 </p>
 
                 <label className="border-2 border-dashed border-slate-300 hover:border-blue-400 bg-white rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition text-center">

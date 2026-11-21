@@ -67,7 +67,7 @@ export const DEFAULT_ADMIN_EMAILJS_CONFIG: AdminEmailJsConfig = {
   templateId: 'template_00959gb',
   publicKey: 't_X_0uIsbOimcgCJN',
   adminEmail: DEFAULT_ADMIN_SECURITY_EMAIL,
-  senderName: 'Amul Parlour Admin Security'
+  senderName: 'ParlourPro POS Admin Security'
 };
 
 export interface SendAdminOtpResult {
@@ -549,7 +549,7 @@ export async function saveAdminEmailConfig(
     templateId: (updates.templateId ?? current.templateId).trim(),
     publicKey: (updates.publicKey ?? current.publicKey).trim(),
     adminEmail: candidateEmail,
-    senderName: (updates.senderName ?? current.senderName ?? 'Amul Parlour Admin Security').trim(),
+    senderName: (updates.senderName ?? current.senderName ?? 'ParlourPro POS Admin Security').trim(),
     updatedAt: new Date().toISOString(),
     updatedBy: updates.updatedBy || 'Master Admin'
   };
@@ -798,8 +798,8 @@ export async function sendAdminGmailOtp(params: {
           to_email: targetEmail,
           user_email: targetEmail,
           to_name: 'Master Admin',
-          from_name: emailConfig.senderName || 'Amul Parlour Admin Security',
-          app_name: 'Amul Parlour POS Admin HQ',
+          from_name: emailConfig.senderName || 'ParlourPro POS Admin Security',
+          app_name: 'ParlourPro POS Admin HQ',
           otp_code: otp,
           expiry_minutes: '5',
           purpose_label: purposeLabel
@@ -1029,7 +1029,7 @@ export async function sendAdminMobileOtp(params?: {
   await persistChallengeToFirestore(challengeRecord);
 
   try {
-    const smsText = `Amul Parlour Admin HQ Login OTP: ${otp} (Valid 5 minutes)`;
+    const smsText = `ParlourPro POS Admin HQ Login OTP: ${otp} (Valid 5 minutes)`;
     if (params?.smsSender) {
       await params.smsSender(params.phoneNumber || '', smsText);
     } else if (webhookUrl) {
@@ -1426,8 +1426,8 @@ export async function sendAdminSecurityAlertEmail(params?: {
         to_email: targetEmail,
         user_email: targetEmail,
         to_name: 'Master Admin',
-        from_name: emailConfig.senderName || 'Amul Parlour Admin Security',
-        app_name: 'Amul Parlour POS Admin Security Alert',
+        from_name: emailConfig.senderName || 'ParlourPro POS Admin Security',
+        app_name: 'ParlourPro POS Admin Security Alert',
         purpose_label: 'CRITICAL SECURITY ALERT: 3 Failed Admin Login Attempts (30-Min Lockout)'
       },
       emailConfig.publicKey
@@ -1627,8 +1627,8 @@ export async function checkAndSendMonthlyAdminResetReminder(params?: {
           to_email: targetEmail,
           user_email: targetEmail,
           to_name: 'Master Admin',
-          from_name: emailConfig.senderName || 'Amul Parlour Admin Security',
-          app_name: 'Amul Parlour POS Admin Security',
+          from_name: emailConfig.senderName || 'ParlourPro POS Admin Security',
+          app_name: 'ParlourPro POS Admin Security',
           purpose_label: '1st of Month Mandatory Admin Password & 6-Digit PIN Reset Reminder'
         },
         emailConfig.publicKey

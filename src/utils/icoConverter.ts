@@ -196,7 +196,7 @@ export async function convertImageToIco(
  */
 export async function downloadIcoFile(
   source?: string | Blob | null,
-  filename = 'amul-parlour-pos.ico'
+  filename = 'parlourpro-pos.ico'
 ): Promise<void> {
   let blob: Blob;
 

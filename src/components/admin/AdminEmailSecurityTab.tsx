@@ -53,7 +53,7 @@ export const AdminEmailSecurityTab: React.FC<AdminEmailSecurityTabProps> = ({
   const [templateId, setTemplateId] = useState(DEFAULT_ADMIN_EMAILJS_CONFIG.templateId);
   const [publicKey, setPublicKey] = useState(DEFAULT_ADMIN_EMAILJS_CONFIG.publicKey);
   const [targetEmailInput, setTargetEmailInput] = useState(DEFAULT_ADMIN_SECURITY_CONFIG.adminEmail);
-  const [senderName, setSenderName] = useState(DEFAULT_ADMIN_EMAILJS_CONFIG.senderName || 'Amul Parlour Admin Security');
+  const [senderName, setSenderName] = useState(DEFAULT_ADMIN_EMAILJS_CONFIG.senderName || 'ParlourPro POS Admin Security');
   const [showPublicKey, setShowPublicKey] = useState(false);
 
   const [savingSecurity, setSavingSecurity] = useState(false);
@@ -84,7 +84,7 @@ export const AdminEmailSecurityTab: React.FC<AdminEmailSecurityTabProps> = ({
       setTemplateId(cfg.templateId || DEFAULT_ADMIN_EMAILJS_CONFIG.templateId);
       setPublicKey(cfg.publicKey || DEFAULT_ADMIN_EMAILJS_CONFIG.publicKey);
       setTargetEmailInput(cfg.adminEmail || DEFAULT_ADMIN_SECURITY_CONFIG.adminEmail);
-      setSenderName(cfg.senderName || 'Amul Parlour Admin Security');
+      setSenderName(cfg.senderName || 'ParlourPro POS Admin Security');
     });
     return () => {
       unsubSec();
@@ -146,7 +146,7 @@ export const AdminEmailSecurityTab: React.FC<AdminEmailSecurityTabProps> = ({
         templateId: templateId.trim(),
         publicKey: publicKey.trim(),
         adminEmail: normalizedTarget,
-        senderName: senderName.trim() || 'Amul Parlour Admin Security',
+        senderName: senderName.trim() || 'ParlourPro POS Admin Security',
         updatedBy: adminUsername
       });
       setEmailConfig(saved);
@@ -405,7 +405,7 @@ export const AdminEmailSecurityTab: React.FC<AdminEmailSecurityTabProps> = ({
                 type="text"
                 value={senderName}
                 onChange={(e) => setSenderName(e.target.value)}
-                placeholder="Amul Parlour Admin Security"
+                placeholder="ParlourPro POS Admin Security"
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-[#005A9C] focus:outline-hidden"
               />
             </div>

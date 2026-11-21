@@ -26,8 +26,8 @@ import {
 import { AdminPasswordResetModal } from './AdminPasswordResetModal.tsx';
 import { AdminCredentialsRecoveryModal } from './AdminCredentialsRecoveryModal.tsx';
 import { AdminGmail2FAModal } from './AdminGmail2FAModal.tsx';
-import amulLogo from '../../assets/logo.ts';
-import { AmulBrandLogoMotion, AmulLoginSuccessTransition } from '../common/AmulBrandMotion.tsx';
+import { LOGO_BANNER_URL, LOGO_ROUND_URL } from '../../assets/logo.ts';
+import { AmulLoginSuccessTransition } from '../common/AmulBrandMotion.tsx';
 import { getAdminAuthConfig, DEFAULT_ADMIN_AUTH_CONFIG, AdminAuthConfig } from '../../storage/firebase.ts';
 import {
   DEFAULT_ADMIN_SECURITY_EMAIL,
@@ -77,7 +77,7 @@ const PRESET_SECURITY_QUESTIONS = [
   'What was the name of your first school?',
   "What is your mother's maiden name?",
   'What city or town were you born in?',
-  'What is your favorite Amul ice cream or dairy product?',
+  'What is your favorite ice cream or dairy product?',
   'What was the name of your first pet?',
   'Custom Question (Type your own question)'
 ];
@@ -467,10 +467,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({
 
   return (
     <div className={wrapperClass}>
-      {/* Full-Screen Blurred Amul Logo Background Layer */}
+      {/* Full-Screen Blurred ParlourPro Logo Background Layer */}
       <div className="fixed inset-0 pointer-events-none select-none overflow-hidden z-0" aria-hidden="true">
         <img
-          src={amulLogo}
+          src={LOGO_ROUND_URL}
           alt=""
           className="fixed inset-0 w-full h-full object-cover object-center blur-sm opacity-20 dark:opacity-15 scale-105"
           loading="eager"
@@ -498,14 +498,22 @@ export const LoginPage: React.FC<LoginPageProps> = ({
             </button>
           )}
 
-          {/* Crisp Amul Brand Emblem & Header Inside Card */}
+          {/* Horizontal ParlourPro POS Banner Logo & Header Inside Card */}
           <div className="text-center mb-6">
-            <div className="flex justify-center mb-2.5">
-              <AmulBrandLogoMotion size="lg" showTagline={false} isPulsing={true} />
+            <div className="flex justify-center px-2 pt-1 pb-3">
+              <img
+                src={LOGO_BANNER_URL}
+                alt="ParlourPro POS — Smart Billing & Inventory"
+                className="max-h-24 w-auto max-w-full rounded-2xl shadow-md object-contain"
+                loading="eager"
+              />
             </div>
-            <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight mt-2 text-balance">
-              Amul Preferred Parlour
+            <h1 className="text-lg font-black text-slate-900 dark:text-white tracking-tight mt-1 text-balance">
+              ParlourPro POS
             </h1>
+            <p className="text-[11px] font-bold text-[#005A9C] dark:text-sky-400 tracking-wide">
+              Smart Billing &amp; Inventory
+            </p>
             <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 font-medium">
               {activeTab === 'ADMIN_REGISTER'
                 ? 'One-Time Setup: Create Master Administrator Account'
@@ -1023,7 +1031,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({
           shopName={
             shops.find(s => s.id === transitioningSession.shopId || s.shopCode === transitioningSession.shopCode)?.name ||
             transitioningSession.shopCode ||
-            (transitioningSession.role === 'ADMIN' ? 'Amul Headquarters Admin HQ' : 'Amul Preferred Parlour')
+            (transitioningSession.role === 'ADMIN' ? 'ParlourPro POS Admin HQ' : 'ParlourPro POS')
           }
         />
       )}

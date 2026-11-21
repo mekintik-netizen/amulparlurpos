@@ -60,13 +60,13 @@ export const MorningGreetingModal: React.FC<MorningGreetingModalProps> = ({ onDi
         <div className="absolute -top-12 -right-12 w-36 h-36 bg-amber-400/20 rounded-full blur-2xl pointer-events-none" />
         <div className="absolute -bottom-12 -left-12 w-36 h-36 bg-orange-400/20 rounded-full blur-2xl pointer-events-none" />
 
-        {/* Amul Logo Artwork */}
+        {/* ParlourPro POS Round Emblem */}
         <div className="flex justify-center mb-3">
-          <div className="bg-white p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+          <div className="bg-white p-1 rounded-full border border-slate-200 dark:border-slate-800 shadow-2xs">
             <img
               src={amulLogo}
-              alt="Amul"
-              className="h-10 w-auto object-contain"
+              alt="ParlourPro POS"
+              className="h-12 w-12 rounded-full object-contain"
             />
           </div>
         </div>
@@ -90,7 +90,7 @@ export const MorningGreetingModal: React.FC<MorningGreetingModalProps> = ({ onDi
 
         <div className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mb-5 flex items-center justify-center gap-1">
           <Sparkles className="w-3.5 h-3.5" />
-          <span>Amul Preferred Parlour · Fresh & Happy Counter</span>
+          <span>ParlourPro POS · Smart Billing &amp; Inventory</span>
         </div>
 
         {/* Start Day Button */}

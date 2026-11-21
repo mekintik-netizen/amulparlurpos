@@ -181,7 +181,7 @@ export const RegisterModal: React.FC<RegisterModalProps> = ({
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="e.g. rahul_counter1 or amul_admin2"
+              placeholder="e.g. rahul_counter1 or parlour_admin2"
               className="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#005A9C]"
               required
             />

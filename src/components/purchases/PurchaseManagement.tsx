@@ -44,6 +44,7 @@ import { verifyShopPassword } from '../../storage/auth.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
 import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
 import { ReceiveConfirmPurchaseModal } from './ReceiveConfirmPurchaseModal.tsx';
+import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 
 interface PurchaseManagementProps {
   currentShop: Shop;
@@ -213,7 +214,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
       const res = await AppRepository.products.syncPreFilledCatalog(currentShop.id);
       await loadData();
       if (onStockUpdated) onStockUpdated();
-      alert(`Successfully synchronized ${res.total} Amul products with barcodes!`);
+      alert(`Successfully synchronized ${res.total} parlour products with barcodes!`);
     } catch (err: any) {
       alert(`Failed to sync catalog: ${err.message}`);
     } finally {
@@ -662,10 +663,10 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 onClick={handleSyncCatalog}
                 disabled={isSyncingCatalog}
                 className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-                title="Populate full 65+ official Amul products with barcodes into shop"
+                title="Populate full 65+ starter dairy & parlour products with barcodes into shop"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                <span>{isSyncingCatalog ? 'Syncing...' : 'Pre-Fill 65+ Amul Products'}</span>
+                <span>{isSyncingCatalog ? 'Syncing...' : 'Pre-Fill 65+ Starter Products'}</span>
               </button>
             )}
 
@@ -700,7 +701,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
             <div className="text-lg font-black font-mono text-slate-900 mt-0.5">
               ₹{totalPurchasesAmount.toFixed(2)}
             </div>
-            <div className="text-[10px] text-slate-400">Total goods procured from Amul</div>
+            <div className="text-[10px] text-slate-400">Total wholesale goods procured</div>
           </div>
 
           <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3">
@@ -2078,13 +2079,25 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 className="purchase-printable-bill bg-white p-5 sm:p-8 border border-slate-200 shadow-sm rounded-xl max-w-[210mm] w-full text-slate-900 print:border-none print:shadow-none print:p-0 print:max-w-none print:w-full print:rounded-none"
                 style={{ fontFamily: "'Inter', 'Noto Sans Gujarati', sans-serif" }}
               >
-                {/* Header Title strictly labeled BILL PRINT */}
+                {/* Header Title strictly labeled BILL PRINT with ParlourPro Round Emblem */}
                 <div className="text-center pb-4 mb-4 border-b-2 border-slate-900">
-                  <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase">
-                    BILL PRINT
-                  </h1>
-                  <div className="text-xs font-bold text-slate-700 mt-0.5">
-                    અમુલ પાર્લર ખરીદી ભરતિયું / AMUL PARLOUR PURCHASE INVOICE
+                  <div className="flex items-center justify-center gap-3 mb-1">
+                    <img
+                      src={LOGO_ROUND_URL}
+                      alt="ParlourPro POS"
+                      className="h-11 w-11 rounded-full object-contain"
+                    />
+                    <div className="text-left">
+                      <h1 className="text-2xl font-black tracking-widest text-slate-900 uppercase leading-none">
+                        BILL PRINT
+                      </h1>
+                      <div className="text-[10px] font-bold text-[#005A9C] uppercase tracking-wider mt-0.5">
+                        ParlourPro POS · Smart Billing &amp; Inventory
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-xs font-bold text-slate-700 mt-1">
+                    પાર્લર ખરીદી ભરતિયું / PARLOURPRO POS PURCHASE INVOICE
                   </div>
                   <div className="text-[10px] text-slate-500 font-mono mt-0.5">
                     GSTIN / Tax Invoice • Official Stock Delivery Copy
@@ -2096,7 +2109,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                   {/* Left: Parlour Details */}
                   <div className="space-y-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block font-sans">
-                      ખરીદનાર પાર્લર / Consignee (Amul Parlour):
+                      ખરીદનાર પાર્લર / Consignee (ParlourPro POS):
                     </span>
                     <div className="font-extrabold text-sm text-slate-900">
                       {currentShop.name}

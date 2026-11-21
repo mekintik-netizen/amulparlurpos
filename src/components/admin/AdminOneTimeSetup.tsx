@@ -30,6 +30,7 @@ import {
   isMasterAdminInitialized, 
   performOneTimeAdminSetup 
 } from '../../storage/auth.ts';
+import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 
 interface AdminOneTimeSetupProps {
   onSetupComplete: (session: AuthSession) => void;
@@ -47,7 +48,7 @@ export const AdminOneTimeSetup: React.FC<AdminOneTimeSetupProps> = ({
   const [username, setUsername] = useState('hq_admin');
   const [fullName, setFullName] = useState('');
   const [designation, setDesignation] = useState('Chief Franchise Administrator');
-  const [department, setDepartment] = useState('Amul Headquarters - Retail Network');
+  const [department, setDepartment] = useState('ParlourPro Headquarters - Retail Network');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -171,14 +172,13 @@ export const AdminOneTimeSetup: React.FC<AdminOneTimeSetupProps> = ({
         <div className="bg-gradient-to-r from-[#003870] via-[#005A9C] to-[#002B54] text-white p-6 text-center relative overflow-hidden">
           <div className="relative z-10 flex flex-col items-center">
             
-            {/* Amul Red Badge */}
-            <div className="w-14 h-14 bg-[#E31837] rounded-2xl shadow-lg flex flex-col items-center justify-center border-2 border-white/20 mb-2.5">
-              <span className="text-xl font-black text-white italic font-serif leading-none">
-                Amul
-              </span>
-              <span className="text-[6px] uppercase tracking-widest font-extrabold text-amber-200 mt-0.5">
-                HEADQUARTERS
-              </span>
+            {/* ParlourPro Round Emblem */}
+            <div className="w-16 h-16 bg-white rounded-full shadow-lg flex items-center justify-center border-2 border-white/40 mb-2.5 p-0.5">
+              <img
+                src={LOGO_ROUND_URL}
+                alt="ParlourPro POS"
+                className="w-full h-full rounded-full object-contain"
+              />
             </div>
 
             <div className="inline-flex items-center gap-1.5 px-3 py-0.5 bg-amber-400/20 rounded-full text-amber-300 text-[10px] font-bold border border-amber-300/30 mb-1">

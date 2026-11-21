@@ -91,7 +91,7 @@ export const RightSideNavigation: React.FC<RightSideNavigationProps> = ({
     },
     {
       key: 'AMUL_AI' as ActiveTab,
-      label: 'Amul AI',
+      label: 'ParlourPro AI',
       sub: 'AI સહાયક & બિઝનેસ સલાહ',
       icon: Sparkles,
       badge: 'AI',

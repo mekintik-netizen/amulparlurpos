@@ -87,12 +87,12 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
   const selectedShop: Shop = shops.find(s => s.id === selectedShopId) || {
     id: 'demo-shop',
     shopCode: 'AP-2026-1001',
-    name: 'અમૂલ પ્રેફર્ડ આઉટલેટ (Amul Preferred Outlet - Anand)',
-    regionalName: 'અમૂલ પાર્લર આણંદ',
+    name: 'પાર્લરપ્રો મેઈન આઉટલેટ (ParlourPro Main Outlet)',
+    regionalName: 'પાર્લરપ્રો મેઈન આઉટલેટ',
     ownerName: 'રાજેશભાઈ પટેલ (Rajesh Patel)',
     phone: '+91 98980 12345',
-    email: 'anand.outlet@amulparlour.in',
-    address: 'ડેરી રોડ, અમુલ સર્કલ, આણંદ',
+    email: 'outlet@parlourpro.in',
+    address: 'મેઈન બજાર રોડ, આણંદ',
     city: 'આણંદ (Anand)',
     state: 'ગુજરાત (Gujarat)',
     pincode: '388001',
@@ -494,7 +494,7 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
                   value={config.upiId}
                   onChange={(e) => handleTextChange('upiId', e.target.value)}
                   className="w-full px-3 py-2 text-xs font-mono font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                  placeholder="amulparlour.admin@okhdfcbank"
+                  placeholder="parlourpro.admin@okhdfcbank"
                 />
               </div>
 
@@ -508,7 +508,7 @@ export const SubscriptionDemoTab: React.FC<SubscriptionDemoTabProps> = ({
                   value={config.payeeName}
                   onChange={(e) => handleTextChange('payeeName', e.target.value)}
                   className="w-full px-3 py-2 text-xs font-bold text-slate-900 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                  placeholder="Amul HQ Admin"
+                  placeholder="ParlourPro HQ Admin"
                 />
               </div>
             </div>

@@ -36,7 +36,7 @@ describe('Universal Windows Compatibility & Browser Targets', () => {
     const content = fs.readFileSync(manifestPath, 'utf8');
     const manifest = JSON.parse(content);
 
-    expect(manifest.short_name).toBe('Amul POS');
+    expect(manifest.short_name).toBe('ParlourPro POS');
     expect(manifest.display).toBe('standalone');
     expect(manifest.theme_color).toBe('#005A9C');
     expect(manifest.icons.length).toBeGreaterThan(0);

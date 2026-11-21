@@ -158,7 +158,7 @@ export function isShopSubscriptionActive(shop: Shop | null | undefined): Subscri
       isExpired: false,
       isPendingApproval: true,
       daysRemaining: 0,
-      message: 'Shop approval is pending from Amul Headquarters Admin.'
+      message: 'Shop approval is pending from ParlourPro Headquarters Admin.'
     };
   }
 
@@ -168,7 +168,7 @@ export function isShopSubscriptionActive(shop: Shop | null | undefined): Subscri
       isExpired: false,
       isPendingApproval: false,
       daysRemaining: 0,
-      message: 'Shop account is suspended by Amul Headquarters Admin.'
+      message: 'Shop account is suspended by ParlourPro Headquarters Admin.'
     };
   }
 

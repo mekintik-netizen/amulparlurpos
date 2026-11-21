@@ -1,9 +1,15 @@
 {
   "id": "./",
-  "short_name": "Amul POS",
-  "name": "Amul Parlour POS & Management",
-  "description": "Local-first retail POS billing, stock management, and reports for Amul Parlour franchisees.",
+  "short_name": "ParlourPro POS",
+  "name": "ParlourPro POS — Smart Billing & Inventory",
+  "description": "Smart Billing & Inventory management system with barcode POS, stock tracking, and cloud sync.",
   "icons": [
+    {
+      "src": "./logo-round.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
     {
       "src": "./icon-192.png",
       "sizes": "192x192",

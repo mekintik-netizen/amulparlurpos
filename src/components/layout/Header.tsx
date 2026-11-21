@@ -2,7 +2,7 @@
  * @license
  * SPDX-License-Identifier: Apache-2.0
  * 
- * Main Application Header & Navigation Bar with Amul brand identity.
+ * Main Application Header & Navigation Bar with ParlourPro POS brand identity.
  */
 
 import React from 'react';
@@ -36,7 +36,7 @@ import { AuthSession } from '../../storage/auth.ts';
 import { Theme } from '../../storage/theme.ts';
 import { useNetworkStatus } from '../../storage/offlineSyncManager.ts';
 import { isAiAccessAllowedForSession } from '../../storage/aiConfig.ts';
-import amulLogo from '../../assets/logo.ts';
+import { LOGO_ROUND_URL } from '../../assets/logo.ts';
 
 export type ActiveTab = 
   | 'POS' 
@@ -92,23 +92,23 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="max-w-7xl mx-auto px-4 sm:px-6">
         <div className="flex items-center justify-between h-16 gap-3">
           {/* Brand Logo & Title */}
-          <div className="flex items-center gap-3 shrink-0">
-            <div className="bg-white px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-700 shadow-xs flex items-center gap-2">
+          <div className="flex items-center gap-2.5 shrink-0">
+            <div className="bg-white/95 p-1 rounded-full border border-white/40 dark:border-slate-700 shadow-xs flex items-center justify-center shrink-0">
               <img
-                src={amulLogo}
-                alt="Amul"
-                className="h-8 sm:h-9 w-auto object-contain"
+                src={LOGO_ROUND_URL}
+                alt="ParlourPro POS"
+                className="h-9 w-9 sm:h-10 sm:w-10 rounded-full object-contain"
                 loading="eager"
               />
-              <span className="text-[11px] font-extrabold uppercase text-[#005A9C] tracking-wide bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200">
-                Parlour
-              </span>
             </div>
 
-            <div className="hidden xl:block">
-              <div className="font-extrabold text-xs tracking-tight leading-tight flex items-center gap-1.5 text-white">
-                The Taste of India
-                <span className="text-[10px] font-normal text-blue-200">| Web POS Portal</span>
+            <div className="hidden sm:block leading-tight">
+              <div className="font-extrabold text-sm tracking-tight text-white flex items-center gap-1">
+                <span>ParlourPro</span>
+                <span className="text-amber-300">POS</span>
+              </div>
+              <div className="text-[10px] font-medium text-blue-100/90 hidden xl:block">
+                Smart Billing &amp; Inventory
               </div>
             </div>
           </div>
@@ -161,10 +161,10 @@ export const Header: React.FC<HeaderProps> = ({
                     ? 'bg-amber-300 text-slate-950 border-amber-200 shadow-sm'
                     : 'bg-amber-400/20 hover:bg-amber-400/30 text-amber-200 border-amber-300/40'
                 }`}
-                title="Amul AI Business Assistant (AI સહાયક & બિઝનેસ સલાહ)"
+                title="ParlourPro AI Business Assistant (AI સહાયક & બિઝનેસ સલાહ)"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                <span>✨ Amul AI</span>
+                <span>✨ ParlourPro AI</span>
               </button>
             )}
 

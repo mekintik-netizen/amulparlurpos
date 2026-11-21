@@ -95,7 +95,7 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
   };
 
   const handleReset = async () => {
-    if (!window.confirm('Reset all print settings to official Amul default recommendations?')) {
+    if (!window.confirm('Reset all print settings to default ParlourPro POS recommendations?')) {
       return;
     }
 
@@ -104,7 +104,7 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
       const reset = await resetPrintSettingsConfig(adminUsername);
       setConfig(reset);
       setPreviewWidth(reset.paperWidth || '58mm');
-      setSaveSuccess('Print settings reset to Amul defaults.');
+      setSaveSuccess('Print settings reset to ParlourPro POS defaults.');
       setTimeout(() => setSaveSuccess(null), 4000);
     } catch (err: any) {
       setSaveError(err?.message || 'Failed to reset settings.');
@@ -116,12 +116,12 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
   // Sample Shop & Bill for Live Preview
   const previewShop: Shop = currentShop || {
     id: 'demo-shop',
-    shopCode: 'AP-GJ-0101',
-    name: 'Amul Preferred Parlour - City Center',
+    shopCode: 'PP-GJ-0101',
+    name: 'ParlourPro Outlet - City Center',
     ownerName: 'Pravin Patel',
     phone: '+91 98250 98765',
-    email: 'city.center@amul.in',
-    address: 'Shop 12, Ground Floor, Amul Complex',
+    email: 'city.center@parlourpro.in',
+    address: 'Shop 12, Ground Floor, Dairy Complex',
     city: 'Anand',
     state: 'Gujarat',
     pincode: '388001',
@@ -232,7 +232,7 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
             onClick={handleReset}
             disabled={isSaving}
             className="px-3.5 py-2 text-slate-600 hover:text-slate-900 text-xs font-bold rounded-xl border border-slate-300 hover:bg-slate-50 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-            title="Reset to official Amul defaults"
+            title="Reset to ParlourPro POS defaults"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Reset Defaults</span>
@@ -340,7 +340,7 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
                       type="text"
                       value={config.headerTitle}
                       onChange={(e) => handleTextChange('headerTitle', e.target.value)}
-                      placeholder="e.g. AMUL PARLOUR"
+                      placeholder="e.g. PARLOURPRO POS"
                       className="w-full mt-1 px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-bold uppercase focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
@@ -530,7 +530,7 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
                   type="text"
                   value={config.footerNote2}
                   onChange={(e) => handleTextChange('footerNote2', e.target.value)}
-                  placeholder="e.g. The Taste of India • Pure Milk Products"
+                  placeholder="e.g. Smart Billing & Inventory • Thank You!"
                   className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -755,7 +755,7 @@ export const PrintSettingsTab: React.FC<PrintSettingsTabProps> = ({
                 >
                   {config.showHeaderLogo && (
                     <div className="font-extrabold text-xs uppercase tracking-tight text-black">
-                      {config.headerTitle || 'AMUL PARLOUR'}
+                      {config.headerTitle || 'PARLOURPRO POS'}
                     </div>
                   )}
                   {config.showShopName && (

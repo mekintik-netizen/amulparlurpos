@@ -105,8 +105,8 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
 
   const handleDownloadDesktopIco = async () => {
     try {
-      await downloadIcoFile(adminAuthConfig?.desktopIconIcoBase64, 'amul-parlour-pos.ico');
-      setIcoDownloadMessage('amul-parlour-pos.ico downloaded! Right-click your Chrome desktop shortcut -> Properties -> Change Icon to apply.');
+      await downloadIcoFile(adminAuthConfig?.desktopIconIcoBase64, 'parlourpro-pos.ico');
+      setIcoDownloadMessage('parlourpro-pos.ico downloaded! Right-click your Chrome desktop shortcut -> Properties -> Change Icon to apply.');
       setTimeout(() => setIcoDownloadMessage(null), 5000);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Failed to download Windows desktop .ico icon.');
@@ -361,7 +361,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Amul Preferred Outlet - Anand Dairy Kiosk"
+                  placeholder="e.g. ParlourPro Outlet - Main Market"
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   required
                 />
@@ -375,7 +375,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
                   type="text"
                   value={regionalName}
                   onChange={(e) => setRegionalName(e.target.value)}
-                  placeholder="દા.ત. અમૂલ પાર્લર - આણંદ ડેરી કિઓસ્ક"
+                  placeholder="દા.ત. પાર્લરપ્રો આઉટલેટ - મેઈન માર્કેટ"
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                 />
               </div>
@@ -423,7 +423,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
                     type="email"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    placeholder="parlour@amul.coop"
+                    placeholder="shop@parlourpro.in"
                     className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                   />
                 </div>
@@ -568,7 +568,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
                   type="text"
                   value={accountHolderName}
                   onChange={(e) => setAccountHolderName(e.target.value)}
-                  placeholder="e.g. Rajesh Patel (Amul Parlour)"
+                  placeholder="e.g. Rajesh Patel (ParlourPro Outlet)"
                   className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                 />
               </div>
@@ -611,7 +611,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
                     type="text"
                     value={upiId}
                     onChange={(e) => setUpiId(e.target.value)}
-                    placeholder="amulparlour.anand@sbi અથવા 9825012345@paytm"
+                    placeholder="parlourpro.shop@sbi અથવા 9825012345@paytm"
                     className="w-full pl-8 pr-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono focus:ring-2 focus:ring-blue-500 focus:outline-hidden text-blue-700 dark:text-blue-400 font-bold"
                   />
                 </div>
@@ -717,7 +717,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
               </div>
               <div className="space-y-1.5 flex-1">
                 <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-                  Install directly from Chrome (<strong>Install Amul Parlour POS</strong>) or download the multi-size Windows <code className="font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-1 rounded">.ico</code> logo for your PC desktop shortcut.
+                  Install directly from Chrome (<strong>Install ParlourPro POS</strong>) or download the multi-size Windows <code className="font-mono text-[11px] bg-slate-100 dark:bg-slate-800 px-1 rounded">.ico</code> logo for your PC desktop shortcut.
                 </p>
                 <button
                   type="button"
@@ -744,7 +744,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
               <div className="flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-amber-500" />
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
-                  Amul AI — Gemini API Key (વૈકલ્પિક)
+                  ParlourPro AI — Gemini API Key (વૈકલ્પિક)
                 </h3>
               </div>
               {currentShop.maskedGeminiApiKey && !clearShopGeminiKey ? (
@@ -759,7 +759,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
             </div>
 
             <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
-              જો Master Admin એ API Key સેટ ન કરી હોય, તો તમે તમારી પોતાની Gemini API Key અહીં સેટ કરી શકો છો (ખાલી હોય તો પણ Amul AI Local BI મોડ ચાલુ જ રહેશે).
+              જો Master Admin એ API Key સેટ ન કરી હોય, તો તમે તમારી પોતાની Gemini API Key અહીં સેટ કરી શકો છો (ખાલી હોય તો પણ ParlourPro AI Local BI મોડ ચાલુ જ રહેશે).
             </p>
 
             <div className="flex items-center gap-2">
@@ -980,17 +980,17 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
               </div>
             </div>
 
-            {/* Standee Content Card Designed for Amul Counter Display */}
+            {/* Standee Content Card Designed for Parlour Counter Display */}
             <div className="border-4 border-[#005A9C] rounded-2xl p-6 text-center bg-white shadow-md">
-              {/* Amul Brand Header */}
-              <div className="flex flex-col items-center justify-center mb-4 border-b-2 border-[#E31837] pb-3">
+              {/* ParlourPro POS Brand Header */}
+              <div className="flex flex-col items-center justify-center mb-4 border-b-2 border-[#005A9C] pb-3">
                 <img
                   src={amulLogo}
-                  alt="Amul"
-                  className="h-10 w-auto object-contain mb-1"
+                  alt="ParlourPro POS"
+                  className="h-14 w-14 rounded-full object-contain mb-1.5"
                 />
-                <div className="text-[10px] font-black uppercase text-[#005A9C] tracking-wider">
-                  The Taste of India • Preferred Outlet
+                <div className="text-[11px] font-black uppercase text-[#005A9C] tracking-wider">
+                  ParlourPro POS • Smart Billing &amp; Inventory
                 </div>
               </div>
 
@@ -1011,7 +1011,7 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
               <div className="inline-block p-4 bg-slate-50 border-2 border-slate-800 rounded-2xl mb-4 shadow-xs">
                 <img
                   src={displayQrUrl}
-                  alt="Amul Scan to Pay"
+                  alt="ParlourPro Scan to Pay"
                   className="w-52 h-52 object-contain mx-auto"
                 />
               </div>

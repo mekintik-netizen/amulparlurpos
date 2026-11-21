@@ -243,7 +243,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Amul_Bank_Statement_${currentShop.shopCode}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `ParlourPro_Bank_Statement_${currentShop.shopCode}_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -280,7 +280,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
               Bank Passbook
             </span>
             <span className="text-xs font-mono font-bold text-slate-500">
-              {currentShop.bankName || 'Amul Official Settlement Account'}
+              {currentShop.bankName || 'ParlourPro Settlement Account'}
             </span>
           </div>
           <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
@@ -302,7 +302,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
               A/C: {currentShop.accountNumber ? `•••• ${currentShop.accountNumber.slice(-4)}` : 'Not set'} • IFSC: {currentShop.ifscCode || 'N/A'}
             </div>
             <div className="text-[10px] font-mono text-blue-600 dark:text-blue-400 font-bold">
-              UPI: {currentShop.upiId || `amul.${currentShop.shopCode.toLowerCase()}@okhdfcbank`}
+              UPI: {currentShop.upiId || `parlourpro.${currentShop.shopCode.toLowerCase()}@okhdfcbank`}
             </div>
           </div>
 
@@ -506,7 +506,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
           <div className="flex justify-between items-start pb-4 border-b border-slate-300">
             <div>
               <div className="text-xl font-black uppercase tracking-wider text-blue-900">
-                {currentShop.name || 'AMUL PREFERRED OUTLET'}
+                {currentShop.name || 'PARLOURPRO POS'}
               </div>
               {currentShop.regionalName && (
                 <div className="text-sm font-semibold text-slate-700">
@@ -514,7 +514,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
                 </div>
               )}
               <div className="text-xs text-slate-600 mt-1 max-w-md">
-                {currentShop.address ? `${currentShop.address}, ${currentShop.city || ''} ${currentShop.pincode || ''}` : 'Amul Dairy Franchise Store'}
+                {currentShop.address ? `${currentShop.address}, ${currentShop.city || ''} ${currentShop.pincode || ''}` : 'ParlourPro Retail Store'}
               </div>
               <div className="text-xs text-slate-600">
                 {currentShop.phone && `ફોન: ${currentShop.phone}`}

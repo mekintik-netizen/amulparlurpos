@@ -61,7 +61,7 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
     'What was the name of your first school?',
     "What is your mother's maiden name?",
     'What city or town were you born in?',
-    'What is your favorite Amul ice cream or dairy product?',
+    'What is your favorite ice cream or dairy product?',
     'What was the name of your first pet?',
     'Custom Question (Type your own question)'
   ];
@@ -70,7 +70,7 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
   const [username, setUsername] = useState('');
   const [fullName, setFullName] = useState('Chief Franchise Administrator');
   const [designation, setDesignation] = useState('Headquarters Administrator');
-  const [department, setDepartment] = useState('Amul Retail Network Operations');
+  const [department, setDepartment] = useState('ParlourPro Retail Network Operations');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [selectedQuestion, setSelectedQuestion] = useState(PRESET_SECURITY_QUESTIONS[0]);
@@ -196,7 +196,7 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
         securityQuestion: effectiveQuestion,
         securityAnswer: securityAnswer.trim(),
         designation: designation.trim() || 'Chief Franchise Administrator',
-        department: department.trim() || 'Amul Headquarters'
+        department: department.trim() || 'ParlourPro Headquarters'
       });
 
       setSuccessMessage(`Administrator @${cleanUsername} successfully registered! Administrative capability initialized.`);
@@ -337,7 +337,7 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
               <div>
                 <span className="text-[10px] text-slate-400 block uppercase font-bold tracking-wider">Full Name</span>
                 <span className="font-medium text-slate-800">
-                  {existingAdmin?.fullName || 'Amul HQ Administrator'}
+                  {existingAdmin?.fullName || 'ParlourPro HQ Administrator'}
                 </span>
               </div>
               <div>
@@ -499,7 +499,7 @@ export const AdminRegistration: React.FC<AdminRegistrationProps> = ({
             type="text"
             value={department}
             onChange={(e) => setDepartment(e.target.value)}
-            placeholder="Amul Retail Network Operations"
+            placeholder="ParlourPro Retail Network Operations"
             className="w-full text-xs px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#003870]"
           />
         </div>

@@ -719,7 +719,7 @@ export const TestSuiteModal: React.FC<{ onClose: () => void }> = ({ onClose }) =
           <div className="flex items-center gap-2">
             <Terminal className="w-5 h-5 text-emerald-400" />
             <div>
-              <h3 className="font-bold text-sm">Amul Parlour Automated Test Suite (13 Requirements)</h3>
+              <h3 className="font-bold text-sm">ParlourPro POS Automated Test Suite (13 Requirements)</h3>
               <p className="text-[11px] text-slate-400">
                 Runs offline in an isolated local IndexedDB sandbox with 3s timeout guard per test
               </p>
