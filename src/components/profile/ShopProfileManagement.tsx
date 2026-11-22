@@ -39,7 +39,11 @@ import { subscribeToAdminAuthConfig, AdminAuthConfig } from '../../storage/fireb
 import { downloadIcoFile } from '../../utils/icoConverter.ts';
 import { encodeAiApiKey, maskApiKey } from '../../utils/aiKeyCodec.ts';
 import { changeShopOwnPassword, getShopPasswordAgeDays } from '../../storage/auth.ts';
-import { RECEIPT_FOOTER_BRAND_CREDIT } from '../../utils/shopPdfBranding.ts';
+import {
+  buildDynamicPdfFilename,
+  printWithDynamicTitle,
+  RECEIPT_FOOTER_BRAND_CREDIT
+} from '../../utils/shopPdfBranding.ts';
 
 interface ShopProfileManagementProps {
   currentShop: Shop;
@@ -257,7 +261,13 @@ export const ShopProfileManagement: React.FC<ShopProfileManagementProps> = ({
   };
 
   const handlePrintStandee = () => {
-    window.print();
+    printWithDynamicTitle(
+      buildDynamicPdfFilename({
+        kind: 'CUSTOM_REPORT',
+        reportName: 'Payment-Standee',
+        date: new Date()
+      })
+    );
   };
 
   const handleChangeShopPassword = async (e: React.FormEvent) => {

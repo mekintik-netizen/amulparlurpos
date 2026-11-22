@@ -43,9 +43,9 @@ import { jsPDF } from 'jspdf';
 import { Shop, SaleBill, Expense } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import {
+  buildDynamicPdfFilename,
   drawShopPdfHeader,
   drawCommercialSignatoryFooter,
-  getShopFileSlug,
   getShopPdfIdentity
 } from '../../utils/shopPdfBranding.ts';
 
@@ -401,9 +401,14 @@ export const SalesProfitAnalytics: React.FC<SalesProfitAnalyticsProps> = ({ curr
         noteLine: `Confidential Business Record — ${identity.displayName}  |  Page 1 of 1`
       });
 
-      // Save PDF using shop's own name slug
-      const shopSlug = getShopFileSlug(currentShop);
-      doc.save(`${shopSlug}_Sales_Profit_Report_${todayStr}.pdf`);
+      // Save PDF using dynamic descriptive report filename
+      doc.save(
+        buildDynamicPdfFilename({
+          kind: 'CUSTOM_REPORT',
+          reportName: 'Sales-Profit-Report',
+          date: todayStr
+        })
+      );
     } catch (err) {
       console.error('Failed to generate PDF:', err);
       alert('PDF generation failed. Please try again.');

@@ -132,7 +132,7 @@ export const HardwareDiagnosticsModal: React.FC<HardwareDiagnosticsModalProps> =
         <style>
           @page {
             size: auto;
-            margin: 0mm;
+            margin: 0 !important;
           }
           body {
             font-family: 'Courier New', Courier, monospace;

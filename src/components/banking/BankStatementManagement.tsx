@@ -33,9 +33,12 @@ import {
 import { BankEntry, BankEntryCategory, BankEntryType, BankStatementSummary, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import {
+  buildDynamicPdfFilename,
+  downloadShopTablePdf,
   getShopFileSlug,
   getShopPdfIdentity,
-  PDF_FOOTER_BRAND_CREDIT
+  PDF_FOOTER_BRAND_CREDIT,
+  printWithDynamicTitle
 } from '../../utils/shopPdfBranding.ts';
 
 interface BankStatementManagementProps {
@@ -254,6 +257,51 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
     document.body.removeChild(link);
   };
 
+  // Direct Client-Side PDF Download for Bank Passbook Statement (ZERO browser URLs)
+  const handleDownloadPdf = () => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    downloadShopTablePdf({
+      shop: currentShop,
+      documentTitle: 'Bank Statement / Passbook',
+      documentSubtitle: `${currentShop.bankName || 'Settlement Account'} (${dateFilter})`,
+      metaRightLines: [
+        currentShop.accountNumber ? `A/C: ${currentShop.accountNumber}` : '',
+        currentShop.ifscCode ? `IFSC: ${currentShop.ifscCode}` : '',
+        `Generated: ${new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`
+      ].filter(Boolean),
+      kpis: [
+        { label: 'Total Credits', value: `INR ${summary.totalCredits.toFixed(2)}` },
+        { label: 'Total Debits', value: `INR ${summary.totalDebits.toFixed(2)}` },
+        { label: 'Net Balance', value: `INR ${summary.netBalance.toFixed(2)}` },
+        { label: 'UPI Sales', value: `INR ${summary.upiSalesTotal.toFixed(2)}` }
+      ],
+      columns: [
+        { label: 'Date', width: 18 },
+        { label: 'Category', width: 22 },
+        { label: 'Party / Narration', width: 38 },
+        { label: 'Ref / Mode', width: 20 },
+        { label: 'Debit (INR)', width: 18, align: 'right' },
+        { label: 'Credit (INR)', width: 18, align: 'right' },
+        { label: 'Balance (INR)', width: 20, align: 'right' }
+      ],
+      rows: entriesWithRunningBalance.map((e) => [
+        e.date,
+        e.category.replace(/_/g, ' '),
+        `${e.partyName || ''} ${e.description ? `- ${e.description}` : ''}`.trim(),
+        e.referenceNumber || e.paymentMode,
+        e.type === 'DEBIT' ? e.amount.toFixed(2) : '-',
+        e.type === 'CREDIT' ? e.amount.toFixed(2) : '-',
+        e.runningBalance.toFixed(2)
+      ]),
+      emptyMessage: 'No bank statement transactions found for this filter.',
+      filename: buildDynamicPdfFilename({
+        kind: 'CUSTOM_REPORT',
+        reportName: 'Bank-Passbook-Statement',
+        date: todayStr
+      })
+    });
+  };
+
   const getCategoryBadge = (cat: BankEntryCategory) => {
     switch (cat) {
       case 'UPI_SALE':
@@ -448,7 +496,23 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
               CSV ડાઉનલોડ
             </button>
             <button
-              onClick={() => window.print()}
+              onClick={handleDownloadPdf}
+              className="px-3.5 py-1.5 bg-[#005A9C] hover:bg-blue-800 text-white font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="Download Bank Passbook directly as clean PDF"
+            >
+              <Download className="w-3.5 h-3.5" />
+              Download PDF
+            </button>
+            <button
+              onClick={() =>
+                printWithDynamicTitle(
+                  buildDynamicPdfFilename({
+                    kind: 'CUSTOM_REPORT',
+                    reportName: 'Bank-Passbook-Statement',
+                    date: new Date()
+                  })
+                )
+              }
               className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 font-bold text-xs rounded-xl transition flex items-center gap-1.5 cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
@@ -575,8 +639,8 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
           );
         })()}
 
-        <div className="overflow-x-auto">
-          <table className="passbook-table-print w-full text-left text-xs">
+        <div className="overflow-x-auto print:overflow-visible">
+          <table className="passbook-table-print unified-report-table w-full text-left text-xs">
             <thead className="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-extrabold uppercase tracking-wider text-[11px]">
               <tr>
                 <th className="py-3 px-4">તારીખ (Date)</th>
@@ -663,7 +727,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
         </div>
 
         {/* Print-Only Commercial Signatory & Subtle Text-Only Footer Attribution (No Logo Image) */}
-        <div className="hidden print:block px-6 pt-8 pb-4 mt-4 border-t border-slate-300 text-xs text-slate-700">
+        <div className="hidden print:block unified-print-footer px-6 pt-8 pb-4 mt-4 border-t border-slate-300 text-xs text-slate-700">
           <div className="flex items-end justify-between">
             <div className="w-44 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
               Prepared By

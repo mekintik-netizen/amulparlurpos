@@ -23,15 +23,20 @@ import {
   RefreshCw,
   ShoppingBag,
   Eye,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Download
 } from 'lucide-react';
 import { DailySalesReportSummary, SaleBill, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { exportDataToExcel } from '../../utils/excelEngine.ts';
+import { BrandedReportHeader } from '../common/BrandedReportHeader.tsx';
 import {
+  buildDynamicPdfFilename,
+  downloadShopTablePdf,
   getShopFileSlug,
   getShopPdfIdentity,
-  PDF_FOOTER_BRAND_CREDIT
+  PDF_FOOTER_BRAND_CREDIT,
+  printWithDynamicTitle
 } from '../../utils/shopPdfBranding.ts';
 
 interface DailySalesReportProps {
@@ -116,20 +121,74 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
     });
   };
 
+  const handleDownloadPdf = () => {
+    const bills = summary?.bills || [];
+    downloadShopTablePdf({
+      shop: currentShop,
+      documentTitle: 'Daily Sales & Cash Register',
+      documentSubtitle: `Date: ${targetDate}`,
+      metaRightLines: [
+        `Ref: RPT-SLS-${targetDate.replace(/-/g, '')}`,
+        `Generated: ${new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`
+      ],
+      kpis: [
+        { label: 'Net Revenue', value: `INR ${(summary?.totalAmount || 0).toFixed(2)}` },
+        { label: 'Cash', value: `INR ${(summary?.cashAmount || 0).toFixed(2)}` },
+        { label: 'UPI', value: `INR ${(summary?.upiAmount || 0).toFixed(2)}` },
+        { label: 'Card', value: `INR ${(summary?.cardAmount || 0).toFixed(2)}` },
+        { label: 'Credit', value: `INR ${(summary?.creditAmount || 0).toFixed(2)}` }
+      ],
+      columns: [
+        { label: 'Bill No', width: 24 },
+        { label: 'Time', width: 16 },
+        { label: 'Customer', width: 32 },
+        { label: 'Items', width: 12, align: 'center' },
+        { label: 'Mode', width: 18, align: 'center' },
+        { label: 'Status', width: 18, align: 'center' },
+        { label: 'Amount (INR)', width: 24, align: 'right' }
+      ],
+      rows: bills.map((b) => [
+        b.billNumber,
+        new Date(b.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+        b.customerName || 'Walk-in Customer',
+        b.itemCount || b.items.reduce((s, i) => s + i.quantity, 0),
+        b.paymentMode,
+        b.status,
+        b.finalAmount.toFixed(2)
+      ]),
+      emptyMessage: `No sales bills recorded on ${targetDate}.`,
+      filename: buildDynamicPdfFilename({ kind: 'DAILY_SALES', date: targetDate })
+    });
+  };
+
+  const handlePrintSalesReport = () => {
+    printWithDynamicTitle(buildDynamicPdfFilename({ kind: 'DAILY_SALES', date: targetDate }));
+  };
+
   const shopIdentity = getShopPdfIdentity(currentShop);
 
   return (
-    <div className="space-y-6">
-      {/* Top Header & Date Filter (100% Shop Identity Only in Print/PDF) */}
-      <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 print:rounded-none print:border-0 print:p-0">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 print:border-b-2 print:border-slate-900">
+    <div id="unified-print-area" className="space-y-6 a4-print-container">
+      {/* Unified Print-Only CA-Grade Two-Column Shop Header (Page 1 Top Only) */}
+      <div className="hidden print:block">
+        <BrandedReportHeader
+          currentShop={currentShop}
+          reportTitle="Daily Sales & Cash Counter Report"
+          reportDate={targetDate}
+          referenceCode={`RPT-SLS-${targetDate.replace(/-/g, '')}`}
+        />
+      </div>
+
+      {/* Top Header & Date Filter */}
+      <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 print:rounded-none print:border-0 print:p-0 print:shadow-none">
+        <div className="no-print flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
           <div className="flex items-start gap-3.5">
             {shopIdentity.logoUrl && (
               <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-2xs shrink-0">
                 <img
                   src={shopIdentity.logoUrl}
                   alt={shopIdentity.displayName}
-                  className="h-11 w-11 sm:h-12 sm:w-12 rounded-lg object-contain print:h-14 print:w-14"
+                  className="h-11 w-11 sm:h-12 sm:w-12 rounded-lg object-contain"
                   loading="eager"
                 />
               </div>
@@ -139,7 +198,7 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
                 {shopIdentity.displayName}
               </div>
               <h2 className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5 mt-0.5">
-                <Receipt className="w-4 h-4 text-blue-600 no-print" />
+                <Receipt className="w-4 h-4 text-blue-600" />
                 <span>Daily Sales &amp; Cash Counter Report · {targetDate}</span>
               </h2>
               <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
@@ -172,12 +231,21 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
             </button>
 
             <button
-              onClick={() => window.print()}
-              className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              onClick={handleDownloadPdf}
+              className="bg-[#005A9C] hover:bg-blue-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Download Daily Sales Report directly as clean PDF"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download PDF</span>
+            </button>
+
+            <button
+              onClick={handlePrintSalesReport}
+              className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
               title="Print Daily Sales Report"
             >
               <Printer className="w-4 h-4" />
-              <span>Print Report</span>
+              <span>Print</span>
             </button>
 
             <button
@@ -190,69 +258,69 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
           </div>
         </div>
 
-        {/* Revenue KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-4">
-          <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3">
+        {/* Revenue KPI Cards (Non-Overlapping 5-Column Grid in Print) */}
+        <div className="unified-kpi-grid-5 grid grid-cols-2 md:grid-cols-5 gap-3 pt-4 print:pt-0">
+          <div className="unified-kpi-card bg-blue-50/70 border border-blue-200 rounded-xl p-3">
             <div className="text-[11px] font-semibold text-blue-700 uppercase">Total Net Revenue</div>
-            <div className="text-xl font-black font-mono text-blue-900 mt-0.5">
+            <div className="text-xl font-black font-mono text-blue-900 mt-0.5 print:text-sm">
               ₹{(summary?.totalAmount || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-blue-600 font-medium">
+            <div className="text-[10px] text-blue-600 font-medium print:hidden">
               {summary?.totalBills || 0} valid bills completed
             </div>
           </div>
 
-          <div className="bg-emerald-50/60 border border-emerald-200 rounded-xl p-3">
+          <div className="unified-kpi-card bg-emerald-50/60 border border-emerald-200 rounded-xl p-3">
             <div className="text-[11px] font-semibold text-emerald-700 uppercase flex items-center gap-1">
-              <Banknote className="w-3.5 h-3.5" /> Cash Drawer
+              <Banknote className="w-3.5 h-3.5 no-print" /> Cash Drawer
             </div>
-            <div className="text-lg font-black font-mono text-emerald-800 mt-0.5">
+            <div className="text-lg font-black font-mono text-emerald-800 mt-0.5 print:text-sm">
               ₹{(summary?.cashAmount || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-emerald-600">Cash in hand</div>
+            <div className="text-[10px] text-emerald-600 print:hidden">Cash in hand</div>
           </div>
 
-          <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-3">
+          <div className="unified-kpi-card bg-indigo-50/60 border border-indigo-200 rounded-xl p-3">
             <div className="text-[11px] font-semibold text-indigo-700 uppercase flex items-center gap-1">
-              <QrCode className="w-3.5 h-3.5" /> UPI Payments
+              <QrCode className="w-3.5 h-3.5 no-print" /> UPI Payments
             </div>
-            <div className="text-lg font-black font-mono text-indigo-900 mt-0.5">
+            <div className="text-lg font-black font-mono text-indigo-900 mt-0.5 print:text-sm">
               ₹{(summary?.upiAmount || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-indigo-600">Direct to Bank</div>
+            <div className="text-[10px] text-indigo-600 print:hidden">Direct to Bank</div>
           </div>
 
-          <div className="bg-purple-50/60 border border-purple-200 rounded-xl p-3">
+          <div className="unified-kpi-card bg-purple-50/60 border border-purple-200 rounded-xl p-3">
             <div className="text-[11px] font-semibold text-purple-700 uppercase flex items-center gap-1">
-              <CreditCard className="w-3.5 h-3.5" /> Card / POS
+              <CreditCard className="w-3.5 h-3.5 no-print" /> Card / POS
             </div>
-            <div className="text-lg font-black font-mono text-purple-900 mt-0.5">
+            <div className="text-lg font-black font-mono text-purple-900 mt-0.5 print:text-sm">
               ₹{(summary?.cardAmount || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-purple-600">Debit / Credit Cards</div>
+            <div className="text-[10px] text-purple-600 print:hidden">Debit / Credit Cards</div>
           </div>
 
-          <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-3">
+          <div className="unified-kpi-card bg-amber-50/60 border border-amber-200 rounded-xl p-3">
             <div className="text-[11px] font-semibold text-amber-700 uppercase flex items-center gap-1">
-              <User className="w-3.5 h-3.5" /> Customer Credit
+              <User className="w-3.5 h-3.5 no-print" /> Customer Credit
             </div>
-            <div className="text-lg font-black font-mono text-amber-900 mt-0.5">
+            <div className="text-lg font-black font-mono text-amber-900 mt-0.5 print:text-sm">
               ₹{(summary?.creditAmount || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-amber-600">Khata balance</div>
+            <div className="text-[10px] text-amber-600 print:hidden">Khata balance</div>
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Bills Table (8 cols) */}
-        <div className="lg:col-span-8 bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 print:block">
+        {/* Left Column: Bills Table (8 cols on screen, full width in print) */}
+        <div className="lg:col-span-8 bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 print:p-0 print:border-0 print:shadow-none print:rounded-none">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4 print:mb-2">
             <h3 className="font-extrabold text-sm text-slate-800">
               Customer Invoices for {targetDate} ({filteredBills.length})
             </h3>
 
-            <div className="relative min-w-[220px]">
+            <div className="no-print relative min-w-[220px]">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
@@ -264,17 +332,17 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto print:overflow-visible">
+            <table className="unified-report-table w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-y border-slate-200">
                 <tr>
-                  <th className="py-2.5 px-3">Bill Number & Time</th>
+                  <th className="py-2.5 px-3 print-nowrap">Bill Number &amp; Time</th>
                   <th className="py-2.5 px-2">Customer</th>
-                  <th className="py-2.5 px-2 text-center">Items</th>
-                  <th className="py-2.5 px-2">Payment</th>
-                  <th className="py-2.5 px-2 text-right">Net Amount</th>
-                  <th className="py-2.5 px-2 text-center">Status</th>
-                  <th className="py-2.5 px-3 text-right">Actions</th>
+                  <th className="py-2.5 px-2 text-center print-nowrap">Items</th>
+                  <th className="py-2.5 px-2 print-nowrap">Payment</th>
+                  <th className="py-2.5 px-2 text-right print-nowrap">Net Amount</th>
+                  <th className="py-2.5 px-2 text-center print-nowrap">Status</th>
+                  <th className="py-2.5 px-3 text-right no-print">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
@@ -335,7 +403,7 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
                           {bill.status}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 text-right font-sans">
+                      <td className="py-2.5 px-3 text-right font-sans no-print">
                         <div className="flex items-center justify-end gap-1.5">
                           <button
                             onClick={() => onReprintBill(bill)}
@@ -374,8 +442,8 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
           </div>
         </div>
 
-        {/* Right Column: Product Sales Summary / Best Sellers (4 cols) */}
-        <div className="lg:col-span-4 bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 flex flex-col">
+        {/* Right Column: Product Sales Summary / Best Sellers (4 cols, screen-only side panel) */}
+        <div className="no-print lg:col-span-4 bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 flex flex-col">
           <h3 className="font-extrabold text-sm text-slate-800 mb-1 flex items-center gap-1.5">
             <ShoppingBag className="w-4 h-4 text-blue-600" />
             Product Sales Summary
@@ -507,7 +575,7 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
       )}
 
       {/* Print-Only Commercial Signatory & Subtle Text-Only Footer Attribution (No Logo Image) */}
-      <div className="hidden print:block mt-8 pt-6 border-t border-slate-300 text-xs text-slate-700">
+      <div className="unified-print-footer hidden print:block mt-8 pt-6 border-t border-slate-300 text-xs text-slate-700">
         <div className="flex items-end justify-between">
           <div className="w-44 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
             Prepared By

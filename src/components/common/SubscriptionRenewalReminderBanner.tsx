@@ -56,7 +56,9 @@ export const SubscriptionRenewalReminderBanner: React.FC<SubscriptionRenewalRemi
 
   return (
     <>
-      <div className={`text-white px-4 py-2.5 text-xs font-bold shadow-xs flex flex-wrap items-center justify-between gap-3 border-b ${
+      <div
+        data-trial-banner="true"
+        className={`no-print text-white px-4 py-2.5 text-xs font-bold shadow-xs flex flex-wrap items-center justify-between gap-3 border-b ${
         isNew 
           ? 'bg-linear-to-r from-blue-700 via-indigo-700 to-blue-800 border-blue-900/60'
           : 'bg-linear-to-r from-amber-500 via-orange-500 to-amber-600 border-amber-600/50'

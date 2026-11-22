@@ -46,11 +46,12 @@ import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
 import { ReceiveConfirmPurchaseModal } from './ReceiveConfirmPurchaseModal.tsx';
 import { jsPDF } from 'jspdf';
 import {
+  buildDynamicPdfFilename,
   drawShopPdfHeader,
   drawCommercialSignatoryFooter,
-  getShopFileSlug,
   getShopPdfIdentity,
-  PDF_FOOTER_BRAND_CREDIT
+  PDF_FOOTER_BRAND_CREDIT,
+  printWithDynamicTitle
 } from '../../utils/shopPdfBranding.ts';
 
 interface PurchaseManagementProps {
@@ -1965,7 +1966,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
             @media print {
               @page {
                 size: A4 portrait;
-                margin: 10mm;
+                margin: 0 !important;
               }
               html, body {
                 width: 210mm !important;
@@ -2007,7 +2008,8 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
               #purchase-invoice-print-area {
                 width: 100% !important;
                 max-width: 100% !important;
-                padding: 0 !important;
+                padding: 12mm !important;
+                box-sizing: border-box !important;
                 margin: 0 !important;
                 border: none !important;
                 box-shadow: none !important;
@@ -2063,6 +2065,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  id="purchase-download-pdf-btn"
                   onClick={() => {
                     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
                     const shopId = getShopPdfIdentity(currentShop);
@@ -2182,8 +2185,13 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                       noteLine: `Purchase Voucher — ${shopId.displayName}  |  Bill No: ${billNo}`
                     });
 
-                    const safeBillNo = billNo.replace(/[^a-zA-Z0-9_-]/g, '');
-                    doc.save(`Purchase-Voucher-${getShopFileSlug(currentShop)}-${safeBillNo}.pdf`);
+                    doc.save(
+                      buildDynamicPdfFilename({
+                        kind: 'PURCHASE_BILL',
+                        billNumber: billNo,
+                        date: printingBill.purchaseDate
+                      })
+                    );
                   }}
                   className="bg-slate-900 hover:bg-slate-800 text-white px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
                 >
@@ -2191,7 +2199,15 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                   <span>DOWNLOAD PDF</span>
                 </button>
                 <button
-                  onClick={() => window.print()}
+                  onClick={() =>
+                    printWithDynamicTitle(
+                      buildDynamicPdfFilename({
+                        kind: 'PURCHASE_BILL',
+                        billNumber: printingBill.billNumber || printingBill.purchaseInvoiceNumber || 'PV',
+                        date: printingBill.purchaseDate
+                      })
+                    )
+                  }
                   className="bg-[#005A9C] hover:bg-blue-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
                 >
                   <Printer className="w-4 h-4" />
@@ -2458,7 +2474,23 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                   Close
                 </button>
                 <button
-                  onClick={() => window.print()}
+                  type="button"
+                  onClick={() => document.getElementById('purchase-download-pdf-btn')?.click()}
+                  className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm cursor-pointer active:scale-95"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>DOWNLOAD PDF</span>
+                </button>
+                <button
+                  onClick={() =>
+                    printWithDynamicTitle(
+                      buildDynamicPdfFilename({
+                        kind: 'PURCHASE_BILL',
+                        billNumber: printingBill.billNumber || printingBill.purchaseInvoiceNumber || 'PV',
+                        date: printingBill.purchaseDate
+                      })
+                    )
+                  }
                   className="bg-[#005A9C] hover:bg-blue-800 text-white px-5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-md cursor-pointer active:scale-95"
                 >
                   <Printer className="w-4 h-4" />

@@ -58,7 +58,7 @@ export const OfflineAlertBanner: React.FC<OfflineAlertBannerProps> = ({ currentS
     <>
       {/* 1. Persistent Top Warning Banner When Offline */}
       {!isOnline && (
-        <div className="bg-amber-500 text-slate-950 px-4 py-2 text-xs font-bold shadow-md border-b border-amber-600 transition-all flex flex-wrap items-center justify-between gap-2 z-40 sticky top-0">
+        <div className="no-print bg-amber-500 text-slate-950 px-4 py-2 text-xs font-bold shadow-md border-b border-amber-600 transition-all flex flex-wrap items-center justify-between gap-2 z-40 sticky top-0">
           <div className="flex items-center gap-2">
             <span className="relative flex h-3 w-3">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
@@ -96,7 +96,7 @@ export const OfflineAlertBanner: React.FC<OfflineAlertBannerProps> = ({ currentS
 
       {/* 2. Success Banner on Reconnection & Auto-Sync */}
       {isOnline && showReconnectedToast && (
-        <div className="bg-emerald-600 text-white px-4 py-2.5 text-xs font-bold shadow-lg transition-all flex items-center justify-between gap-3 z-40 sticky top-0 animate-in fade-in slide-in-from-top-2">
+        <div className="no-print bg-emerald-600 text-white px-4 py-2.5 text-xs font-bold shadow-lg transition-all flex items-center justify-between gap-3 z-40 sticky top-0 animate-in fade-in slide-in-from-top-2">
           <div className="flex items-center gap-2.5">
             <div className="w-6 h-6 rounded-full bg-emerald-500/80 flex items-center justify-center shrink-0">
               <CheckCircle2 className="w-4 h-4 text-white" />
@@ -126,7 +126,7 @@ export const OfflineAlertBanner: React.FC<OfflineAlertBannerProps> = ({ currentS
 
       {/* 3. Syncing In Progress Indicator Badge (Floating bottom right) */}
       {isSyncing && (
-        <div className="fixed bottom-4 left-4 z-50 bg-slate-900/90 text-white px-3.5 py-2 rounded-xl shadow-xl flex items-center gap-2 text-xs font-bold backdrop-blur-xs border border-slate-700 animate-pulse">
+        <div className="no-print fixed bottom-4 left-4 z-50 bg-slate-900/90 text-white px-3.5 py-2 rounded-xl shadow-xl flex items-center gap-2 text-xs font-bold backdrop-blur-xs border border-slate-700 animate-pulse">
           <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
           <span>ક્લાઉડ સાથે સિંક થઈ રહ્યું છે... / Syncing to Cloud...</span>
         </div>
@@ -134,7 +134,7 @@ export const OfflineAlertBanner: React.FC<OfflineAlertBannerProps> = ({ currentS
 
       {/* 4. Prominent Warning Popup Modal When Internet Drops */}
       {!isOnline && showOfflineModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
+        <div className="no-print fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in">
           <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl max-w-lg w-full p-6 border-2 border-amber-500/80 text-slate-900 dark:text-slate-100 relative">
             <button
               onClick={dismissOfflineModal}

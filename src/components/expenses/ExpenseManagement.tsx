@@ -23,12 +23,20 @@ import {
   AlertCircle,
   Receipt,
   PieChart,
-  Printer
+  Printer,
+  Download
 } from 'lucide-react';
 import { DailyFinancialSummary, Expense, ExpenseCategory, PaymentMode, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
-import { getShopPdfIdentity, PDF_FOOTER_BRAND_CREDIT } from '../../utils/shopPdfBranding.ts';
+import { BrandedReportHeader } from '../common/BrandedReportHeader.tsx';
+import {
+  buildDynamicPdfFilename,
+  downloadShopTablePdf,
+  getShopPdfIdentity,
+  PDF_FOOTER_BRAND_CREDIT,
+  printWithDynamicTitle
+} from '../../utils/shopPdfBranding.ts';
 
 interface ExpenseManagementProps {
   currentShop: Shop;
@@ -120,11 +128,53 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
     'Miscellaneous'
   ];
 
+  const handleDownloadPdf = () => {
+    downloadShopTablePdf({
+      shop: currentShop,
+      documentTitle: 'Expenses & Cash Summary',
+      documentSubtitle: `Date: ${targetDate}`,
+      metaRightLines: [
+        `Ref: RPT-EXP-${targetDate.replace(/-/g, '')}`,
+        `Generated: ${new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`
+      ],
+      kpis: [
+        { label: 'Sales Revenue', value: `INR ${(financials?.salesRevenue || 0).toFixed(2)}` },
+        { label: 'COGS', value: `INR ${(financials?.costOfGoodsSold || 0).toFixed(2)}` },
+        { label: 'Gross Profit', value: `INR ${(financials?.grossProfit || 0).toFixed(2)}` },
+        { label: 'Expenses', value: `INR ${(financials?.expensesTotal || 0).toFixed(2)}` },
+        { label: 'Net Profit', value: `INR ${(financials?.netOperatingProfit || 0).toFixed(2)}` }
+      ],
+      columns: [
+        { label: 'Expense Category', width: 34 },
+        { label: 'Notes / Purpose', width: 44 },
+        { label: 'Mode', width: 16, align: 'center' },
+        { label: 'Recorded By', width: 20 },
+        { label: 'Amount (INR)', width: 22, align: 'right' }
+      ],
+      rows: expenses.map((e) => [
+        e.category,
+        e.notes || '-',
+        e.paymentMode,
+        e.createdBy,
+        e.amount.toFixed(2)
+      ]),
+      emptyMessage: `No operating expenses logged on ${targetDate}.`,
+      filename: buildDynamicPdfFilename({ kind: 'EXPENSES', date: targetDate })
+    });
+  };
+
+  const handlePrintExpensesReport = () => {
+    printWithDynamicTitle(buildDynamicPdfFilename({ kind: 'EXPENSES', date: targetDate }));
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Plan Expired Warning Banner */}
+    <div id="unified-print-area" className="space-y-6 a4-print-container">
+      {/* Plan Expired Warning Banner (Hidden in Print) */}
       {!subCheck.isActive && (
-        <div className="bg-amber-500/10 border-2 border-amber-500/40 rounded-2xl p-4 flex items-center justify-between gap-4">
+        <div
+          data-trial-banner="true"
+          className="no-print bg-amber-500/10 border-2 border-amber-500/40 rounded-2xl p-4 flex items-center justify-between gap-4"
+        >
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0">
               <AlertCircle className="w-5 h-5 text-amber-600" />
@@ -144,45 +194,15 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
         </div>
       )}
 
-      {/* Dedicated Print-Only Shop Header (100% Shop Identity Only) */}
-      {(() => {
-        const shopIdentity = getShopPdfIdentity(currentShop);
-        return (
-          <div className="hidden print:flex items-start justify-between gap-4 pb-4 mb-4 border-b-2 border-slate-900 text-slate-900">
-            <div className="flex items-start gap-3">
-              {shopIdentity.logoUrl && (
-                <img
-                  src={shopIdentity.logoUrl}
-                  alt={shopIdentity.displayName}
-                  className="h-14 w-14 rounded-lg object-contain border border-slate-200 p-1 shrink-0"
-                />
-              )}
-              <div>
-                <h1 className="text-xl font-black uppercase tracking-wide text-slate-900">
-                  {shopIdentity.displayName}
-                </h1>
-                {shopIdentity.regionalName && (
-                  <div className="text-xs font-bold text-slate-700">{shopIdentity.regionalName}</div>
-                )}
-                {shopIdentity.addressLine && (
-                  <div className="text-[11px] text-slate-600 mt-0.5">{shopIdentity.addressLine}</div>
-                )}
-                <div className="text-[11px] text-slate-600 font-mono mt-0.5 flex flex-wrap gap-x-3">
-                  {shopIdentity.phoneLine && <span>Mob: {shopIdentity.phoneLine}</span>}
-                  {shopIdentity.gstNumber && <span>GSTIN: {shopIdentity.gstNumber}</span>}
-                  {shopIdentity.fssaiNumber && <span>FSSAI: {shopIdentity.fssaiNumber}</span>}
-                </div>
-              </div>
-            </div>
-            <div className="text-right shrink-0">
-              <div className="inline-block border-2 border-slate-900 px-3 py-1 text-xs font-black uppercase tracking-widest">
-                EXPENSES &amp; CASH REPORT
-              </div>
-              <div className="text-xs font-mono text-slate-600 mt-1">Date: {targetDate}</div>
-            </div>
-          </div>
-        );
-      })()}
+      {/* Unified Print-Only CA-Grade Two-Column Shop Header (Page 1 Top Only) */}
+      <div className="hidden print:block">
+        <BrandedReportHeader
+          currentShop={currentShop}
+          reportTitle="Expenses & Cash Register Report"
+          reportDate={targetDate}
+          referenceCode={`RPT-EXP-${targetDate.replace(/-/g, '')}`}
+        />
+      </div>
 
       {/* Top Controls & Financial KPI Summary */}
       <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 print:rounded-none print:border-0 print:p-0">
@@ -210,12 +230,22 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
 
             <button
               type="button"
-              onClick={() => window.print()}
-              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
-              title="Print / Save Expenses & Cash Report PDF"
+              onClick={handleDownloadPdf}
+              className="bg-[#005A9C] hover:bg-blue-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="Download Expenses & Cash Report directly as clean PDF"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download PDF</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePrintExpensesReport}
+              className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+              title="Print Expenses & Cash Report"
             >
               <Printer className="w-4 h-4" />
-              <span>Print / PDF</span>
+              <span>Print</span>
             </button>
 
             <button
@@ -239,78 +269,78 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
           </div>
         </div>
 
-        {/* P&L Flow Breakdown Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-4">
-          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-            <div className="text-[11px] font-semibold text-slate-500 uppercase">1. Gross Sales Revenue</div>
-            <div className="text-lg font-black font-mono text-slate-900 mt-0.5">
+        {/* P&L Flow Breakdown Cards (Non-Overlapping 5-Column Grid in Print) */}
+        <div className="unified-kpi-grid-5 grid grid-cols-2 md:grid-cols-5 gap-3 pt-4 print:pt-0">
+          <div className="unified-kpi-card bg-slate-50 border border-slate-200 rounded-xl p-3">
+            <div className="text-[11px] font-semibold text-slate-500 uppercase">1. Gross Sales</div>
+            <div className="text-lg font-black font-mono text-slate-900 mt-0.5 print:text-sm">
               ₹{(financials?.salesRevenue || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-slate-400">Total customer collections</div>
+            <div className="text-[10px] text-slate-400 print:hidden">Total customer collections</div>
           </div>
 
-          <div className="bg-amber-50/70 border border-amber-200 rounded-xl p-3">
+          <div className="unified-kpi-card bg-amber-50/70 border border-amber-200 rounded-xl p-3">
             <div className="text-[11px] font-semibold text-amber-700 uppercase flex items-center gap-1">
-              <TrendingDown className="w-3.5 h-3.5" /> 2. Cost of Goods (COGS)
+              <TrendingDown className="w-3.5 h-3.5 no-print" /> 2. COGS
             </div>
-            <div className="text-lg font-black font-mono text-amber-900 mt-0.5">
+            <div className="text-lg font-black font-mono text-amber-900 mt-0.5 print:text-sm">
               -₹{(financials?.costOfGoodsSold || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-amber-600">Wholesale cost of milk/ice cream sold</div>
+            <div className="text-[10px] text-amber-600 print:hidden">Wholesale cost of milk/ice cream sold</div>
           </div>
 
-          <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3">
+          <div className="unified-kpi-card bg-blue-50/70 border border-blue-200 rounded-xl p-3">
             <div className="text-[11px] font-semibold text-blue-700 uppercase flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" /> 3. Gross Profit
+              <TrendingUp className="w-3.5 h-3.5 no-print" /> 3. Gross Profit
             </div>
-            <div className="text-lg font-black font-mono text-blue-900 mt-0.5">
+            <div className="text-lg font-black font-mono text-blue-900 mt-0.5 print:text-sm">
               ₹{(financials?.grossProfit || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-blue-600">Margin before shop expenses</div>
+            <div className="text-[10px] text-blue-600 print:hidden">Margin before shop expenses</div>
           </div>
 
-          <div className="bg-rose-50/70 border border-rose-200 rounded-xl p-3">
-            <div className="text-[11px] font-semibold text-rose-700 uppercase">4. Operating Expenses</div>
-            <div className="text-lg font-black font-mono text-rose-800 mt-0.5">
+          <div className="unified-kpi-card bg-rose-50/70 border border-rose-200 rounded-xl p-3">
+            <div className="text-[11px] font-semibold text-rose-700 uppercase">4. Expenses</div>
+            <div className="text-lg font-black font-mono text-rose-800 mt-0.5 print:text-sm">
               -₹{(financials?.expensesTotal || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-rose-600">Electricity, refrigeration & rent</div>
+            <div className="text-[10px] text-rose-600 print:hidden">Electricity, refrigeration &amp; rent</div>
           </div>
 
-          <div className={`rounded-xl p-3 border ${(financials?.netOperatingProfit || 0) >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-100 border-rose-300'}`}>
+          <div className={`unified-kpi-card rounded-xl p-3 border ${(financials?.netOperatingProfit || 0) >= 0 ? 'bg-emerald-50 border-emerald-200' : 'bg-rose-100 border-rose-300'}`}>
             <div className="text-[11px] font-semibold text-emerald-800 uppercase flex items-center gap-1">
-              <DollarSign className="w-3.5 h-3.5" /> 5. Net Profit
+              <DollarSign className="w-3.5 h-3.5 no-print" /> 5. Net Profit
             </div>
-            <div className={`text-xl font-black font-mono mt-0.5 ${(financials?.netOperatingProfit || 0) >= 0 ? 'text-emerald-900' : 'text-rose-900'}`}>
+            <div className={`text-xl font-black font-mono mt-0.5 print:text-sm ${(financials?.netOperatingProfit || 0) >= 0 ? 'text-emerald-900' : 'text-rose-900'}`}>
               ₹{(financials?.netOperatingProfit || 0).toFixed(2)}
             </div>
-            <div className="text-[10px] text-emerald-700">Actual daily earnings</div>
+            <div className="text-[10px] text-emerald-700 print:hidden">Actual daily earnings</div>
           </div>
         </div>
       </div>
 
       {/* Cash Drawer & Expenses Table */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Expenses List (8 cols) */}
-        <div className="lg:col-span-8 bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5">
-          <div className="flex items-center justify-between mb-4">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 print:block">
+        {/* Expenses List (8 cols on screen, full width in print) */}
+        <div className="lg:col-span-8 bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 print:p-0 print:border-0 print:shadow-none print:rounded-none">
+          <div className="flex items-center justify-between mb-4 print:mb-2">
             <h3 className="font-extrabold text-sm text-slate-800">
               Operating Expenses for {targetDate} ({expenses.length})
             </h3>
-            <span className="text-xs font-mono font-bold text-slate-600">
+            <span className="text-xs font-mono font-bold text-slate-600 print-nowrap">
               Total: ₹{(financials?.expensesTotal || 0).toFixed(2)}
             </span>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto print:overflow-visible">
+            <table className="unified-report-table w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-y border-slate-200">
                 <tr>
                   <th className="py-2.5 px-3">Expense Category</th>
                   <th className="py-2.5 px-3">Notes / Purpose</th>
-                  <th className="py-2.5 px-2">Payment</th>
-                  <th className="py-2.5 px-3 text-right">Amount</th>
-                  <th className="py-2.5 px-2 text-center">Action</th>
+                  <th className="py-2.5 px-2 print-nowrap">Payment</th>
+                  <th className="py-2.5 px-3 text-right print-nowrap">Amount</th>
+                  <th className="py-2.5 px-2 text-center no-print">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
@@ -329,15 +359,15 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
                       <td className="py-2.5 px-3 font-sans text-slate-600 text-[11px]">
                         {e.notes || '-'}
                       </td>
-                      <td className="py-2.5 px-2 font-sans">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                      <td className="py-2.5 px-2 font-sans print-nowrap">
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-100 text-slate-700 print:bg-transparent print:p-0">
                           {e.paymentMode}
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 text-right font-black text-rose-700 text-sm">
+                      <td className="py-2.5 px-3 text-right font-black text-rose-700 text-sm print-nowrap">
                         ₹{e.amount.toFixed(2)}
                       </td>
-                      <td className="py-2.5 px-2 text-center font-sans">
+                      <td className="py-2.5 px-2 text-center font-sans no-print">
                         <button
                           onClick={() => handleDeleteExpense(e.id)}
                           className="text-slate-400 hover:text-rose-600 p-1"
@@ -353,8 +383,8 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
           </div>
         </div>
 
-        {/* Cash Drawer & Liquidity Balances (4 cols) */}
-        <div className="lg:col-span-4 bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 space-y-4">
+        {/* Cash Drawer & Liquidity Balances (4 cols, hidden side panel in print) */}
+        <div className="no-print lg:col-span-4 bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 space-y-4">
           <h3 className="font-extrabold text-sm text-slate-800 flex items-center gap-1.5">
             <PieChart className="w-4 h-4 text-blue-600" />
             Liquidity & Cash Drawer
@@ -390,7 +420,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
       </div>
 
       {/* Print-Only Commercial Signatory & Subtle Text-Only Footer Attribution (No Logo Image) */}
-      <div className="hidden print:block pt-10 mt-6 border-t border-slate-300 text-xs text-slate-700">
+      <div className="unified-print-footer hidden print:block pt-10 mt-6 border-t border-slate-300 text-xs text-slate-700">
         <div className="flex items-end justify-between">
           <div className="w-44 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
             Prepared By

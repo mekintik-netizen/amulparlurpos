@@ -122,8 +122,15 @@
    ========================================================= */
 
 @media print {
-  /* 1. Hide all screen UI, headers, navigation, banners and dialog chrome */
+  /* 0. Suppress browser default header (date/title) and footer (URL) permanently */
+  @page {
+    size: A4;
+    margin: 0 !important;
+  }
+
+  /* 1. Hide ALL dashboard chrome, trial/subscription banners, navbars, sidebars & interactive controls */
   .no-print,
+  [data-trial-banner],
   header,
   nav,
   footer,
@@ -134,49 +141,209 @@
     display: none !important;
   }
 
-  /* 2. Reset document root to prevent extra blank pages or offset margins */
+  /* 2. Reset document root & app shell containers so multi-page reports never clip or shift */
   html,
-  body {
+  body,
+  #root,
+  main,
+  .app-shell-print-reset {
+    display: block !important;
     margin: 0 !important;
     padding: 0 !important;
     background: #ffffff !important;
-    color: #000000 !important;
+    color: #0f172a !important;
     width: 100% !important;
+    max-width: 100% !important;
     height: auto !important;
     min-height: 0 !important;
+    max-height: none !important;
     overflow: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  /* 3. Official A4 Reports & Hub Documents */
-  #printable-report,
-  .printable-document {
-    display: block !important;
+  /* 3. UNIFIED CA-GRADE A4 PRINT ENGINE (#unified-print-area)
+     Scoped so dedicated Purchase Bill & Thermal Receipt modals still take exclusive priority when open */
+  body:has(#unified-print-area):not(:has(#purchase-invoice-print-area)):not(:has(#thermal-receipt-container)) * {
+    visibility: hidden;
+  }
+
+  body:has(#unified-print-area):not(:has(#purchase-invoice-print-area)):not(:has(#thermal-receipt-container)) #unified-print-area,
+  body:has(#unified-print-area):not(:has(#purchase-invoice-print-area)):not(:has(#thermal-receipt-container)) #unified-print-area * {
     visibility: visible !important;
+  }
+
+  body:has(#unified-print-area):not(:has(#purchase-invoice-print-area)):not(:has(#thermal-receipt-container)) #unified-print-area .no-print,
+  body:has(#unified-print-area):not(:has(#purchase-invoice-print-area)):not(:has(#thermal-receipt-container)) #unified-print-area .no-print * {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  #unified-print-area,
+  #printable-report,
+  .printable-document,
+  .a4-print-container {
+    display: block !important;
+    position: static !important;
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
-    padding: 0 !important;
+    padding: 12mm !important;
+    box-sizing: border-box !important;
     background: #ffffff !important;
-    color: #000000 !important;
+    color: #0f172a !important;
+    box-shadow: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
   }
 
-  #printable-report * {
-    visibility: visible !important;
-    color: #000000 !important;
-    background-color: transparent !important;
+  /* Unified Two-Column Shop Header (Page 1 top only, never splits) */
+  .unified-print-header {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 12px !important;
+    padding-bottom: 10px !important;
+    margin-bottom: 12px !important;
+    border-bottom: 2px solid #0f172a !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
-  #printable-report table {
+  /* Unified Non-Overlapping KPI Summary Cards Grid */
+  .unified-kpi-grid {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin-bottom: 12px !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .unified-kpi-grid-3 {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 8px !important;
+    margin-bottom: 12px !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .unified-kpi-grid-5 {
+    display: grid !important;
+    grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+    gap: 6px !important;
+    margin-bottom: 12px !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  .unified-kpi-card {
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 6px !important;
+    padding: 6px 8px !important;
+    background: #f8fafc !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Unified Multi-Page Tables: Repeating Header + Zero Mid-Row Page Breaks */
+  #unified-print-area table,
+  #printable-report table,
+  .unified-report-table {
     width: 100% !important;
     border-collapse: collapse !important;
+    font-size: 9pt !important;
+    line-height: 1.3 !important;
+    margin-top: 6px !important;
+    margin-bottom: 12px !important;
   }
 
+  #unified-print-area thead,
+  #printable-report thead,
+  .unified-report-table thead {
+    display: table-header-group !important;
+  }
+
+  #unified-print-area tfoot,
+  #printable-report tfoot,
+  .unified-report-table tfoot {
+    display: table-footer-group !important;
+  }
+
+  #unified-print-area tr,
+  #printable-report tr,
+  .unified-report-table tr {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  #unified-print-area th,
+  #unified-print-area td,
   #printable-report th,
-  #printable-report td {
-    border-color: #94a3b8 !important;
-    color: #000000 !important;
+  #printable-report td,
+  .unified-report-table th,
+  .unified-report-table td {
+    border: 1px solid #cbd5e1 !important;
+    padding: 4px 6px !important;
+    vertical-align: middle !important;
+    color: #0f172a !important;
+  }
+
+  #unified-print-area thead th,
+  #printable-report thead th,
+  .unified-report-table thead th {
+    background-color: #f1f5f9 !important;
+    color: #0f172a !important;
+    font-weight: 800 !important;
+    font-size: 8pt !important;
+    text-transform: uppercase !important;
+    letter-spacing: 0.03em !important;
+    white-space: nowrap !important;
+  }
+
+  #unified-print-area tbody tr:nth-child(even),
+  .unified-report-table tbody tr:nth-child(even) {
+    background-color: #f8fafc !important;
+  }
+
+  .print-nowrap {
+    white-space: nowrap !important;
+  }
+
+  /* Status badges preserved cleanly in print */
+  .print-badge-ok {
+    background-color: #dcfce7 !important;
+    color: #166534 !important;
+    border: 1px solid #86efac !important;
+    padding: 1px 6px !important;
+    border-radius: 9999px !important;
+    font-weight: 700 !important;
+    font-size: 7.5pt !important;
+    white-space: nowrap !important;
+  }
+
+  .print-badge-low {
+    background-color: #fee2e2 !important;
+    color: #991b1b !important;
+    border: 1px solid #fca5a5 !important;
+    padding: 1px 6px !important;
+    border-radius: 9999px !important;
+    font-weight: 800 !important;
+    font-size: 7.5pt !important;
+    white-space: nowrap !important;
+  }
+
+  /* Single Clean Non-Overlapping Signatory Footer (Always flows after table) */
+  .unified-print-footer {
+    position: static !important;
+    margin-top: 18px !important;
+    padding-top: 12px !important;
+    border-top: 1.5px solid #cbd5e1 !important;
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
   }
 
   /* 3a. Dedicated Bank Passbook Statement Print Styles */
@@ -187,23 +354,18 @@
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
-    padding: 8mm !important;
+    padding: 12mm !important;
+    box-sizing: border-box !important;
     background: #ffffff !important;
-    color: #000000 !important;
+    color: #0f172a !important;
     box-shadow: none !important;
     border: none !important;
-  }
-
-  .passbook-printable-area * {
-    visibility: visible !important;
-    color: #0f172a !important;
-    background: transparent !important;
   }
 
   .passbook-table-print {
     width: 100% !important;
     border-collapse: collapse !important;
-    font-size: 11px !important;
+    font-size: 9pt !important;
     margin-top: 8px !important;
   }
 
@@ -214,8 +376,8 @@
 
   .passbook-table-print th,
   .passbook-table-print td {
-    border: 1px solid #94a3b8 !important;
-    padding: 6px 8px !important;
+    border: 1px solid #cbd5e1 !important;
+    padding: 4px 6px !important;
   }
 
   .passbook-table-print tr {
@@ -224,11 +386,6 @@
   }
 
   /* 3b. Dedicated Purchase Bill A4 Invoice Print Styles */
-  @page {
-    size: A4 portrait;
-    margin: 10mm;
-  }
-
   body:has(#purchase-invoice-print-area) {
     visibility: hidden !important;
     background: #ffffff !important;
@@ -250,7 +407,8 @@
     width: 100% !important;
     max-width: 100% !important;
     margin: 0 !important;
-    padding: 0 !important;
+    padding: 12mm !important;
+    box-sizing: border-box !important;
     background: #ffffff !important;
     color: #000000 !important;
     box-shadow: none !important;
@@ -376,12 +534,6 @@
     padding: 2mm 3mm 4mm 3mm !important;
     font-size: 12px !important;
     line-height: 1.35 !important;
-  }
-
-  /* 5. Zero-margin page box to prevent browser default header/footer injection */
-  @page {
-    margin: 0mm;
-    size: auto;
   }
 }
 

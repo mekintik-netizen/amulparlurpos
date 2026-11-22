@@ -18,9 +18,9 @@ import {
   SmartOrderSuggestion
 } from '../types/index.ts';
 import {
+  buildDynamicPdfFilename,
   drawShopPdfHeader,
   drawCommercialSignatoryFooter,
-  getShopFileSlug,
   getShopPdfIdentity
 } from './shopPdfBranding.ts';
 
@@ -379,6 +379,10 @@ export function downloadSmartOrderPdf(params: {
     noteLine: `Purchase Order issued by ${identity.displayName}  |  Ref: ${poRef}`
   });
 
-  const shopSlug = getShopFileSlug(shop);
-  doc.save(`Purchase-Order-${shopSlug}-${todayStr}.pdf`);
+  doc.save(
+    buildDynamicPdfFilename({
+      kind: 'SMART_ORDER',
+      date: todayStr
+    })
+  );
 }

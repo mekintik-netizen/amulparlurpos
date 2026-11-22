@@ -47,9 +47,12 @@ import { AppRepository } from '../../storage/repositories.ts';
 import { BrandedReportHeader } from '../common/BrandedReportHeader.tsx';
 import { SalesProfitAnalytics } from './SalesProfitAnalytics.tsx';
 import {
+  buildDynamicPdfFilename,
+  downloadShopTablePdf,
   getShopFileSlug,
   getShopPdfIdentity,
-  PDF_FOOTER_BRAND_CREDIT
+  PDF_FOOTER_BRAND_CREDIT,
+  printWithDynamicTitle
 } from '../../utils/shopPdfBranding.ts';
 import { exportDataToExcel } from '../../utils/excelEngine.ts';
 
@@ -99,9 +102,228 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
     loadReportData();
   }, [currentShop?.id, selectedDate]);
 
-  // Trigger Print-to-PDF
-  const handlePrintOrDownloadPDF = () => {
-    window.print();
+  const getDynamicReportFilename = (): string => {
+    switch (selectedReport) {
+      case 'SALES':
+        return buildDynamicPdfFilename({ kind: 'DAILY_SALES', date: selectedDate });
+      case 'STOCK':
+        return buildDynamicPdfFilename({ kind: 'STOCK_AUDIT', date: selectedDate });
+      case 'EXPENSES':
+        return buildDynamicPdfFilename({ kind: 'EXPENSES', date: selectedDate });
+      case 'PNL':
+        return buildDynamicPdfFilename({ kind: 'CUSTOM_REPORT', reportName: 'Profit-Loss-Report', date: selectedDate });
+      case 'PURCHASES':
+        return buildDynamicPdfFilename({ kind: 'CUSTOM_REPORT', reportName: 'Purchases-Ledger-Report', date: selectedDate });
+      case 'ANALYTICS':
+      default:
+        return buildDynamicPdfFilename({ kind: 'CUSTOM_REPORT', reportName: 'Sales-Profit-Analytics', date: selectedDate });
+    }
+  };
+
+  // Direct Client-Side PDF Download via jsPDF (ZERO browser print URL headers/footers)
+  const handleDownloadPdf = () => {
+    if (!currentShop) return;
+    const meta = reportTitles[selectedReport];
+    const generatedAt = new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
+
+    if (selectedReport === 'ANALYTICS') {
+      // Analytics tab has its own dedicated jsPDF export button inside SalesProfitAnalytics
+      printWithDynamicTitle(getDynamicReportFilename());
+      return;
+    }
+
+    if (selectedReport === 'SALES') {
+      const completed = sales.filter((s) => s.status === 'COMPLETED');
+      const totalRev = completed.reduce((sum, s) => sum + s.finalAmount, 0);
+      const totalItems = completed.reduce((sum, s) => sum + s.itemCount, 0);
+      const totalGst = completed.reduce((sum, s) => sum + (s.taxAmount || 0), 0);
+
+      downloadShopTablePdf({
+        shop: currentShop,
+        documentTitle: 'Daily Sales & Cash Register',
+        documentSubtitle: `Date: ${selectedDate}`,
+        metaRightLines: [`Ref: ${meta.ref}`, `Generated: ${generatedAt}`],
+        kpis: [
+          { label: 'Total Billed', value: `INR ${totalRev.toFixed(2)}` },
+          { label: 'Completed Bills', value: `${completed.length}` },
+          { label: 'Units Dispatched', value: `${totalItems}` },
+          { label: 'GST Included', value: `INR ${totalGst.toFixed(2)}` }
+        ],
+        columns: [
+          { label: 'Bill No', width: 24 },
+          { label: 'Time', width: 16 },
+          { label: 'Customer', width: 34 },
+          { label: 'Items', width: 12, align: 'center' },
+          { label: 'Mode', width: 18, align: 'center' },
+          { label: 'Status', width: 18, align: 'center' },
+          { label: 'Amount (INR)', width: 24, align: 'right' }
+        ],
+        rows: sales.map((s) => [
+          s.billNumber,
+          new Date(s.timestamp).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
+          s.customerName || 'Walk-in Customer',
+          s.itemCount,
+          s.paymentMode,
+          s.status,
+          s.finalAmount.toFixed(2)
+        ]),
+        emptyMessage: `No sales recorded on ${selectedDate}.`,
+        filename: buildDynamicPdfFilename({ kind: 'DAILY_SALES', date: selectedDate })
+      });
+      return;
+    }
+
+    if (selectedReport === 'STOCK') {
+      const activeRows = stockRows.filter((r) => r.closingStock > 0);
+      const totalClosing = activeRows.reduce((sum, r) => sum + r.closingStock, 0);
+      const lowCount = activeRows.filter((r) => r.isLowStock).length;
+
+      downloadShopTablePdf({
+        shop: currentShop,
+        documentTitle: 'Daily Stock Audit Report',
+        documentSubtitle: `Date: ${selectedDate}`,
+        metaRightLines: [`Ref: ${meta.ref}`, `Generated: ${generatedAt}`],
+        kpis: [
+          { label: 'Active SKUs', value: `${activeRows.length}` },
+          { label: 'Closing Units', value: `${totalClosing}` },
+          { label: 'Low Stock Alerts', value: `${lowCount}` }
+        ],
+        columns: [
+          { label: 'Product Name', width: 42 },
+          { label: 'Category', width: 22 },
+          { label: 'Opening', width: 14, align: 'right' },
+          { label: 'In', width: 12, align: 'right' },
+          { label: 'Sold', width: 12, align: 'right' },
+          { label: 'Out', width: 12, align: 'right' },
+          { label: 'Closing', width: 18, align: 'right' },
+          { label: 'Status', width: 14, align: 'center' }
+        ],
+        rows: activeRows.map((r) => [
+          r.productName,
+          r.category,
+          `${r.openingStock}`,
+          r.stockIn > 0 ? `+${r.stockIn}` : '-',
+          r.salesQty > 0 ? `-${r.salesQty}` : '-',
+          r.stockOut > 0 ? `-${r.stockOut}` : '-',
+          `${r.closingStock} ${r.unit}`,
+          r.isLowStock ? 'LOW' : 'OK'
+        ]),
+        emptyMessage: `No active stock items found on ${selectedDate}.`,
+        filename: buildDynamicPdfFilename({ kind: 'STOCK_AUDIT', date: selectedDate })
+      });
+      return;
+    }
+
+    if (selectedReport === 'PNL') {
+      const rev = financialSummary?.salesRevenue || 0;
+      const cogs = financialSummary?.costOfGoodsSold || 0;
+      const gross = financialSummary?.grossProfit || 0;
+      const exp = financialSummary?.expensesTotal || 0;
+      const net = financialSummary?.netOperatingProfit || 0;
+      const pct = (v: number) => (rev > 0 ? `${((v / rev) * 100).toFixed(1)}%` : '0.0%');
+
+      downloadShopTablePdf({
+        shop: currentShop,
+        documentTitle: 'Profit & Loss Statement',
+        documentSubtitle: `Date: ${selectedDate}`,
+        metaRightLines: [`Ref: ${meta.ref}`, `Generated: ${generatedAt}`],
+        kpis: [
+          { label: 'Sales Revenue', value: `INR ${rev.toFixed(2)}` },
+          { label: 'COGS', value: `INR ${cogs.toFixed(2)}` },
+          { label: 'Expenses', value: `INR ${exp.toFixed(2)}` },
+          { label: 'Net Profit', value: `INR ${net.toFixed(2)}` }
+        ],
+        columns: [
+          { label: 'P&L Financial Metric', width: 64 },
+          { label: 'Amount (INR)', width: 24, align: 'right' },
+          { label: '% of Revenue', width: 20, align: 'right' }
+        ],
+        rows: [
+          ['Gross Sales Revenue', rev.toFixed(2), '100.0%'],
+          ['Less: Cost of Goods Sold (COGS)', `-${cogs.toFixed(2)}`, pct(cogs)],
+          ['Gross Trading Margin', gross.toFixed(2), pct(gross)],
+          ['Less: Operating Expenses', `-${exp.toFixed(2)}`, pct(exp)],
+          ['Net Operating Profit for the Day', net.toFixed(2), pct(net)]
+        ],
+        filename: buildDynamicPdfFilename({ kind: 'CUSTOM_REPORT', reportName: 'Profit-Loss-Report', date: selectedDate })
+      });
+      return;
+    }
+
+    if (selectedReport === 'PURCHASES') {
+      const totalAmt = purchases.reduce((sum, p) => sum + p.totalAmount, 0);
+      const totalPaid = purchases.reduce((sum, p) => sum + p.paidAmount, 0);
+      const totalDue = purchases.reduce((sum, p) => sum + p.dueAmount, 0);
+
+      downloadShopTablePdf({
+        shop: currentShop,
+        documentTitle: 'Purchases & Supply Ledger',
+        documentSubtitle: `Date: ${selectedDate}`,
+        metaRightLines: [`Ref: ${meta.ref}`, `Generated: ${generatedAt}`],
+        kpis: [
+          { label: 'Total Invoices', value: `${purchases.length}` },
+          { label: 'Total Billed', value: `INR ${totalAmt.toFixed(2)}` },
+          { label: 'Paid', value: `INR ${totalPaid.toFixed(2)}` },
+          { label: 'Balance Due', value: `INR ${totalDue.toFixed(2)}` }
+        ],
+        columns: [
+          { label: 'Invoice No', width: 24 },
+          { label: 'Supplier / Depot', width: 34 },
+          { label: 'Units', width: 12, align: 'center' },
+          { label: 'Mode', width: 16, align: 'center' },
+          { label: 'Status', width: 16, align: 'center' },
+          { label: 'Paid (INR)', width: 20, align: 'right' },
+          { label: 'Total (INR)', width: 22, align: 'right' }
+        ],
+        rows: purchases.map((p) => [
+          p.purchaseInvoiceNumber,
+          p.supplierName,
+          `${p.itemCount}`,
+          p.paymentMode,
+          p.status,
+          p.paidAmount.toFixed(2),
+          p.totalAmount.toFixed(2)
+        ]),
+        emptyMessage: `No purchase invoices recorded on ${selectedDate}.`,
+        filename: buildDynamicPdfFilename({ kind: 'CUSTOM_REPORT', reportName: 'Purchases-Ledger-Report', date: selectedDate })
+      });
+      return;
+    }
+
+    if (selectedReport === 'EXPENSES') {
+      const totalExp = expenses.reduce((sum, e) => sum + e.amount, 0);
+      downloadShopTablePdf({
+        shop: currentShop,
+        documentTitle: 'Operating Expenses Register',
+        documentSubtitle: `Date: ${selectedDate}`,
+        metaRightLines: [`Ref: ${meta.ref}`, `Generated: ${generatedAt}`],
+        kpis: [
+          { label: 'Expense Entries', value: `${expenses.length}` },
+          { label: 'Total Outflow', value: `INR ${totalExp.toFixed(2)}` }
+        ],
+        columns: [
+          { label: 'Expense Category', width: 34 },
+          { label: 'Notes & Remarks', width: 42 },
+          { label: 'Mode', width: 16, align: 'center' },
+          { label: 'Recorded By', width: 20 },
+          { label: 'Amount (INR)', width: 22, align: 'right' }
+        ],
+        rows: expenses.map((e) => [
+          e.category,
+          e.notes || '-',
+          e.paymentMode,
+          e.createdBy,
+          e.amount.toFixed(2)
+        ]),
+        emptyMessage: `No operating expenses recorded on ${selectedDate}.`,
+        filename: buildDynamicPdfFilename({ kind: 'EXPENSES', date: selectedDate })
+      });
+    }
+  };
+
+  // Secondary Print Trigger with dynamic document.title filename (protected by @page { margin: 0 } CSS)
+  const handlePrintReport = () => {
+    printWithDynamicTitle(getDynamicReportFilename());
   };
 
   // CSV Export Handler
@@ -345,12 +567,21 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
             </button>
 
             <button
-              onClick={handlePrintOrDownloadPDF}
+              onClick={handleDownloadPdf}
               className="bg-[#005A9C] hover:bg-blue-800 text-white text-xs font-bold px-4 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-sm"
-              title="Download or Print PDF with your shop header and timestamp"
+              title="Download clean PDF directly via jsPDF (zero browser URLs)"
             >
-              <Printer className="w-4 h-4 text-amber-300" />
-              <span>Download PDF / Print</span>
+              <Download className="w-4 h-4 text-amber-300" />
+              <span>Download PDF</span>
+            </button>
+
+            <button
+              onClick={handlePrintReport}
+              className="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-xs"
+              title="Print report on A4 paper"
+            >
+              <Printer className="w-4 h-4" />
+              <span>Print</span>
             </button>
           </div>
         </div>
@@ -391,9 +622,12 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
       {selectedReport === 'ANALYTICS' ? (
         <SalesProfitAnalytics currentShop={currentShop} />
       ) : (
-        /* Printable Report Document (Rendered for both Screen and PDF Print) */
-        <div id="printable-report" className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 p-6 print:p-0 print:border-none print:shadow-none transition-colors">
-          {/* Standard Branded Header */}
+        /* Unified CA-Grade A4 Printable Report Document */
+        <div
+          id="unified-print-area"
+          className="bg-white dark:bg-slate-900 rounded-2xl shadow-xs border border-slate-200 dark:border-slate-800 p-6 print:p-0 print:border-none print:shadow-none transition-colors"
+        >
+          {/* Single Standard CA-Grade Two-Column Shop Header (Page 1 Top Only) */}
           <BrandedReportHeader
             currentShop={currentShop}
             reportTitle={activeMeta.title}
@@ -412,9 +646,9 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
               {/* 1. SALES REPORT VIEW */}
             {selectedReport === 'SALES' && (
               <div className="space-y-4">
-                {/* Sales Summary KPIs */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
+                {/* Sales Summary KPIs (Non-Overlapping 4-Column Grid) */}
+                <div className="unified-kpi-grid grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="unified-kpi-card bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] font-bold uppercase text-slate-500">Total Billed Volume</div>
                     <div className="text-base font-black font-mono text-slate-900 dark:text-white mt-0.5">
                       ₹{sales.filter(s => s.status === 'COMPLETED').reduce((sum, s) => sum + s.finalAmount, 0).toFixed(2)}
@@ -509,18 +743,18 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
             {/* 2. STOCK AUDIT REPORT VIEW */}
             {selectedReport === 'STOCK' && (
               <div className="space-y-4">
-                <div className="overflow-x-auto border border-slate-200 dark:border-slate-800 rounded-xl">
-                  <table className="w-full text-left text-xs">
+                <div className="overflow-x-auto print:overflow-visible border border-slate-200 dark:border-slate-800 rounded-xl print:border-0 print:rounded-none">
+                  <table className="unified-report-table w-full text-left text-xs">
                     <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold uppercase text-[10px] tracking-wider border-b border-slate-200 dark:border-slate-700">
                       <tr>
-                        <th className="py-2.5 px-3">Product Name & Barcode</th>
+                        <th className="py-2.5 px-3">Product Name &amp; Barcode</th>
                         <th className="py-2.5 px-2">Category</th>
-                        <th className="py-2.5 px-2 text-right">Opening</th>
-                        <th className="py-2.5 px-2 text-right text-emerald-700 dark:text-emerald-400">Stock In</th>
-                        <th className="py-2.5 px-2 text-right text-blue-700 dark:text-blue-400">Sales Qty</th>
-                        <th className="py-2.5 px-2 text-right text-rose-700 dark:text-rose-400">Stock Out</th>
-                        <th className="py-2.5 px-3 text-right font-black">Closing Stock</th>
-                        <th className="py-2.5 px-2 text-center">Status</th>
+                        <th className="py-2.5 px-2 text-right print-nowrap">Opening</th>
+                        <th className="py-2.5 px-2 text-right text-emerald-700 dark:text-emerald-400 print-nowrap">Stock In</th>
+                        <th className="py-2.5 px-2 text-right text-blue-700 dark:text-blue-400 print-nowrap">Sales Qty</th>
+                        <th className="py-2.5 px-2 text-right text-rose-700 dark:text-rose-400 print-nowrap">Stock Out</th>
+                        <th className="py-2.5 px-3 text-right font-black print-nowrap">Closing Stock</th>
+                        <th className="py-2.5 px-2 text-center print-nowrap">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800 font-mono">
@@ -541,25 +775,25 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
                               <div className="font-bold text-slate-900 dark:text-white">{r.productName}</div>
                               <div className="text-[10px] text-slate-400 font-mono">{r.barcode}</div>
                             </td>
-                            <td className="py-2.5 px-2 font-sans text-slate-600 dark:text-slate-400 text-[11px]">
+                            <td className="py-2.5 px-2 font-sans text-slate-600 dark:text-slate-400 text-[11px] print-nowrap">
                               {r.category}
                             </td>
-                            <td className="py-2.5 px-2 text-right">{r.openingStock} {r.unit}</td>
-                            <td className="py-2.5 px-2 text-right text-emerald-700 dark:text-emerald-400 font-bold">
+                            <td className="py-2.5 px-2 text-right print-nowrap">{r.openingStock} {r.unit}</td>
+                            <td className="py-2.5 px-2 text-right text-emerald-700 dark:text-emerald-400 font-bold print-nowrap">
                               {r.stockIn > 0 ? `+${r.stockIn}` : '-'}
                             </td>
-                            <td className="py-2.5 px-2 text-right text-blue-700 dark:text-blue-400 font-bold">
+                            <td className="py-2.5 px-2 text-right text-blue-700 dark:text-blue-400 font-bold print-nowrap">
                               {r.salesQty > 0 ? `-${r.salesQty}` : '-'}
                             </td>
-                            <td className="py-2.5 px-2 text-right text-rose-700 dark:text-rose-400 font-bold">
+                            <td className="py-2.5 px-2 text-right text-rose-700 dark:text-rose-400 font-bold print-nowrap">
                               {r.stockOut > 0 ? `-${r.stockOut}` : '-'}
                             </td>
-                            <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white">
-                              {r.closingStock} <span className="text-[10px] text-slate-400 font-normal">{r.unit}</span>
+                            <td className="py-2.5 px-3 text-right font-black text-slate-900 dark:text-white print-nowrap">
+                              {r.closingStock} <span className="text-[10px] text-slate-500 font-semibold">{r.unit}</span>
                             </td>
-                            <td className="py-2.5 px-2 text-center font-sans">
+                            <td className="py-2.5 px-2 text-center font-sans print-nowrap">
                               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                                r.isLowStock ? 'bg-amber-100 text-amber-800' : 'bg-emerald-50 text-emerald-700'
+                                r.isLowStock ? 'print-badge-low bg-rose-100 text-rose-800' : 'print-badge-ok bg-emerald-100 text-emerald-800'
                               }`}>
                                 {r.isLowStock ? 'LOW' : 'OK'}
                               </span>
@@ -762,36 +996,37 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
           </div>
         )}
 
-        {/* Certified Sign-off Footer block for Print & PDF (100% Shop Identity Only) */}
-        <div className="mt-8 pt-6 border-t-2 border-slate-200 dark:border-slate-800 flex flex-wrap items-end justify-between gap-6 text-xs text-slate-500 font-sans">
-          <div>
-            <div className="font-bold text-slate-800 dark:text-slate-200">
-              Official Business Record — {getShopPdfIdentity(currentShop).displayName}
+        {/* Single Clean Non-Overlapping Signatory Footer (Always flows after table) */}
+        <div className="unified-print-footer mt-8 pt-6 border-t-2 border-slate-200 dark:border-slate-800 text-xs text-slate-500 font-sans">
+          <div className="flex flex-wrap items-end justify-between gap-6">
+            <div>
+              <div className="font-bold text-slate-800 dark:text-slate-200">
+                Official Business Record — {getShopPdfIdentity(currentShop).displayName}
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-md mt-0.5">
+                All product sales, inventory movements, and supplier khata figures in this statement are verified for internal audit and accounting compliance.
+              </p>
             </div>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 max-w-md mt-0.5">
-              All product sales, inventory movements, and supplier khata figures in this statement are verified for internal audit and accounting compliance.
-            </p>
+
+            <div className="flex gap-8 text-center">
+              <div className="w-36 pt-8 border-t border-slate-300 dark:border-slate-700">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                  Prepared By
+                </span>
+              </div>
+
+              <div className="w-36 pt-8 border-t border-slate-300 dark:border-slate-700">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                  Authorized Signatory
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex gap-8 text-center">
-            <div className="w-36 pt-8 border-t border-slate-300 dark:border-slate-700">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                Prepared By
-              </span>
-            </div>
-
-            <div className="w-36 pt-8 border-t border-slate-300 dark:border-slate-700">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
-                Authorized Signatory
-              </span>
-            </div>
+          <div className="mt-4 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[9.5px] text-slate-400 font-sans">
+            <span>Official Business Statement — {getShopPdfIdentity(currentShop).displayName}</span>
+            <span>{PDF_FOOTER_BRAND_CREDIT}</span>
           </div>
-        </div>
-
-        {/* Subtle Text-Only Footer Attribution (No Logo Image) */}
-        <div className="mt-4 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[9.5px] text-slate-400 font-sans">
-          <span>Official Business Statement — {getShopPdfIdentity(currentShop).displayName}</span>
-          <span>{PDF_FOOTER_BRAND_CREDIT}</span>
         </div>
       </div>
     )}

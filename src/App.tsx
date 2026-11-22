@@ -568,8 +568,8 @@ export default function App() {
       />
 
       {/* Main Workspace Container with Right-Side Functions Navigation Dock ("Jamni Baju List") */}
-      <div className="flex-1 flex overflow-hidden">
-        <main className="flex-1 overflow-y-auto max-w-7xl w-full mx-auto p-4 sm:p-6">
+      <div className="flex-1 flex overflow-hidden app-shell-print-reset print:block print:overflow-visible">
+        <main className="flex-1 overflow-y-auto max-w-7xl w-full mx-auto p-4 sm:p-6 app-shell-print-reset print:p-0 print:m-0 print:max-w-none print:overflow-visible">
           {currentShop ? (
             isShopPlanExpired ? (
               <SubscriptionExpiredLockOverlay

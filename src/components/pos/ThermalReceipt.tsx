@@ -4,7 +4,7 @@
  * 
  * Production-Grade Thermal Receipt Printer Component
  * Compatible with USB & Bluetooth 58mm (2-inch) and 80mm (3-inch) POS Roll Printers.
- * Uses native browser-based printing via window.print() and verified @media print CSS.
+ * Uses native browser-based printing via printWithDynamicTitle() and verified @media print CSS.
  * 
  * Features:
  * - Print-only isolation: hides modals, backgrounds, buttons, and website navigation.
@@ -25,12 +25,16 @@ import {
   AlertTriangle, 
   FileText,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Download
 } from 'lucide-react';
 import { SaleBill, Shop, PrintSettingsConfig } from '../../types/index.ts';
 import { getCachedPrintSettings, subscribeToPrintSettings } from '../../storage/printSettings.ts';
 import {
+  buildDynamicPdfFilename,
+  downloadThermalReceiptPdf,
   getShopPdfIdentity,
+  printWithDynamicTitle,
   stripSoftwareBranding,
   RECEIPT_FOOTER_BRAND_CREDIT
 } from '../../utils/shopPdfBranding.ts';
@@ -80,7 +84,14 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
     setIsPrinting(true);
 
     try {
-      window.print();
+      const targetBillNumber = isTestReceiptMode ? 'TEST-ROLL-CALIBRATION' : bill.billNumber;
+      printWithDynamicTitle(
+        buildDynamicPdfFilename({
+          kind: 'SALE_BILL',
+          billNumber: targetBillNumber,
+          date: bill.timestamp
+        })
+      );
     } catch (err) {
       console.error('Print trigger failed:', err);
     } finally {
@@ -510,17 +521,26 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
             Uses your browser's printer dialog. Connect your USB or paired Bluetooth thermal printer.
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-slate-600 hover:text-slate-900 text-xs font-semibold rounded-lg hover:bg-slate-100 transition"
+              className="px-3.5 py-2 text-slate-600 hover:text-slate-900 text-xs font-semibold rounded-lg hover:bg-slate-100 transition cursor-pointer"
             >
               Close
             </button>
             <button
+              type="button"
+              onClick={() => downloadThermalReceiptPdf(shop, activeBill, printConfig)}
+              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+              title="Download clean PDF receipt directly (zero browser URLs)"
+            >
+              <Download className="w-4 h-4" />
+              Download PDF
+            </button>
+            <button
               onClick={handlePrint}
               disabled={isPrinting}
-              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-2 disabled:bg-slate-400"
+              className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white text-xs font-bold rounded-lg shadow-md hover:shadow-lg transition flex items-center gap-2 disabled:bg-slate-400 cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               {isPrinting ? 'Opening Print Dialog...' : `Print Receipt (${paperWidth})`}

@@ -17,6 +17,8 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import path from 'path';
 import {
+  buildDynamicPdfFilename,
+  formatPdfFilenameDate,
   getShopPdfIdentity,
   getSafeShopLogoUrl,
   getShopFileSlug,
@@ -57,9 +59,11 @@ describe('Shop Dashboard Text-Only Branding & Shop-Identity PDFs with Subtle Tex
     }
   });
 
-  it('2. verifies subtle text-only brand credit appears in the bottom footer of every PDF, receipt, and report (no logo image)', () => {
-    expect(PDF_FOOTER_BRAND_CREDIT).toBe('Generated via ParlourPro POS — Smart Billing & Inventory');
-    expect(RECEIPT_FOOTER_BRAND_CREDIT).toBe('Generated via ParlourPro POS');
+  it('2. verifies clean text-only marketing footer appears on every PDF, receipt, and report (NO URL, NO software logo image)', () => {
+    expect(PDF_FOOTER_BRAND_CREDIT).toBe('Powered by ParlourPro POS — Smart Billing & Inventory');
+    expect(RECEIPT_FOOTER_BRAND_CREDIT).toBe('Powered by ParlourPro POS');
+    expect(PDF_FOOTER_BRAND_CREDIT).not.toMatch(/https?:\/\/|github\.io/i);
+    expect(RECEIPT_FOOTER_BRAND_CREDIT).not.toMatch(/https?:\/\/|github\.io/i);
 
     const shopPdfBrandingSrc = readProjectFile('src/utils/shopPdfBranding.ts');
     expect(shopPdfBrandingSrc).toContain('doc.text(PDF_FOOTER_BRAND_CREDIT');
@@ -141,10 +145,12 @@ describe('Shop Dashboard Text-Only Branding & Shop-Identity PDFs with Subtle Tex
     expect(getShopFileSlug({ name: 'Shreenathji Parlour', shopCode: 'SH-101' })).toBe('Shreenathji_Parlour');
   });
 
-  it('5. strips legacy/cached software branding strings from receipt header settings', () => {
+  it('5. strips legacy/cached software branding strings and github.io URLs from receipt header settings', () => {
     expect(isSoftwareBrandingText('PARLOURPRO POS')).toBe(true);
     expect(isSoftwareBrandingText('Smart Billing & Inventory • ParlourPro POS')).toBe(true);
+    expect(isSoftwareBrandingText('https://mekintik-netizen.github.io/amulparlurpos/')).toBe(true);
     expect(stripSoftwareBranding('PARLOURPRO POS', '')).toBe('');
+    expect(stripSoftwareBranding('https://mekintik-netizen.github.io/amulparlurpos/', '')).toBe('');
     expect(stripSoftwareBranding('SHREENATHJI PARLOUR', '')).toBe('SHREENATHJI PARLOUR');
 
     const sanitized = sanitizePrintSettings({
@@ -211,5 +217,117 @@ describe('Shop Dashboard Text-Only Branding & Shop-Identity PDFs with Subtle Tex
     });
     expect(waText).toContain('SHREENATHJI PARLOUR — PURCHASE ORDER');
     expect(waText).not.toMatch(/ParlourPro/i);
+  });
+
+  it('7. permanently suppresses browser print URL headers/footers via @page { margin: 0 } and enforces direct client-side jsPDF downloads everywhere', () => {
+    const indexCss = readProjectFile('src/index.css');
+    expect(indexCss).toMatch(/@page\s*\{[^}]*size:\s*A4;[^}]*margin:\s*0\s*!important;/);
+    expect(indexCss).not.toMatch(/margin:\s*10mm/);
+    expect(indexCss).toContain('padding: 12mm !important;');
+
+    const purchaseSrc = readProjectFile('src/components/purchases/PurchaseManagement.tsx');
+    expect(purchaseSrc).toMatch(/@page\s*\{[^}]*margin:\s*0\s*!important;/);
+    expect(purchaseSrc).not.toMatch(/margin:\s*10mm/);
+    expect(purchaseSrc).toContain('padding: 12mm !important;');
+
+    // Never render github.io URL or window.location inside ANY PDF/print template
+    for (const relPath of PDF_AND_PRINT_FILES) {
+      const content = readProjectFile(relPath);
+      expect(content, `${relPath} must never contain github.io URL`).not.toMatch(/github\.io/i);
+      expect(content, `${relPath} must never render window.location`).not.toContain('window.location');
+    }
+
+    // All major reports and receipts support direct client-side jsPDF downloads
+    expect(readProjectFile('src/components/reports/ReportsHub.tsx')).toContain('downloadShopTablePdf');
+    expect(readProjectFile('src/components/reports/DailySalesReport.tsx')).toContain('downloadShopTablePdf');
+    expect(readProjectFile('src/components/reports/DailyStockReport.tsx')).toContain('downloadShopTablePdf');
+    expect(readProjectFile('src/components/expenses/ExpenseManagement.tsx')).toContain('downloadShopTablePdf');
+    expect(readProjectFile('src/components/banking/BankStatementManagement.tsx')).toContain('downloadShopTablePdf');
+    expect(readProjectFile('src/components/pos/ThermalReceipt.tsx')).toContain('downloadThermalReceiptPdf');
+    expect(readProjectFile('src/components/purchases/PurchaseManagement.tsx')).toContain('new jsPDF');
+    expect(readProjectFile('src/components/reports/SalesProfitAnalytics.tsx')).toContain('new jsPDF');
+    expect(readProjectFile('src/utils/smartOrderCalculator.ts')).toContain('new jsPDF');
+  });
+
+  it('8. hides all dashboard trial banners, offline alerts, and greeting modals from print via .no-print and [data-trial-banner]', () => {
+    const trialBannerSrc = readProjectFile('src/components/common/SubscriptionRenewalReminderBanner.tsx');
+    expect(trialBannerSrc).toContain('no-print');
+    expect(trialBannerSrc).toContain('data-trial-banner');
+
+    const offlineBannerSrc = readProjectFile('src/components/common/OfflineAlertBanner.tsx');
+    expect(offlineBannerSrc).toContain('no-print');
+
+    const greetingModalSrc = readProjectFile('src/components/common/MorningGreetingModal.tsx');
+    expect(greetingModalSrc).toContain('no-print');
+
+    const expenseSrc = readProjectFile('src/components/expenses/ExpenseManagement.tsx');
+    expect(expenseSrc).toContain('data-trial-banner');
+
+    const indexCss = readProjectFile('src/index.css');
+    expect(indexCss).toContain('[data-trial-banner]');
+    expect(indexCss).toContain('#unified-print-area');
+    expect(indexCss).toContain('display: table-header-group !important;');
+    expect(indexCss).toContain('break-inside: avoid !important;');
+    expect(indexCss).toContain('.unified-kpi-grid');
+    expect(indexCss).toContain('.unified-report-table');
+    expect(indexCss).toContain('.print-nowrap');
+    expect(indexCss).toContain('.unified-print-footer');
+  });
+
+  it('9. generates descriptive, dynamic PDF filenames (DD-MM-YYYY) for every report, bill, receipt, and statement', () => {
+    const sampleDate = '2026-11-21';
+    expect(formatPdfFilenameDate(sampleDate)).toBe('21-11-2026');
+
+    expect(
+      buildDynamicPdfFilename({ kind: 'PURCHASE_BILL', billNumber: 'INV-105', date: sampleDate })
+    ).toBe('Purchase-Bill-INV-105-21-11-2026.pdf');
+
+    expect(
+      buildDynamicPdfFilename({ kind: 'SALE_BILL', billNumber: 'BILL-001', date: sampleDate })
+    ).toBe('Sale-Bill-BILL-001-21-11-2026.pdf');
+
+    expect(
+      buildDynamicPdfFilename({ kind: 'SMART_ORDER', date: sampleDate })
+    ).toBe('Smart-Order-21-11-2026.pdf');
+
+    expect(
+      buildDynamicPdfFilename({ kind: 'DAILY_SALES', date: sampleDate })
+    ).toBe('Daily-Sales-Report-21-11-2026.pdf');
+
+    expect(
+      buildDynamicPdfFilename({ kind: 'STOCK_AUDIT', date: sampleDate })
+    ).toBe('Stock-Audit-Report-21-11-2026.pdf');
+
+    expect(
+      buildDynamicPdfFilename({ kind: 'EXPENSES', date: sampleDate })
+    ).toBe('Expenses-Report-21-11-2026.pdf');
+
+    expect(
+      buildDynamicPdfFilename({ kind: 'KHATA', partyName: 'Ramesh Patel', date: sampleDate })
+    ).toBe('Khata-Statement-Ramesh-Patel-21-11-2026.pdf');
+
+    expect(
+      buildDynamicPdfFilename({ kind: 'DAY_CLOSE', date: sampleDate })
+    ).toBe('Day-Close-Report-21-11-2026.pdf');
+  });
+
+  it('10. wires printWithDynamicTitle and buildDynamicPdfFilename into every printable view so document.title never saves as generic app title', () => {
+    const PRINTABLE_VIEWS = [
+      'src/components/purchases/PurchaseManagement.tsx',
+      'src/components/pos/ThermalReceipt.tsx',
+      'src/components/reports/ReportsHub.tsx',
+      'src/components/reports/DailySalesReport.tsx',
+      'src/components/reports/DailyStockReport.tsx',
+      'src/components/expenses/ExpenseManagement.tsx',
+      'src/components/banking/BankStatementManagement.tsx',
+      'src/components/profile/ShopProfileManagement.tsx'
+    ];
+
+    for (const relPath of PRINTABLE_VIEWS) {
+      const content = readProjectFile(relPath);
+      expect(content, `${relPath} must use printWithDynamicTitle`).toContain('printWithDynamicTitle');
+      expect(content, `${relPath} must use buildDynamicPdfFilename`).toContain('buildDynamicPdfFilename');
+      expect(content, `${relPath} must not call bare window.print()`).not.toMatch(/\bwindow\.print\s*\(/);
+    }
   });
 });

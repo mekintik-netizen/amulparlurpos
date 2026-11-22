@@ -27,10 +27,14 @@ import {
 import { DailyStockReportRow, Product, Shop, StockMovement } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { exportDataToExcel } from '../../utils/excelEngine.ts';
+import { BrandedReportHeader } from '../common/BrandedReportHeader.tsx';
 import {
+  buildDynamicPdfFilename,
+  downloadShopTablePdf,
   getShopFileSlug,
   getShopPdfIdentity,
-  PDF_FOOTER_BRAND_CREDIT
+  PDF_FOOTER_BRAND_CREDIT,
+  printWithDynamicTitle
 } from '../../utils/shopPdfBranding.ts';
 
 interface DailyStockReportProps {
@@ -210,20 +214,76 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
   const totalClosing = rows.reduce((acc, r) => acc + r.closingStock, 0);
   const lowStockCount = rows.filter((r) => r.isLowStock).length;
 
+  const handleDownloadPdf = () => {
+    const exportRows = includeZeroStock ? filteredRows : filteredRows.filter((r) => r.closingStock > 0);
+    downloadShopTablePdf({
+      shop: currentShop,
+      documentTitle: 'Daily Inventory & Physical Stock Audit Report',
+      documentSubtitle: `Date: ${targetDate}`,
+      metaRightLines: [
+        `Ref: RPT-STK-${targetDate.replace(/-/g, '')}`,
+        `Generated: ${new Date().toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}`
+      ],
+      kpis: [
+        { label: 'Opening', value: `${totalOpening}` },
+        { label: 'Stock In', value: `+${totalIn}` },
+        { label: 'Sold', value: `-${totalSales}` },
+        { label: 'Stock Out', value: `-${totalOut}` },
+        { label: 'Closing', value: `${totalClosing}` }
+      ],
+      columns: [
+        { label: 'Product Name', width: 42 },
+        { label: 'Category', width: 22 },
+        { label: 'Opening', width: 14, align: 'right' },
+        { label: 'In', width: 12, align: 'right' },
+        { label: 'Sold', width: 12, align: 'right' },
+        { label: 'Out', width: 12, align: 'right' },
+        { label: 'Closing', width: 18, align: 'right' },
+        { label: 'Status', width: 14, align: 'center' }
+      ],
+      rows: exportRows.map((r) => [
+        r.productName,
+        r.category,
+        `${r.openingStock}`,
+        r.stockIn > 0 ? `+${r.stockIn}` : '-',
+        r.salesQty > 0 ? `-${r.salesQty}` : '-',
+        r.stockOut > 0 ? `-${r.stockOut}` : '-',
+        `${r.closingStock} ${r.unit}`,
+        r.isLowStock ? 'LOW' : 'OK'
+      ]),
+      emptyMessage: `No stock items matching filter on ${targetDate}.`,
+      filename: buildDynamicPdfFilename({ kind: 'STOCK_AUDIT', date: targetDate })
+    });
+  };
+
+  const handlePrintStockReport = () => {
+    printWithDynamicTitle(buildDynamicPdfFilename({ kind: 'STOCK_AUDIT', date: targetDate }));
+  };
+
   const shopIdentity = getShopPdfIdentity(currentShop);
 
   return (
-    <div className="space-y-6">
-      {/* Top Controls & KPI Summary (100% Shop Identity Only in Print/PDF) */}
-      <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 print:rounded-none print:border-0 print:p-0">
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200 print:border-b-2 print:border-slate-900">
+    <div id="unified-print-area" className="space-y-6 a4-print-container">
+      {/* Unified Print-Only CA-Grade Two-Column Shop Header (Page 1 Top Only) */}
+      <div className="hidden print:block">
+        <BrandedReportHeader
+          currentShop={currentShop}
+          reportTitle="Daily Inventory & Physical Stock Audit Report"
+          reportDate={targetDate}
+          referenceCode={`RPT-STK-${targetDate.replace(/-/g, '')}`}
+        />
+      </div>
+
+      {/* Top Controls & KPI Summary */}
+      <div className="bg-white rounded-2xl p-5 shadow-xs border border-slate-200/80 print:rounded-none print:border-0 print:p-0 print:shadow-none">
+        <div className="no-print flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-200">
           <div className="flex items-start gap-3.5">
             {shopIdentity.logoUrl && (
               <div className="bg-white p-1 rounded-xl border border-slate-200 shadow-2xs shrink-0">
                 <img
                   src={shopIdentity.logoUrl}
                   alt={shopIdentity.displayName}
-                  className="h-11 w-11 sm:h-12 sm:w-12 rounded-lg object-contain print:h-14 print:w-14"
+                  className="h-11 w-11 sm:h-12 sm:w-12 rounded-lg object-contain"
                   loading="eager"
                 />
               </div>
@@ -233,7 +293,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
                 {shopIdentity.displayName}
               </div>
               <h2 className="text-xs font-extrabold text-slate-700 flex items-center gap-1.5 mt-0.5">
-                <Package className="w-4 h-4 text-blue-600 no-print" />
+                <Package className="w-4 h-4 text-blue-600" />
                 <span>Daily Inventory &amp; Stock Audit Report · {targetDate}</span>
               </h2>
               <div className="text-[11px] text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
@@ -257,12 +317,21 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
             </div>
 
             <button
-              onClick={() => window.print()}
+              onClick={handleDownloadPdf}
+              className="bg-[#005A9C] hover:bg-blue-800 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+              title="Download Stock Audit Report directly as clean PDF"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download PDF</span>
+            </button>
+
+            <button
+              onClick={handlePrintStockReport}
               className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs cursor-pointer"
               title="Print Stock Report"
             >
               <Printer className="w-4 h-4" />
-              <span>Print Report</span>
+              <span>Print</span>
             </button>
 
             <button
@@ -285,46 +354,46 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
           </div>
         </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 pt-4">
-          <div className="bg-slate-50 rounded-xl p-3 border border-slate-200">
+        {/* KPI Cards (Non-Overlapping 5-Column Grid in Print) */}
+        <div className="unified-kpi-grid-5 grid grid-cols-2 md:grid-cols-5 gap-3 pt-4 print:pt-0">
+          <div className="unified-kpi-card bg-slate-50 rounded-xl p-3 border border-slate-200">
             <div className="text-[11px] font-semibold text-slate-500 uppercase">Opening Stock</div>
             <div className="text-lg font-black font-mono text-slate-800 mt-0.5">{totalOpening}</div>
-            <div className="text-[10px] text-slate-400">Total units at start of day</div>
+            <div className="text-[10px] text-slate-400 print:hidden">Total units at start of day</div>
           </div>
 
-          <div className="bg-emerald-50/60 rounded-xl p-3 border border-emerald-200">
+          <div className="unified-kpi-card bg-emerald-50/60 rounded-xl p-3 border border-emerald-200">
             <div className="text-[11px] font-semibold text-emerald-700 uppercase flex items-center gap-1">
-              <TrendingUp className="w-3.5 h-3.5" /> Stock In
+              <TrendingUp className="w-3.5 h-3.5 no-print" /> Stock In
             </div>
             <div className="text-lg font-black font-mono text-emerald-800 mt-0.5">+{totalIn}</div>
-            <div className="text-[10px] text-emerald-600">Supply deliveries</div>
+            <div className="text-[10px] text-emerald-600 print:hidden">Supply deliveries</div>
           </div>
 
-          <div className="bg-blue-50/60 rounded-xl p-3 border border-blue-200">
+          <div className="unified-kpi-card bg-blue-50/60 rounded-xl p-3 border border-blue-200">
             <div className="text-[11px] font-semibold text-blue-700 uppercase flex items-center gap-1">
-              <TrendingDown className="w-3.5 h-3.5" /> Sold (Sales)
+              <TrendingDown className="w-3.5 h-3.5 no-print" /> Sold (Sales)
             </div>
             <div className="text-lg font-black font-mono text-blue-800 mt-0.5">-{totalSales}</div>
-            <div className="text-[10px] text-blue-600">Billed through POS</div>
+            <div className="text-[10px] text-blue-600 print:hidden">Billed through POS</div>
           </div>
 
-          <div className="bg-rose-50/60 rounded-xl p-3 border border-rose-200">
+          <div className="unified-kpi-card bg-rose-50/60 rounded-xl p-3 border border-rose-200">
             <div className="text-[11px] font-semibold text-rose-700 uppercase">Stock Out / Leakage</div>
             <div className="text-lg font-black font-mono text-rose-800 mt-0.5">-{totalOut}</div>
-            <div className="text-[10px] text-rose-600">Damage & adjustments</div>
+            <div className="text-[10px] text-rose-600 print:hidden">Damage &amp; adjustments</div>
           </div>
 
-          <div className="bg-indigo-50/60 rounded-xl p-3 border border-indigo-200">
+          <div className="unified-kpi-card bg-indigo-50/60 rounded-xl p-3 border border-indigo-200">
             <div className="text-[11px] font-semibold text-indigo-700 uppercase">Closing Stock</div>
             <div className="text-lg font-black font-mono text-indigo-900 mt-0.5">{totalClosing}</div>
-            <div className="text-[10px] text-indigo-600">Current closing balance</div>
+            <div className="text-[10px] text-indigo-600 print:hidden">Current closing balance</div>
           </div>
         </div>
 
-        {/* Low Stock Warning Banner if any */}
+        {/* Low Stock Warning Banner if any (Screen-only) */}
         {lowStockCount > 0 && (
-          <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs text-amber-800">
+          <div className="no-print mt-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between text-xs text-amber-800">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-600" />
               <span>
@@ -342,8 +411,8 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
       </div>
 
       {/* Tabs & Table */}
-      <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div className="bg-white rounded-2xl shadow-xs border border-slate-200/80 p-5 print:p-0 print:border-0 print:shadow-none print:rounded-none">
+        <div className="no-print flex flex-wrap items-center justify-between gap-3 mb-4">
           <div className="flex gap-2">
             <button
               onClick={() => setActiveTab('SUMMARY')}
@@ -394,19 +463,19 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
         </div>
 
         {activeTab === 'SUMMARY' ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
+          <div className="overflow-x-auto print:overflow-visible">
+            <table className="unified-report-table w-full text-left text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold uppercase text-[10px] tracking-wider border-y border-slate-200">
                 <tr>
-                  <th className="py-3 px-3">Product Name & Code</th>
-                  <th className="py-3 px-2">Category</th>
-                  <th className="py-3 px-2 text-right">Opening</th>
-                  <th className="py-3 px-2 text-right text-emerald-700">Stock In</th>
-                  <th className="py-3 px-2 text-right text-blue-700">Sales Qty</th>
-                  <th className="py-3 px-2 text-right text-rose-700">Stock Out</th>
-                  <th className="py-3 px-3 text-right font-black">Closing Stock</th>
-                  <th className="py-3 px-2 text-center">Status</th>
-                  <th className="py-3 px-3 text-right">Actions</th>
+                  <th className="py-3 px-3">Product Name &amp; Code</th>
+                  <th className="py-3 px-2 print-nowrap">Category</th>
+                  <th className="py-3 px-2 text-right print-nowrap">Opening</th>
+                  <th className="py-3 px-2 text-right text-emerald-700 print-nowrap">Stock In</th>
+                  <th className="py-3 px-2 text-right text-blue-700 print-nowrap">Sales Qty</th>
+                  <th className="py-3 px-2 text-right text-rose-700 print-nowrap">Stock Out</th>
+                  <th className="py-3 px-3 text-right font-black print-nowrap">Closing Stock</th>
+                  <th className="py-3 px-2 text-center print-nowrap">Status</th>
+                  <th className="py-3 px-3 text-right no-print">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
@@ -430,37 +499,37 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
                         <div className="font-bold text-slate-900">{r.productName}</div>
                         <div className="text-[10px] text-slate-400 font-mono">{r.barcode}</div>
                       </td>
-                      <td className="py-2.5 px-2 font-sans">
-                        <span className="bg-slate-100 text-slate-700 text-[10px] px-2 py-0.5 rounded font-medium">
+                      <td className="py-2.5 px-2 font-sans print-nowrap">
+                        <span className="bg-slate-100 text-slate-700 text-[10px] px-2 py-0.5 rounded font-medium print:bg-transparent print:p-0">
                           {r.category}
                         </span>
                       </td>
-                      <td className="py-2.5 px-2 text-right text-slate-700">{r.openingStock} {r.unit}</td>
-                      <td className="py-2.5 px-2 text-right text-emerald-700 font-bold">
+                      <td className="py-2.5 px-2 text-right text-slate-700 print-nowrap">{r.openingStock} {r.unit}</td>
+                      <td className="py-2.5 px-2 text-right text-emerald-700 font-bold print-nowrap">
                         {r.stockIn > 0 ? `+${r.stockIn}` : '-'}
                       </td>
-                      <td className="py-2.5 px-2 text-right text-blue-700 font-bold">
+                      <td className="py-2.5 px-2 text-right text-blue-700 font-bold print-nowrap">
                         {r.salesQty > 0 ? `-${r.salesQty}` : '-'}
                       </td>
-                      <td className="py-2.5 px-2 text-right text-rose-700 font-bold">
+                      <td className="py-2.5 px-2 text-right text-rose-700 font-bold print-nowrap">
                         {r.stockOut > 0 ? `-${r.stockOut}` : '-'}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-black text-slate-900 text-sm">
-                        {r.closingStock} <span className="text-[10px] font-normal text-slate-500">{r.unit}</span>
+                      <td className="py-2.5 px-3 text-right font-black text-slate-900 text-sm print-nowrap">
+                        {r.closingStock} <span className="text-[10px] font-semibold text-slate-600">{r.unit}</span>
                       </td>
-                      <td className="py-2.5 px-2 text-center font-sans">
+                      <td className="py-2.5 px-2 text-center font-sans print-nowrap">
                         {r.isLowStock ? (
-                          <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
-                            <AlertTriangle className="w-3 h-3" />
-                            Low (≤{r.minStockAlert})
+                          <span className="print-badge-low bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 no-print" />
+                            <span>LOW</span>
                           </span>
                         ) : (
-                          <span className="bg-emerald-50 text-emerald-700 text-[10px] font-medium px-2 py-0.5 rounded-full">
-                            Normal
+                          <span className="print-badge-ok bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            OK
                           </span>
                         )}
                       </td>
-                      <td className="py-2.5 px-3 text-right font-sans">
+                      <td className="py-2.5 px-3 text-right font-sans no-print">
                         <button
                           onClick={() => handleOpenStockEdit(r)}
                           className="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg text-xs font-bold transition inline-flex items-center gap-1 cursor-pointer"
@@ -665,7 +734,7 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
       )}
 
       {/* Print-Only Commercial Signatory & Subtle Text-Only Footer Attribution (No Logo Image) */}
-      <div className="hidden print:block mt-8 pt-6 border-t border-slate-300 text-xs text-slate-700">
+      <div className="unified-print-footer hidden print:block mt-8 pt-6 border-t border-slate-300 text-xs text-slate-700">
         <div className="flex items-end justify-between">
           <div className="w-44 text-center border-t border-dashed border-slate-500 pt-1.5 font-bold">
             Prepared By
