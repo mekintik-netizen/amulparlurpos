@@ -37,47 +37,50 @@ export function sanitizePrintSettings(raw: Partial<PrintSettingsConfig>): PrintS
 }
 
 /**
- * Cleanly reads the cached print settings from LocalStorage or returns defaults.
+ * Reads the current in-memory print settings (hydrated from Cloud Firestore `adminSettings/printConfig`).
+ * Never relies on browser localStorage as a source of truth for business settings.
  */
 export function getCachedPrintSettings(): PrintSettingsConfig {
   if (inMemoryConfig) return inMemoryConfig;
-
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        inMemoryConfig = sanitizePrintSettings(parsed);
-        return inMemoryConfig!;
-      }
-    }
-  } catch (err) {
-    console.warn('[PrintSettings] Failed to parse local print config:', err);
-  }
-
   inMemoryConfig = { ...DEFAULT_PRINT_SETTINGS_CONFIG };
   return inMemoryConfig;
 }
 
 /**
- * Saves configuration to local cache and dispatches cross-tab event.
+ * Updates in-memory configuration and dispatches in-tab custom event.
+ * Business settings live strictly in Cloud Firestore (never persisted to localStorage).
  */
-function cacheLocally(config: PrintSettingsConfig): void {
+function cacheInMemory(config: PrintSettingsConfig): void {
   const sanitized = sanitizePrintSettings(config);
   inMemoryConfig = sanitized;
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sanitized));
+    if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(CUSTOM_EVENT_KEY, { detail: sanitized }));
     }
-  } catch (err) {
-    console.warn('[PrintSettings] Failed to update local storage:', err);
+  } catch {
+    // ignore event dispatch issues
+  }
+}
+
+/**
+ * One-time safe reader & cleaner for any legacy localStorage print settings from older versions.
+ */
+function consumeLegacyPrintSettingsFromLocalStorage(): Partial<PrintSettingsConfig> | null {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) return null;
+    window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+    return JSON.parse(raw) as Partial<PrintSettingsConfig>;
+  } catch {
+    return null;
   }
 }
 
 /**
  * Fetches the master Print Settings from Cloud Firestore (`adminSettings/printConfig`).
- * If not yet created in Firestore, seeds the document with default values.
+ * Performs a safe one-time migration if legacy localStorage settings existed and Firestore is empty,
+ * then clears the legacy browser key so stale local cache never overwrites Cloud Firestore.
  */
 export async function getPrintSettingsConfig(): Promise<PrintSettingsConfig> {
   try {
@@ -86,22 +89,26 @@ export async function getPrintSettingsConfig(): Promise<PrintSettingsConfig> {
     const snap = await getDoc(docRef);
 
     if (snap.exists()) {
+      // Firestore already has authoritative data — purge any stale legacy localStorage key
+      consumeLegacyPrintSettingsFromLocalStorage();
       const remote = snap.data() as Partial<PrintSettingsConfig>;
       const merged = sanitizePrintSettings(remote);
-      cacheLocally(merged);
+      cacheInMemory(merged);
       return merged;
     } else {
-      // Initialize with default configuration in Firestore
-      const initial: PrintSettingsConfig = {
+      // One-time safe migration of legacy localStorage settings if present; otherwise defaults
+      const legacy = consumeLegacyPrintSettingsFromLocalStorage();
+      const initial: PrintSettingsConfig = sanitizePrintSettings({
         ...DEFAULT_PRINT_SETTINGS_CONFIG,
+        ...(legacy || {}),
         updatedAt: new Date().toISOString()
-      };
+      });
       await setDoc(docRef, initial, { merge: true });
-      cacheLocally(initial);
+      cacheInMemory(initial);
       return initial;
     }
   } catch (err) {
-    console.warn('[PrintSettings] Failed to fetch remote config from Firestore, using cache:', err);
+    console.warn('[PrintSettings] Failed to fetch remote config from Firestore, using in-memory defaults:', err);
     return getCachedPrintSettings();
   }
 }
@@ -122,17 +129,16 @@ export async function savePrintSettingsConfig(
     updatedBy
   });
 
-  // 1. Immediately update cache for local responsive UI
-  cacheLocally(updated);
+  // 1. Immediately update in-memory state for responsive UI
+  cacheInMemory(updated);
 
-  // 2. Persist to Cloud Firestore
+  // 2. Persist directly to Cloud Firestore
   try {
     await ensureAnonymousAuth();
     const docRef = doc(db, 'adminSettings', 'printConfig');
     await setDoc(docRef, updated, { merge: true });
   } catch (err) {
     console.error('[PrintSettings] Failed to save to Firestore:', err);
-    // Even if remote push fails temporarily, the local state is preserved
   }
 
   return updated;
@@ -146,14 +152,11 @@ export async function resetPrintSettingsConfig(updatedBy: string = 'Master Admin
 }
 
 /**
- * Subscribes to real-time changes in print settings across devices.
- * Calls callback immediately with current cache, then listens to Firestore and LocalStorage changes.
+ * Subscribes to real-time changes in print settings across devices directly via Cloud Firestore onSnapshot.
  */
 export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig) => void): Unsubscribe {
-  // 1. Trigger immediately with current cached values
   callback(getCachedPrintSettings());
 
-  // 2. Listen to Firestore real-time snapshot once authenticated
   let firestoreUnsub: Unsubscribe = () => {};
   let isCancelled = false;
 
@@ -165,7 +168,7 @@ export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig)
         if (snap.exists()) {
           const remote = snap.data() as Partial<PrintSettingsConfig>;
           const merged = sanitizePrintSettings(remote);
-          cacheLocally(merged);
+          cacheInMemory(merged);
           callback(merged);
         }
       }, (err) => {
@@ -176,7 +179,6 @@ export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig)
     }
   });
 
-  // 3. Listen to local custom event for instant same-tab updates
   const handleCustomEvent = (e: Event) => {
     const custom = e as CustomEvent<PrintSettingsConfig>;
     if (custom.detail) {
@@ -184,21 +186,8 @@ export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig)
     }
   };
 
-  // 4. Listen to cross-tab storage event
-  const handleStorageEvent = (e: StorageEvent) => {
-    if (e.key === LOCAL_STORAGE_KEY && e.newValue) {
-      try {
-        const parsed = JSON.parse(e.newValue);
-        callback(sanitizePrintSettings(parsed));
-      } catch (err) {
-        // Ignore parse error
-      }
-    }
-  };
-
   if (typeof window !== 'undefined') {
     window.addEventListener(CUSTOM_EVENT_KEY, handleCustomEvent);
-    window.addEventListener('storage', handleStorageEvent);
   }
 
   return () => {
@@ -206,7 +195,6 @@ export function subscribeToPrintSettings(callback: (config: PrintSettingsConfig)
     firestoreUnsub();
     if (typeof window !== 'undefined') {
       window.removeEventListener(CUSTOM_EVENT_KEY, handleCustomEvent);
-      window.removeEventListener('storage', handleStorageEvent);
     }
   };
 }

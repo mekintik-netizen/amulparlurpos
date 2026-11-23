@@ -64,6 +64,7 @@ import {
   startShopRealtimeSync,
   startAdminShopsRealtimeSync,
   syncAllShopDataFromCloud,
+  migrateAndPurgeLegacyBusinessLocalStorage,
   CloudShopSyncSummary
 } from './storage/firestoreSync.ts';
 import { subscribeToAdminAuthConfig, updateAdminAuthConfig } from './storage/firebase.ts';
@@ -161,6 +162,9 @@ export default function App() {
     }
   };
 
+  const currentShopRef = useRef<Shop | null>(currentShop);
+  currentShopRef.current = currentShop;
+
   const refreshShopsSilently = useCallback(async () => {
     try {
       const list = await AppRepository.shops.getAll();
@@ -169,7 +173,17 @@ export default function App() {
         setCurrentShop((prev) => {
           if (!prev) return list[0];
           const found = list.find((s) => s.id === prev.id);
-          return found || prev;
+          if (!found) return prev;
+          if (
+            found.updatedAt === prev.updatedAt &&
+            found.name === prev.name &&
+            found.subscriptionStatus === prev.subscriptionStatus &&
+            found.subscriptionPlanId === prev.subscriptionPlanId &&
+            found.crateBalance === prev.crateBalance
+          ) {
+            return prev;
+          }
+          return found;
         });
       }
     } catch {
@@ -186,6 +200,7 @@ export default function App() {
       try {
         migrateLegacyLocalStorageKeys();
         const summary = await syncAllShopDataFromCloud(targetShop, { forceReconnect: true });
+        migrateAndPurgeLegacyBusinessLocalStorage();
         await refreshShopsSilently();
         setCloudSyncVersion((v) => v + 1);
         if (typeof window !== 'undefined') {
@@ -219,6 +234,7 @@ export default function App() {
 
   useEffect(() => {
     migrateLegacyLocalStorageKeys();
+    migrateAndPurgeLegacyBusinessLocalStorage();
     loadShops();
     // Non-blocking 1st-of-month automatic EmailJS reminder check (sent at most once per month)
     checkAndSendMonthlyAdminResetReminder().catch(() => {});
@@ -398,11 +414,13 @@ export default function App() {
     return () => clearInterval(interval);
   }, [currentShop?.id]);
 
-  // Real-time Firestore sync for active shop data (bills, inventory, expenses, bank statements)
+  // Real-time Firestore sync for active shop data (depends ONLY on primitive user/shopId to prevent re-subscription loops)
+  const activeUsername = currentUser?.username || '';
+  const activeShopId = currentShop?.id || '';
   useEffect(() => {
     if (!currentUser || !currentShop?.id) return;
     const unsubShop = startShopRealtimeSync(
-      currentShop.id,
+      activeShopId,
       () => {
         if (syncDebounceRef.current) {
           clearTimeout(syncDebounceRef.current);
@@ -411,11 +429,11 @@ export default function App() {
           refreshShopsSilently();
           setCloudSyncVersion((v) => v + 1);
           if (typeof window !== 'undefined') {
-            window.dispatchEvent(new CustomEvent('parlourpro-cloud-synced'));
+            window.dispatchEvent(new CustomEvent('parlourpro-cloud-synced', { detail: { shopId: activeShopId } }));
           }
-        }, 250);
+        }, 350);
       },
-      currentShop
+      currentShopRef.current || undefined
     );
     return () => {
       if (syncDebounceRef.current) {
@@ -423,7 +441,7 @@ export default function App() {
       }
       unsubShop.unsubscribeAll();
     };
-  }, [currentUser?.username, currentShop?.id, refreshShopsSilently]);
+  }, [activeUsername, activeShopId, refreshShopsSilently]);
 
   // Real-time Firestore sync for Admin HQ shops collection
   useEffect(() => {
@@ -589,15 +607,15 @@ export default function App() {
 
               {activeTab === 'PURCHASES' && (
                 <PurchaseManagement
-                  key={`purchases-${currentShop.id}-${cloudSyncVersion}`}
+                  key={`purchases-${currentShop.id}`}
                   currentShop={currentShop}
-                  onStockUpdated={loadShops}
+                  onStockUpdated={refreshShopsSilently}
                 />
               )}
 
               {activeTab === 'SMART_ORDER' && (
                 <SmartOrderManagement
-                  key={`smart-order-${currentShop.id}-${cloudSyncVersion}`}
+                  key={`smart-order-${currentShop.id}`}
                   currentShop={currentShop}
                   onOpenPurchases={() => setActiveTab('PURCHASES')}
                 />
@@ -617,14 +635,14 @@ export default function App() {
 
               {activeTab === 'STOCK' && (
                 <DailyStockReport
-                  key={`stock-${currentShop.id}-${cloudSyncVersion}`}
+                  key={`stock-${currentShop.id}`}
                   currentShop={currentShop}
                 />
               )}
 
               {activeTab === 'SALES' && (
                 <DailySalesReport
-                  key={`sales-${currentShop.id}-${cloudSyncVersion}`}
+                  key={`sales-${currentShop.id}`}
                   currentShop={currentShop}
                   onReprintBill={(bill) => setActiveReceiptBill(bill)}
                 />
@@ -632,21 +650,21 @@ export default function App() {
 
               {activeTab === 'REPORTS' && (
                 <ReportsHub
-                  key={`reports-${currentShop.id}-${cloudSyncVersion}`}
+                  key={`reports-${currentShop.id}`}
                   currentShop={currentShop}
                 />
               )}
 
               {activeTab === 'EXPENSES' && (
                 <ExpenseManagement
-                  key={`expenses-${currentShop.id}-${cloudSyncVersion}`}
+                  key={`expenses-${currentShop.id}`}
                   currentShop={currentShop}
                 />
               )}
 
               {activeTab === 'BANK' && (
                 <BankStatementManagement
-                  key={`bank-${currentShop.id}-${cloudSyncVersion}`}
+                  key={`bank-${currentShop.id}`}
                   currentShop={currentShop}
                   onOpenProfileTab={() => setActiveTab('PROFILE')}
                 />
@@ -654,7 +672,7 @@ export default function App() {
 
               {activeTab === 'PROFILE' && (
                 <ShopProfileManagement
-                  key={`profile-${currentShop.id}-${cloudSyncVersion}`}
+                  key={`profile-${currentShop.id}`}
                   currentShop={currentShop}
                   onShopUpdated={(updated) => {
                     setCurrentShop(updated);
@@ -665,7 +683,7 @@ export default function App() {
 
               {activeTab === 'CATALOG' && (
                 <CatalogManagement
-                  key={`catalog-${currentShop.id}-${cloudSyncVersion}`}
+                  key={`catalog-${currentShop.id}`}
                   currentShop={currentShop}
                 />
               )}

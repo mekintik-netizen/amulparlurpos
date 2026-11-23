@@ -56,24 +56,36 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('CASH');
   const [notes, setNotes] = useState('');
 
-  const loadFinancials = async () => {
+  const hasLoadedOnceRef = React.useRef(false);
+
+  const loadFinancials = async (opts?: { silent?: boolean }) => {
+    const shouldShowSpinner = !opts?.silent && !hasLoadedOnceRef.current;
     try {
-      setLoading(true);
+      if (shouldShowSpinner) setLoading(true);
       const [fin, expList] = await Promise.all([
         AppRepository.reports.getDailyFinancials(currentShop.id, targetDate),
         AppRepository.expenses.getByShop(currentShop.id, targetDate)
       ]);
       setFinancials(fin);
       setExpenses(expList);
+      hasLoadedOnceRef.current = true;
     } catch (err) {
       console.error('Failed to load financials:', err);
     } finally {
-      setLoading(false);
+      if (shouldShowSpinner) setLoading(false);
     }
   };
 
   useEffect(() => {
+    hasLoadedOnceRef.current = false;
     loadFinancials();
+    const handleCloudSynced = () => {
+      loadFinancials({ silent: true });
+    };
+    window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    return () => {
+      window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    };
   }, [currentShop.id, targetDate]);
 
   const handleAddExpense = async (e: React.FormEvent) => {
@@ -111,7 +123,7 @@ export const ExpenseManagement: React.FC<ExpenseManagementProps> = ({ currentSho
     }
     if (!window.confirm('Delete this expense record?')) return;
     try {
-      await AppRepository.expenses.delete(id);
+      await AppRepository.expenses.delete(id, currentShop.id);
       await loadFinancials();
     } catch (err: any) {
       alert(`Failed to delete expense: ${err.message}`);

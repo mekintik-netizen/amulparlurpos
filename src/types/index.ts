@@ -108,6 +108,7 @@ export interface Shop {
   passwordHash?: string;
   salt?: string;
   passwordUpdatedAt?: number | string; // Unix timestamp (ms) or ISO string of last password update
+  crateBalance?: number; // Net dairy crate balance (IN - OUT) synced atomically in Firestore
   ownerIdVerified?: boolean; // Whether the shop owner's ID has been verified by admin
   ownerVerifiedAt?: string; // ISO string when verification occurred
   verifiedByAdmin?: string; // Admin username who performed verification
@@ -147,6 +148,7 @@ export interface Product {
   sellingPrice: number;
   currentStock: number;
   minStockAlert: number;
+  expiryDate?: string; // Optional YYYY-MM-DD for 3-day Expiry Alerts
   imageUrl?: string;
   isActive: boolean;
   createdAt: string;
@@ -790,5 +792,50 @@ export interface AdminOtpChallengeRecord {
   deliveryChannel: 'emailjs' | 'firebase_email_link' | 'mobile_sms';
   createdAt: string;
 }
+
+// ==========================================
+// DAIRY CRATE IN / OUT TRACKER & DAY CLOSE
+// ==========================================
+
+export type CrateMovementType = 'IN' | 'OUT';
+
+export interface CrateTransaction {
+  id: string;
+  shopId: string;
+  date: string; // YYYY-MM-DD
+  type: CrateMovementType; // IN = Crates received from agency, OUT = Empty crates returned
+  quantity: number;
+  agencyName: string;
+  notes?: string;
+  createdBy: string;
+  createdAt: string;
+}
+
+export interface CrateSummary {
+  totalIn: number;
+  totalOut: number;
+  netBalance: number; // totalIn - totalOut (crates currently held at shop)
+  transactions: CrateTransaction[];
+}
+
+export interface DayCloseRecord {
+  id: string; // YYYY-MM-DD
+  shopId: string;
+  date: string; // YYYY-MM-DD
+  totalBills: number;
+  cashSales: number;
+  upiSales: number;
+  cardSales: number;
+  creditSales: number;
+  totalSales: number;
+  totalExpenses: number;
+  openingCash?: number;
+  netCashInDrawer: number; // openingCash + cashSales - cashExpenses
+  cratesNetBalance: number;
+  notes?: string;
+  closedBy: string;
+  closedAt: string;
+}
+
 
 

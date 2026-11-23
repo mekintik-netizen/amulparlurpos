@@ -11,9 +11,12 @@ import {
   BackupSettings,
   BankEntry,
   BankStatementSummary,
+  CrateSummary,
+  CrateTransaction,
   DailyFinancialSummary,
   DailySalesReportSummary,
   DailyStockReportRow,
+  DayCloseRecord,
   Expense,
   LocalDatabaseExport,
   Product,
@@ -26,23 +29,37 @@ import {
   SupplierPayment
 } from '../types/index.ts';
 import * as localDb from './db.ts';
-import { 
-  syncShopToCloud, 
-  deleteShopFromCloud, 
-  syncProductToCloud, 
-  deleteProductFromCloud, 
-  syncSaleBillToCloud, 
-  syncExpenseToCloud, 
+import {
+  syncShopToCloud,
+  deleteShopFromCloud,
+  syncProductToCloud,
+  deleteProductFromCloud,
+  syncSaleBillAtomicallyToCloud,
+  syncSaleCancellationAtomicallyToCloud,
+  syncStockMovementAtomicallyToCloud,
+  syncSupplierPaymentAtomicallyToCloud,
+  syncExpenseToCloud,
+  deleteExpenseFromCloud,
   syncBankEntryToCloud,
-  syncPurchaseBillToCloud,
+  deleteBankEntryFromCloud,
+  syncPurchaseBillAtomicallyToCloud,
   deletePurchaseBillFromCloud,
   syncSupplierToCloud,
   deleteSupplierFromCloud,
   fetchPurchasesFromCloud,
+  fetchSalesFromCloud,
   fetchSuppliersFromCloud,
   fetchShopsFromCloud,
   fetchShopByIdFromCloud,
-  mergeCloudAndLocalShops
+  mergeCloudAndLocalShops,
+  hasShopLoadedFromCloud,
+  DEFAULT_HISTORY_QUERY_LIMIT,
+  fetchCratesFromCloud,
+  subscribeToCrates,
+  recordCrateTransactionToCloud,
+  deleteCrateTransactionFromCloud,
+  saveDayCloseToCloud,
+  getDayCloseHistoryFromCloud
 } from './firestoreSync.ts';
 
 export const API_BASE_URL = (import.meta as any).env?.VITE_API_BASE_URL || '';
@@ -211,7 +228,10 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to record stock movement');
         return res.json();
       }
-      return localDb.recordStockMovement(movement);
+      const savedMovement = await localDb.recordStockMovement(movement);
+      const updatedProd = await localDb.getProductById(movement.productId).catch(() => null);
+      await syncStockMovementAtomicallyToCloud(savedMovement, updatedProd).catch(() => {});
+      return savedMovement;
     },
     getMovements: async (shopId: string, startDate?: string, endDate?: string): Promise<StockMovement[]> => {
       if (isBackendConnected()) {
@@ -259,7 +279,29 @@ export const AppRepository = {
         return res.json();
       }
       const bill = await localDb.createSaleBill(billData);
-      syncSaleBillToCloud(bill).catch(() => {});
+      const uniqueProdIds = Array.from(new Set(bill.items.map((i) => i.productId).filter(Boolean)));
+      const updatedProducts = (
+        await Promise.all(uniqueProdIds.map((pid) => localDb.getProductById(pid).catch(() => null)))
+      ).filter((p): p is Product => Boolean(p));
+      let upiBankEntry: BankEntry | null = null;
+      if (bill.paymentMode === 'UPI') {
+        const nowIso = bill.timestamp || new Date().toISOString();
+        upiBankEntry = {
+          id: `bank-upi-${bill.id}`,
+          shopId: bill.shopId,
+          date: nowIso.split('T')[0],
+          type: 'CREDIT',
+          category: 'UPI_SALE',
+          amount: bill.finalAmount,
+          referenceNumber: bill.billNumber,
+          description: `Customer POS Bill #${bill.billNumber} (${bill.itemCount} items)`,
+          partyName: bill.customerPhone || bill.customerName || 'Counter Customer',
+          paymentMode: 'UPI',
+          sourceId: bill.id,
+          createdAt: nowIso
+        };
+      }
+      await syncSaleBillAtomicallyToCloud(bill, updatedProducts, upiBankEntry).catch(() => {});
       return bill;
     },
     getAll: async (): Promise<SaleBill[]> => {
@@ -278,6 +320,16 @@ export const AppRepository = {
       }
       return localDb.getSalesByShop(shopId, dateStr);
     },
+    loadOlderFromCloud: async (
+      shopId: string,
+      limitCount: number = DEFAULT_HISTORY_QUERY_LIMIT * 2
+    ): Promise<SaleBill[]> => {
+      if (isBackendConnected()) {
+        return AppRepository.sales.getByShop(shopId);
+      }
+      await fetchSalesFromCloud(shopId, limitCount).catch(() => []);
+      return localDb.getSalesByShop(shopId);
+    },
     cancelBill: async (billId: string, shopId: string, reason: string): Promise<SaleBill> => {
       if (isBackendConnected()) {
         const res = await fetch(`${API_BASE_URL}/api/sales/${billId}/cancel`, {
@@ -288,7 +340,18 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to cancel bill');
         return res.json();
       }
-      return localDb.cancelSaleBill(billId, shopId, reason);
+      const cancelled = await localDb.cancelSaleBill(billId, shopId, reason);
+      const uniqueProdIds = Array.from(new Set(cancelled.items.map((i) => i.productId).filter(Boolean)));
+      const restoredProducts = (
+        await Promise.all(uniqueProdIds.map((pid) => localDb.getProductById(pid).catch(() => null)))
+      ).filter((p): p is Product => Boolean(p));
+      let reversalEntry: BankEntry | null = null;
+      if (cancelled.paymentMode === 'UPI') {
+        const bankList = await localDb.getBankEntriesByShop(shopId).catch(() => []);
+        reversalEntry = bankList.find((b) => b.sourceId === cancelled.id && b.type === 'DEBIT') || null;
+      }
+      await syncSaleCancellationAtomicallyToCloud(cancelled, restoredProducts, reversalEntry).catch(() => {});
+      return cancelled;
     }
   },
 
@@ -305,24 +368,19 @@ export const AppRepository = {
         return res.json();
       }
       const created = await localDb.createPurchaseBill(billData);
-      await syncPurchaseBillToCloud(created).catch(() => {});
+      let updatedProducts: Product[] = [];
+      let updatedSupplier: Supplier | null = null;
       if (created.stockPosted) {
         const productIds = Array.from(new Set(created.items.map(i => i.productId).filter(Boolean)));
-        await Promise.allSettled([
-          ...productIds.map(async pid => {
-            const prod = await localDb.getProductById(pid);
-            if (prod) await syncProductToCloud(prod);
-          }),
-          ...(created.supplierId
-            ? [
-                localDb.getSuppliersByShop(created.shopId).then(async sups => {
-                  const sup = sups.find(s => s.id === created.supplierId);
-                  if (sup) await syncSupplierToCloud(sup);
-                })
-              ]
-            : [])
-        ]);
+        updatedProducts = (
+          await Promise.all(productIds.map(pid => localDb.getProductById(pid).catch(() => null)))
+        ).filter((p): p is Product => Boolean(p));
+        if (created.supplierId) {
+          const sups = await localDb.getSuppliersByShop(created.shopId).catch(() => []);
+          updatedSupplier = sups.find(s => s.id === created.supplierId) || null;
+        }
       }
+      await syncPurchaseBillAtomicallyToCloud(created, updatedProducts, updatedSupplier).catch(() => {});
       return created;
     },
     updateBill: async (
@@ -352,24 +410,19 @@ export const AppRepository = {
         return res.json();
       }
       const updated = await localDb.updatePurchaseBill(billId, shopId, updatedData);
-      await syncPurchaseBillToCloud(updated).catch(() => {});
+      let updatedProducts: Product[] = [];
+      let updatedSupplier: Supplier | null = null;
       if (updated.stockPosted || updated.status === 'CONFIRMED') {
         const productIds = Array.from(new Set(updated.items.map(i => i.productId).filter(Boolean)));
-        await Promise.allSettled([
-          ...productIds.map(async pid => {
-            const prod = await localDb.getProductById(pid);
-            if (prod) await syncProductToCloud(prod);
-          }),
-          ...(updated.supplierId
-            ? [
-                localDb.getSuppliersByShop(shopId).then(async sups => {
-                  const sup = sups.find(s => s.id === updated.supplierId);
-                  if (sup) await syncSupplierToCloud(sup);
-                })
-              ]
-            : [])
-        ]);
+        updatedProducts = (
+          await Promise.all(productIds.map(pid => localDb.getProductById(pid).catch(() => null)))
+        ).filter((p): p is Product => Boolean(p));
+        if (updated.supplierId) {
+          const sups = await localDb.getSuppliersByShop(shopId).catch(() => []);
+          updatedSupplier = sups.find(s => s.id === updated.supplierId) || null;
+        }
       }
+      await syncPurchaseBillAtomicallyToCloud(updated, updatedProducts, updatedSupplier).catch(() => {});
       return updated;
     },
     getByShop: async (shopId: string, dateStr?: string): Promise<PurchaseBill[]> => {
@@ -378,9 +431,35 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to fetch purchases');
         return res.json();
       }
+      if (!hasShopLoadedFromCloud(shopId, 'purchases')) {
+        try {
+          const [cloudBills, deletedIds] = await Promise.all([
+            fetchPurchasesFromCloud(shopId, DEFAULT_HISTORY_QUERY_LIMIT),
+            localDb.loadDeletedPurchaseIds()
+          ]);
+          if (cloudBills && cloudBills.length > 0) {
+            for (const b of cloudBills) {
+              if (!deletedIds.has(b.id)) {
+                await localDb.savePurchaseBill(b);
+              }
+            }
+          }
+        } catch {
+          // Fallback to local
+        }
+      }
+      return localDb.getPurchasesByShop(shopId, dateStr);
+    },
+    loadOlderFromCloud: async (
+      shopId: string,
+      limitCount: number = DEFAULT_HISTORY_QUERY_LIMIT * 2
+    ): Promise<PurchaseBill[]> => {
+      if (isBackendConnected()) {
+        return AppRepository.purchases.getByShop(shopId);
+      }
       try {
         const [cloudBills, deletedIds] = await Promise.all([
-          fetchPurchasesFromCloud(shopId),
+          fetchPurchasesFromCloud(shopId, limitCount),
           localDb.loadDeletedPurchaseIds()
         ]);
         if (cloudBills && cloudBills.length > 0) {
@@ -390,10 +469,10 @@ export const AppRepository = {
             }
           }
         }
-      } catch (e) {
+      } catch {
         // Fallback to local
       }
-      return localDb.getPurchasesByShop(shopId, dateStr);
+      return localDb.getPurchasesByShop(shopId);
     },
     cancelBill: async (billId: string, shopId: string, reason: string): Promise<PurchaseBill> => {
       if (isBackendConnected()) {
@@ -406,22 +485,16 @@ export const AppRepository = {
         return res.json();
       }
       const cancelled = await localDb.cancelPurchaseBill(billId, shopId, reason);
-      await syncPurchaseBillToCloud(cancelled).catch(() => {});
       const productIds = Array.from(new Set(cancelled.items.map(i => i.productId).filter(Boolean)));
-      await Promise.allSettled([
-        ...productIds.map(async pid => {
-          const prod = await localDb.getProductById(pid);
-          if (prod) await syncProductToCloud(prod);
-        }),
-        ...(cancelled.supplierId
-          ? [
-              localDb.getSuppliersByShop(shopId).then(async sups => {
-                const sup = sups.find(s => s.id === cancelled.supplierId);
-                if (sup) await syncSupplierToCloud(sup);
-              })
-            ]
-          : [])
-      ]);
+      const updatedProducts = (
+        await Promise.all(productIds.map(pid => localDb.getProductById(pid).catch(() => null)))
+      ).filter((p): p is Product => Boolean(p));
+      let updatedSupplier: Supplier | null = null;
+      if (cancelled.supplierId) {
+        const sups = await localDb.getSuppliersByShop(shopId).catch(() => []);
+        updatedSupplier = sups.find(s => s.id === cancelled.supplierId) || null;
+      }
+      await syncPurchaseBillAtomicallyToCloud(cancelled, updatedProducts, updatedSupplier).catch(() => {});
       return cancelled;
     },
     deleteCancelledBill: async (billId: string, shopId: string): Promise<void> => {
@@ -443,20 +516,22 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to fetch suppliers');
         return res.json();
       }
-      try {
-        const [cloudSups, deletedIds] = await Promise.all([
-          fetchSuppliersFromCloud(shopId),
-          localDb.loadDeletedSupplierIds()
-        ]);
-        if (cloudSups && cloudSups.length > 0) {
-          for (const s of cloudSups) {
-            if (!deletedIds.has(s.id)) {
-              await localDb.saveSupplier(s);
+      if (!hasShopLoadedFromCloud(shopId, 'suppliers')) {
+        try {
+          const [cloudSups, deletedIds] = await Promise.all([
+            fetchSuppliersFromCloud(shopId),
+            localDb.loadDeletedSupplierIds()
+          ]);
+          if (cloudSups && cloudSups.length > 0) {
+            for (const s of cloudSups) {
+              if (!deletedIds.has(s.id)) {
+                await localDb.saveSupplier(s);
+              }
             }
           }
+        } catch {
+          // Fallback to local
         }
-      } catch (e) {
-        // Fallback to local
       }
       return localDb.getSuppliersByShop(shopId);
     },
@@ -484,7 +559,16 @@ export const AppRepository = {
         if (!res.ok) throw new Error('Failed to record supplier payment');
         return res.json();
       }
-      return localDb.recordSupplierPayment(paymentData);
+      const savedPayment = await localDb.recordSupplierPayment(paymentData);
+      const sups = await localDb.getSuppliersByShop(savedPayment.shopId).catch(() => []);
+      const updatedSup = sups.find((s) => s.id === savedPayment.supplierId) || null;
+      let autoBankEntry: BankEntry | null = null;
+      if (savedPayment.paymentMode === 'BANK_TRANSFER' || savedPayment.paymentMode === 'UPI') {
+        const bankList = await localDb.getBankEntriesByShop(savedPayment.shopId).catch(() => []);
+        autoBankEntry = bankList.find((b) => b.id === `bank-spay-${savedPayment.id}`) || null;
+      }
+      await syncSupplierPaymentAtomicallyToCloud(savedPayment, updatedSup, autoBankEntry).catch(() => {});
+      return savedPayment;
     },
     getPayments: async (shopId: string, supplierId?: string): Promise<SupplierPayment[]> => {
       if (isBackendConnected()) {
@@ -527,12 +611,13 @@ export const AppRepository = {
       }
       return localDb.getExpensesByShop(shopId, dateStr);
     },
-    delete: async (expenseId: string): Promise<void> => {
+    delete: async (expenseId: string, shopId?: string): Promise<void> => {
       if (isBackendConnected()) {
         await fetch(`${API_BASE_URL}/api/expenses/${expenseId}`, { method: 'DELETE' });
         return;
       }
-      return localDb.deleteExpense(expenseId);
+      await localDb.deleteExpense(expenseId);
+      await deleteExpenseFromCloud(expenseId, shopId).catch(() => {});
     }
   },
 
@@ -568,15 +653,16 @@ export const AppRepository = {
         return res.json();
       }
       const saved = await localDb.saveBankEntry(entry);
-      syncBankEntryToCloud(saved).catch(() => {});
+      await syncBankEntryToCloud(saved).catch(() => {});
       return saved;
     },
-    deleteEntry: async (id: string): Promise<void> => {
+    deleteEntry: async (id: string, shopId?: string): Promise<void> => {
       if (isBackendConnected()) {
         await fetch(`${API_BASE_URL}/api/banking/entries/${id}`, { method: 'DELETE' });
         return;
       }
-      return localDb.deleteBankEntry(id);
+      await localDb.deleteBankEntry(id);
+      await deleteBankEntryFromCloud(id, shopId).catch(() => {});
     },
     getSummary: async (
       shopId: string,
@@ -657,6 +743,32 @@ export const AppRepository = {
     },
     resetDefaults: async (): Promise<void> => {
       return localDb.resetDatabaseToFactoryDefaults();
+    }
+  },
+
+  // 9. Dairy Crate In/Out Tracker (100% Cloud Firestore)
+  crates: {
+    getSummary: async (shopId: string): Promise<CrateSummary> => {
+      return fetchCratesFromCloud(shopId);
+    },
+    subscribe: (shopId: string, onUpdate: (summary: CrateSummary) => void) => {
+      return subscribeToCrates(shopId, onUpdate);
+    },
+    record: async (entry: Omit<CrateTransaction, 'id' | 'createdAt'>): Promise<CrateTransaction> => {
+      return recordCrateTransactionToCloud(entry);
+    },
+    delete: async (shopId: string, entryId: string, type: 'IN' | 'OUT', quantity: number): Promise<void> => {
+      return deleteCrateTransactionFromCloud(shopId, entryId, type, quantity);
+    }
+  },
+
+  // 10. Day Close Summary (100% Cloud Firestore)
+  dayClose: {
+    save: async (record: DayCloseRecord): Promise<DayCloseRecord> => {
+      return saveDayCloseToCloud(record);
+    },
+    getHistory: async (shopId: string): Promise<DayCloseRecord[]> => {
+      return getDayCloseHistoryFromCloud(shopId);
     }
   }
 };

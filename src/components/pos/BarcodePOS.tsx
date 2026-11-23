@@ -29,14 +29,20 @@ import {
   Usb,
   Wrench,
   Printer,
-  X
+  X,
+  Box,
+  ClipboardCheck,
+  Clock
 } from 'lucide-react';
 import { Product, SaleBill, SaleItem, Shop, PaymentMode } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
 import { isShopSubscriptionActive } from '../../storage/subscription.ts';
 import { HardwareDiagnosticsModal } from './HardwareDiagnosticsModal.tsx';
+import { CrateTrackerModal } from './CrateTrackerModal.tsx';
+import { DayCloseModal } from './DayCloseModal.tsx';
 import { useBarcodeScanner } from '../../hooks/useBarcodeScanner.ts';
 import { startShopRealtimeSync } from '../../storage/firestoreSync.ts';
+import { getExpiringProductsWithinDays, safeMoney, safeQty } from '../../utils/posHelpers.ts';
 
 
 interface BarcodePOSProps {
@@ -83,8 +89,12 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [showUpiModal, setShowUpiModal] = useState(false);
 
-  // Hardware Assistant Modal & Catalog Sync States
+  // Hardware Assistant Modal, Crate Tracker, Day Close & Catalog Sync States
   const [isHardwareModalOpen, setIsHardwareModalOpen] = useState(false);
+  const [isCrateModalOpen, setIsCrateModalOpen] = useState(false);
+  const [isDayCloseModalOpen, setIsDayCloseModalOpen] = useState(false);
+  const [liveCrateBalance, setLiveCrateBalance] = useState<number>(0);
+  const [showExpiryAlertPanel, setShowExpiryAlertPanel] = useState(false);
   const [isSyncingCatalog, setIsSyncingCatalog] = useState(false);
 
   // Global Hardware Barcode Scanner Gun Listener
@@ -100,35 +110,46 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
   const scanBuffer = useRef<string>('');
   const lastKeyTime = useRef<number>(0);
 
-  // Load products for this shop from local DB
-  const loadProducts = async () => {
+  const hasLoadedOnceRef = useRef(false);
+  const lastShopIdRef = useRef<string>(currentShop.id);
+
+  // Load products for this shop from local cache (never flashes loading/empty on routine background updates)
+  const loadProducts = async (opts?: { silent?: boolean }) => {
+    const isShopSwitch = lastShopIdRef.current !== currentShop.id;
+    if (isShopSwitch) {
+      lastShopIdRef.current = currentShop.id;
+      hasLoadedOnceRef.current = false;
+    }
+    const shouldShowSpinner = !opts?.silent && !hasLoadedOnceRef.current;
     try {
-      setLoading(true);
+      if (shouldShowSpinner) setLoading(true);
       const list = await AppRepository.products.getByShop(currentShop.id);
       setProducts(list);
+      hasLoadedOnceRef.current = true;
     } catch (err) {
       console.error('Failed to load products for POS:', err);
     } finally {
-      setLoading(false);
+      if (shouldShowSpinner) setLoading(false);
     }
   };
 
-  // Real-time Firestore Sync for products and inventory collections scoped to currentShop.id
+  // Real-time Firestore Sync for products and inventory collections scoped strictly to primitive currentShop.id
   useEffect(() => {
+    const shopId = currentShop.id;
     loadProducts();
-    const syncListeners = startShopRealtimeSync(
-      currentShop.id,
-      () => {
-        loadProducts();
-      },
-      currentShop
-    );
+    const syncListeners = startShopRealtimeSync(shopId, () => {
+      loadProducts({ silent: true });
+    });
+    const unsubCrates = AppRepository.crates.subscribe(shopId, (summary) => {
+      setLiveCrateBalance(summary.netBalance);
+    });
     const handleCloudSynced = () => {
-      loadProducts();
+      loadProducts({ silent: true });
     };
     window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
     return () => {
       syncListeners.unsubscribeAll();
+      unsubCrates();
       window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
     };
   }, [currentShop.id]);
@@ -141,7 +162,8 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
       setScanMessage({ text: `Catalog Synced! ${res.total} parlour products ready with barcodes.`, type: 'success' });
       setTimeout(() => setScanMessage(null), 3500);
     } catch (err: any) {
-      alert(`Failed to sync catalog: ${err.message}`);
+      setScanMessage({ text: `Failed to sync catalog: ${err?.message || 'Unknown error'}`, type: 'error' });
+      setTimeout(() => setScanMessage(null), 4500);
     } finally {
       setIsSyncingCatalog(false);
     }
@@ -409,15 +431,20 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
       return;
     }
 
+    const safeUnitPrice = safeMoney(product.sellingPrice, 0);
+    const safeMrp = safeMoney(product.mrp, safeUnitPrice);
+    const safeCost = safeMoney(product.costPrice, 0);
+
     setCart(prev => {
       const existing = prev.find(item => item.productId === product.id);
       if (existing) {
+        const nextQty = safeQty(existing.quantity + 1, 1);
         return prev.map(item =>
           item.productId === product.id
             ? {
                 ...item,
-                quantity: item.quantity + 1,
-                total: (item.quantity + 1) * item.unitPrice
+                quantity: nextQty,
+                total: safeMoney(nextQty * safeMoney(item.unitPrice, safeUnitPrice))
               }
             : item
         );
@@ -428,11 +455,11 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
           barcode: product.barcode,
           quantity: 1,
           unit: product.unit,
-          mrp: product.mrp,
-          unitPrice: product.sellingPrice,
-          costPrice: product.costPrice,
-          total: product.sellingPrice,
-          availableStock: product.currentStock
+          mrp: safeMrp,
+          unitPrice: safeUnitPrice,
+          costPrice: safeCost,
+          total: safeUnitPrice,
+          availableStock: safeQty(product.currentStock, 0)
         };
         return [...prev, newItem];
       }
@@ -440,7 +467,8 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
   };
 
   const updateCartQty = (productId: string, newQty: number) => {
-    if (newQty <= 0) {
+    const cleanQty = safeQty(newQty, 0);
+    if (cleanQty <= 0) {
       removeFromCart(productId);
       return;
     }
@@ -449,8 +477,8 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
         item.productId === productId
           ? {
               ...item,
-              quantity: newQty,
-              total: Math.round(newQty * item.unitPrice * 100) / 100
+              quantity: cleanQty,
+              total: safeMoney(cleanQty * safeMoney(item.unitPrice, 0))
             }
           : item
       )
@@ -468,16 +496,23 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
     setCustomerPhone('');
   };
 
-  // Calculations
-  const subtotal = cart.reduce((acc, item) => acc + item.total, 0);
-  const discountAmount = Math.round((subtotal * (discountPercent / 100)) * 100) / 100;
-  const taxableAmount = Math.max(0, subtotal - discountAmount);
-  // Amul dairy GST is included in retail MRP
-  const taxAmount = 0; 
-  const rawFinal = taxableAmount + taxAmount;
+  // Calculations (NaN-proof & rounded to 2 decimals)
+  const subtotal = safeMoney(cart.reduce((acc, item) => acc + safeMoney(item.total, 0), 0));
+  const safeDiscountPct = Number.isFinite(discountPercent) ? Math.min(100, Math.max(0, discountPercent)) : 0;
+  const discountAmount = safeMoney(subtotal * (safeDiscountPct / 100));
+  const taxableAmount = safeMoney(Math.max(0, subtotal - discountAmount));
+  // Dairy GST is included in retail MRP
+  const taxAmount = 0;
+  const rawFinal = safeMoney(taxableAmount + taxAmount);
   const roundedFinal = Math.round(rawFinal);
-  const roundOff = Math.round((roundedFinal - rawFinal) * 100) / 100;
-  const finalAmount = roundedFinal;
+  const roundOff = safeMoney(roundedFinal - rawFinal);
+  const finalAmount = Number.isFinite(roundedFinal) ? roundedFinal : 0;
+
+  // 3-Day Dairy Expiry Alerts
+  const expiryAlerts = React.useMemo(
+    () => getExpiringProductsWithinDays(products, 3),
+    [products]
+  );
 
   // Checkout submission
   const handleCompleteSale = async () => {
@@ -486,7 +521,10 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
 
     // Check 1-month plan subscription status
     if (!subCheck.isActive) {
-      alert(`Cannot complete sale: ${subCheck.message}. All previous shop sales, bills, and stock data are saved.`);
+      setScanMessage({
+        text: `Cannot complete sale: ${subCheck.message}. All previous shop sales, bills, and stock data are saved.`,
+        type: 'error'
+      });
       return;
     }
 
@@ -542,7 +580,11 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
       onSaleComplete(savedBill);
     } catch (err: any) {
       console.error('Failed to complete sale bill:', err);
-      alert(`Sale failed: ${err.message || 'Unknown error'}`);
+      setScanMessage({
+        text: `Sale failed: ${err?.message || 'Unknown error'}`,
+        type: 'error'
+      });
+      setTimeout(() => setScanMessage(null), 5000);
     } finally {
       setIsProcessing(false);
     }
@@ -616,7 +658,39 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsCrateModalOpen(true)}
+                className="text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
+                title="Track Dairy Crates In/Out in Cloud Firestore"
+              >
+                <Box className="w-3.5 h-3.5 text-amber-700" />
+                <span>Crates: {liveCrateBalance}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsDayCloseModalOpen(true)}
+                className="text-xs font-bold text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition shadow-2xs"
+                title="Open Day Close Summary & Counter Reconciliation"
+              >
+                <ClipboardCheck className="w-3.5 h-3.5 text-indigo-700" />
+                <span>Day Close</span>
+              </button>
+
+              {expiryAlerts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowExpiryAlertPanel((v) => !v)}
+                  className="text-xs font-bold text-rose-800 bg-rose-50 hover:bg-rose-100 border border-rose-300 px-2.5 py-1 rounded-lg flex items-center gap-1.5 cursor-pointer transition animate-pulse"
+                  title="Products expired or expiring within 3 days"
+                >
+                  <Clock className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Expiry Alert ({expiryAlerts.length})</span>
+                </button>
+              )}
+
               <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200 hidden sm:inline-flex items-center gap-1">
                 <span>Shortcut:</span>
                 <kbd className="font-bold text-slate-800 bg-white px-1.5 py-0.5 rounded border border-slate-300 shadow-2xs">Alt + S</kbd>
@@ -629,6 +703,55 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
               </span>
             </div>
           </div>
+
+          {/* 3-Day Expiry Alerts Collapsible Strip */}
+          {expiryAlerts.length > 0 && showExpiryAlertPanel && (
+            <div className="mb-3 p-3 bg-rose-50/90 border border-rose-200 rounded-xl space-y-2">
+              <div className="flex items-center justify-between text-xs font-extrabold text-rose-900">
+                <span className="flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-rose-600" />
+                  3-Day Dairy Expiry Alerts ({expiryAlerts.length} items need immediate attention)
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShowExpiryAlertPanel(false)}
+                  className="text-rose-600 hover:text-rose-800 text-[11px] font-bold cursor-pointer"
+                >
+                  Hide
+                </button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-36 overflow-y-auto">
+                {expiryAlerts.map((alert) => (
+                  <div
+                    key={alert.product.id}
+                    className="bg-white border border-rose-200 rounded-lg px-2.5 py-1.5 flex items-center justify-between gap-2 text-[11px]"
+                  >
+                    <div className="min-w-0">
+                      <div className="font-bold text-slate-900 truncate">{alert.product.name}</div>
+                      <div className="text-[10px] text-slate-500 font-mono">
+                        Exp: {alert.expiryDate} • Stock: {alert.product.currentStock}
+                      </div>
+                    </div>
+                    <span
+                      className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-extrabold ${
+                        alert.status === 'EXPIRED'
+                          ? 'bg-rose-600 text-white'
+                          : alert.status === 'TODAY'
+                          ? 'bg-amber-500 text-white'
+                          : 'bg-amber-100 text-amber-900'
+                      }`}
+                    >
+                      {alert.status === 'EXPIRED'
+                        ? 'EXPIRED'
+                        : alert.status === 'TODAY'
+                        ? 'TODAY'
+                        : `${alert.daysRemaining}d left`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Search Input Box */}
           <div className="relative">
@@ -1345,6 +1468,20 @@ export const BarcodePOS: React.FC<BarcodePOSProps> = ({
         products={products}
         shopName={currentShop.name}
         shopCode={currentShop.shopCode}
+      />
+
+      {/* Dairy Crate In/Out Tracker Modal (100% Cloud Firestore) */}
+      <CrateTrackerModal
+        isOpen={isCrateModalOpen}
+        onClose={() => setIsCrateModalOpen(false)}
+        currentShop={currentShop}
+      />
+
+      {/* Counter Day Close Summary Modal (100% Cloud Firestore + PDF) */}
+      <DayCloseModal
+        isOpen={isDayCloseModalOpen}
+        onClose={() => setIsDayCloseModalOpen(false)}
+        currentShop={currentShop}
       />
     </div>
   );

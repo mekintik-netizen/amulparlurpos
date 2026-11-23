@@ -64,9 +64,12 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
   const [adjustmentReason, setAdjustmentReason] = useState<string>('Physical count reconciliation');
   const [isSavingAdjustment, setIsSavingAdjustment] = useState<boolean>(false);
 
-  const loadReport = async () => {
+  const hasLoadedOnceRef = React.useRef(false);
+
+  const loadReport = async (opts?: { silent?: boolean }) => {
+    const shouldShowSpinner = !opts?.silent && !hasLoadedOnceRef.current;
     try {
-      setLoading(true);
+      if (shouldShowSpinner) setLoading(true);
       const [reportRows, movementLogs, productList] = await Promise.all([
         AppRepository.reports.getDailyStock(currentShop.id, targetDate),
         AppRepository.inventory.getMovements(
@@ -79,10 +82,11 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
       setRows(reportRows);
       setMovements(movementLogs);
       setProducts(productList);
+      hasLoadedOnceRef.current = true;
     } catch (err) {
       console.error('Failed to load stock report:', err);
     } finally {
-      setLoading(false);
+      if (shouldShowSpinner) setLoading(false);
     }
   };
 
@@ -123,7 +127,15 @@ export const DailyStockReport: React.FC<DailyStockReportProps> = ({ currentShop 
   };
 
   useEffect(() => {
+    hasLoadedOnceRef.current = false;
     loadReport();
+    const handleCloudSynced = () => {
+      loadReport({ silent: true });
+    };
+    window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    return () => {
+      window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    };
   }, [currentShop.id, targetDate]);
 
   // Export CSV

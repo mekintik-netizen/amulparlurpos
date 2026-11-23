@@ -26,7 +26,8 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
-  Download
+  Download,
+  MessageCircle
 } from 'lucide-react';
 import { SaleBill, Shop, PrintSettingsConfig } from '../../types/index.ts';
 import { getCachedPrintSettings, subscribeToPrintSettings } from '../../storage/printSettings.ts';
@@ -38,6 +39,7 @@ import {
   stripSoftwareBranding,
   RECEIPT_FOOTER_BRAND_CREDIT
 } from '../../utils/shopPdfBranding.ts';
+import { buildWhatsAppBillUrl } from '../../utils/posHelpers.ts';
 
 interface ThermalReceiptProps {
   bill: SaleBill | null;
@@ -528,6 +530,16 @@ export const ThermalReceipt: React.FC<ThermalReceiptProps> = ({
             >
               Close
             </button>
+            <a
+              href={buildWhatsAppBillUrl(shop, activeBill)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-sm transition flex items-center gap-1.5 cursor-pointer"
+              title="Send shop-branded bill or Khata receipt via WhatsApp"
+            >
+              <MessageCircle className="w-4 h-4" />
+              WhatsApp Bill
+            </a>
             <button
               type="button"
               onClick={() => downloadThermalReceiptPdf(shop, activeBill, printConfig)}

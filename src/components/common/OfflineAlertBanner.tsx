@@ -56,21 +56,20 @@ export const OfflineAlertBanner: React.FC<OfflineAlertBannerProps> = ({ currentS
 
   return (
     <>
-      {/* 1. Persistent Top Warning Banner When Offline */}
+      {/* 1. Clean, Non-Intrusive Yellow Top Banner When Offline */}
       {!isOnline && (
-        <div className="no-print bg-amber-500 text-slate-950 px-4 py-2 text-xs font-bold shadow-md border-b border-amber-600 transition-all flex flex-wrap items-center justify-between gap-2 z-40 sticky top-0">
+        <div
+          role="status"
+          className="no-print bg-amber-300 text-slate-950 px-4 py-2 text-xs font-bold shadow-sm border-b border-amber-400 transition-all flex flex-wrap items-center justify-between gap-2 z-40 sticky top-0"
+        >
           <div className="flex items-center gap-2">
-            <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-600"></span>
-            </span>
-            <WifiOff className="w-4 h-4 shrink-0 text-slate-950" />
+            <WifiOff className="w-4 h-4 shrink-0 text-amber-900" />
             <div className="flex flex-col sm:flex-row sm:items-center sm:gap-2">
-              <span className="text-[13px] font-black tracking-tight text-slate-950">
-                ઇન્ટરનેટ કનેક્શન નથી! કૃપા કરીને ઇન્ટરનેટ ચાલુ કરો જેથી ડેટા સર્વર પર સેવ થઈ શકે.
+              <span className="text-[13px] font-extrabold tracking-tight text-slate-950">
+                ⚠️ ઇન્ટરનેટ કનેક્શન બંધ છે — Offline Mode ચાલુ છે
               </span>
-              <span className="text-[11px] font-semibold text-slate-900 opacity-90 hidden md:inline">
-                (No internet connection! Data saved locally in IndexedDB &amp; will auto-sync on reconnect)
+              <span className="text-[11px] font-semibold text-amber-950/85 hidden md:inline">
+                (તમારો ડેટા સુરક્ષિત છે — ઇન્ટરનેટ આવતા જ ઓટોમેટિક ક્લાઉડ સિંક થશે)
               </span>
             </div>
           </div>
@@ -124,11 +123,11 @@ export const OfflineAlertBanner: React.FC<OfflineAlertBannerProps> = ({ currentS
         </div>
       )}
 
-      {/* 3. Syncing In Progress Indicator Badge (Floating bottom right) */}
-      {isSyncing && (
-        <div className="no-print fixed bottom-4 left-4 z-50 bg-slate-900/90 text-white px-3.5 py-2 rounded-xl shadow-xl flex items-center gap-2 text-xs font-bold backdrop-blur-xs border border-slate-700 animate-pulse">
+      {/* 3. Syncing indicator stays hidden after first load completes so routine updates never distract the cashier */}
+      {isSyncing && !isOnline && (
+        <div className="no-print fixed bottom-4 left-4 z-50 bg-slate-900/90 text-white px-3.5 py-2 rounded-xl shadow-xl flex items-center gap-2 text-xs font-bold backdrop-blur-xs border border-slate-700">
           <RefreshCw className="w-4 h-4 text-blue-400 animate-spin" />
-          <span>ક્લાઉડ સાથે સિંક થઈ રહ્યું છે... / Syncing to Cloud...</span>
+          <span>ક્લાઉડ સાથે સિંક થઈ રહ્યું છે...</span>
         </div>
       )}
 

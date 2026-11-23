@@ -24,7 +24,8 @@ import {
   ShoppingBag,
   Eye,
   FileSpreadsheet,
-  Download
+  Download,
+  MessageCircle
 } from 'lucide-react';
 import { DailySalesReportSummary, SaleBill, Shop } from '../../types/index.ts';
 import { AppRepository } from '../../storage/repositories.ts';
@@ -38,6 +39,7 @@ import {
   PDF_FOOTER_BRAND_CREDIT,
   printWithDynamicTitle
 } from '../../utils/shopPdfBranding.ts';
+import { buildWhatsAppBillUrl } from '../../utils/posHelpers.ts';
 
 interface DailySalesReportProps {
   currentShop: Shop;
@@ -53,20 +55,48 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
   const [cancellingBillId, setCancellingBillId] = useState<string | null>(null);
   const [cancelReason, setCancelReason] = useState('Customer returned milk item');
 
-  const loadDailySales = async () => {
+  const hasLoadedOnceRef = React.useRef(false);
+  const [salesHistoryLimit, setSalesHistoryLimit] = useState(100);
+  const [loadingOlderSales, setLoadingOlderSales] = useState(false);
+
+  const loadDailySales = async (opts?: { silent?: boolean }) => {
+    const shouldShowSpinner = !opts?.silent && !hasLoadedOnceRef.current;
     try {
-      setLoading(true);
+      if (shouldShowSpinner) setLoading(true);
       const data = await AppRepository.reports.getDailySales(currentShop.id, targetDate);
       setSummary(data);
+      hasLoadedOnceRef.current = true;
     } catch (err) {
       console.error('Failed to load daily sales report:', err);
     } finally {
-      setLoading(false);
+      if (shouldShowSpinner) setLoading(false);
+    }
+  };
+
+  const handleLoadOlderSales = async () => {
+    const nextLimit = salesHistoryLimit + 100;
+    setLoadingOlderSales(true);
+    try {
+      await AppRepository.sales.loadOlderFromCloud(currentShop.id, nextLimit);
+      setSalesHistoryLimit(nextLimit);
+      await loadDailySales({ silent: true });
+    } catch (err) {
+      console.warn('Failed to load older sales records:', err);
+    } finally {
+      setLoadingOlderSales(false);
     }
   };
 
   useEffect(() => {
+    hasLoadedOnceRef.current = false;
     loadDailySales();
+    const handleCloudSynced = () => {
+      loadDailySales({ silent: true });
+    };
+    window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    return () => {
+      window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    };
   }, [currentShop.id, targetDate]);
 
   const handleCancelBill = async (billId: string) => {
@@ -249,7 +279,7 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
             </button>
 
             <button
-              onClick={loadDailySales}
+              onClick={() => loadDailySales()}
               className="p-2 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl transition cursor-pointer"
               title="Refresh Sales Data"
             >
@@ -405,6 +435,16 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
                       </td>
                       <td className="py-2.5 px-3 text-right font-sans no-print">
                         <div className="flex items-center justify-end gap-1.5">
+                          <a
+                            href={buildWhatsAppBillUrl(currentShop, bill)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition"
+                            title={bill.paymentMode === 'CREDIT' ? 'Send Khata Bill via WhatsApp' : 'Send Bill via WhatsApp'}
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                          </a>
+
                           <button
                             onClick={() => onReprintBill(bill)}
                             className="p-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded-lg transition"
@@ -439,6 +479,20 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
                 )}
               </tbody>
             </table>
+            <div className="no-print flex items-center justify-between gap-2 px-3 py-2.5 border-t border-slate-100 bg-slate-50/70">
+              <span className="text-[11px] text-slate-500 font-medium">
+                Cloud history window: last {salesHistoryLimit} bills
+              </span>
+              <button
+                type="button"
+                onClick={handleLoadOlderSales}
+                disabled={loadingOlderSales}
+                className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingOlderSales ? 'animate-spin' : ''}`} />
+                <span>{loadingOlderSales ? 'Loading...' : 'Load Older Records'}</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -521,6 +575,15 @@ export const DailySalesReport: React.FC<DailySalesReportProps> = ({ currentShop,
             </div>
 
             <div className="mt-4 flex justify-end gap-2">
+              <a
+                href={buildWhatsAppBillUrl(currentShop, selectedBillForDetails)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                WhatsApp Bill
+              </a>
               <button
                 onClick={() => {
                   onReprintBill(selectedBillForDetails);

@@ -88,9 +88,12 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
 
   const subCheck = isShopSubscriptionActive(currentShop);
 
-  const loadData = async () => {
+  const hasLoadedOnceRef = React.useRef(false);
+
+  const loadData = async (opts?: { silent?: boolean }) => {
+    const shouldShowSpinner = !opts?.silent && !hasLoadedOnceRef.current;
     try {
-      setLoading(true);
+      if (shouldShowSpinner) setLoading(true);
       const [prodList, saleList, supList] = await Promise.all([
         AppRepository.products.getByShop(currentShop.id),
         AppRepository.sales.getByShop(currentShop.id),
@@ -99,6 +102,7 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
       setProducts(prodList);
       setSales(saleList);
       setSuppliers(supList);
+      hasLoadedOnceRef.current = true;
       if (supList.length > 0 && !selectedSupplierId) {
         setSelectedSupplierId(supList[0].id);
         setCustomAgencyName(supList[0].companyName || supList[0].name);
@@ -108,17 +112,23 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
     } catch (err) {
       console.error('[SmartOrder] Failed to load data:', err);
     } finally {
-      setLoading(false);
+      if (shouldShowSpinner) setLoading(false);
     }
   };
 
   useEffect(() => {
+    hasLoadedOnceRef.current = false;
     loadData();
     const sync = startShopRealtimeSync(currentShop.id, () => {
-      loadData();
+      loadData({ silent: true });
     });
+    const handleCloudSynced = () => {
+      loadData({ silent: true });
+    };
+    window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
     return () => {
       sync.unsubscribeAll();
+      window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
     };
   }, [currentShop.id]);
 
@@ -432,7 +442,7 @@ export const SmartOrderManagement: React.FC<SmartOrderManagementProps> = ({
           <div className="flex items-center gap-2">
             <button
               type="button"
-              onClick={loadData}
+              onClick={() => loadData()}
               disabled={loading}
               className="px-3 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
             >

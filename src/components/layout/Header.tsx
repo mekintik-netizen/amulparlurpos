@@ -5,7 +5,7 @@
  * Main Application Header & Navigation Bar with ParlourPro POS brand identity.
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Barcode, 
   Package, 
@@ -30,7 +30,8 @@ import {
   WifiOff,
   ClipboardList,
   Sparkles,
-  RefreshCw
+  RefreshCw,
+  Cloud
 } from 'lucide-react';
 import { Shop } from '../../types/index.ts';
 import { AuthSession } from '../../storage/auth.ts';
@@ -38,6 +39,7 @@ import { Theme } from '../../storage/theme.ts';
 import { useNetworkStatus } from '../../storage/offlineSyncManager.ts';
 import { isAiAccessAllowedForSession } from '../../storage/aiConfig.ts';
 import { LOGO_ROUND_URL } from '../../assets/logo.ts';
+import { CloudSyncStatus, getCloudSyncStatus, subscribeToCloudSyncStatus } from '../../storage/firebase.ts';
 
 export type ActiveTab = 
   | 'POS' 
@@ -91,6 +93,22 @@ export const Header: React.FC<HeaderProps> = ({
   const isAdmin = currentUser?.role === 'ADMIN';
   const showAiAssistant = isAiAccessAllowedForSession(currentUser, currentShop);
   const { isOnline } = useNetworkStatus(currentShop?.id);
+  const [cloudStatus, setCloudStatus] = useState<CloudSyncStatus>(() => getCloudSyncStatus().status);
+  const [lastSyncedAt, setLastSyncedAt] = useState<string | null>(() => getCloudSyncStatus().lastSyncedAt);
+
+  useEffect(() => {
+    const unsub = subscribeToCloudSyncStatus((state) => {
+      setCloudStatus(state.status);
+      setLastSyncedAt(state.lastSyncedAt);
+    });
+    return () => unsub();
+  }, []);
+
+  const effectiveCloudState: CloudSyncStatus = !isOnline
+    ? 'offline'
+    : isCloudSyncing || cloudStatus === 'syncing'
+    ? 'syncing'
+    : 'synced';
 
   return (
     <header className="bg-[#005A9C] dark:bg-slate-900 text-white shadow-md border-b-2 border-[#E31837] dark:border-rose-600 no-print transition-colors duration-200">
@@ -383,26 +401,40 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
             )}
 
-            {/* Network / Cloud Sync Status Pill */}
+            {/* Live Cloud Firestore Sync Status Indicator */}
             <div
-              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition ${
-                isOnline
-                  ? 'bg-emerald-950/40 border-emerald-400/40 text-emerald-200'
-                  : 'bg-amber-950/60 border-amber-400/60 text-amber-200 animate-pulse'
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition whitespace-nowrap ${
+                effectiveCloudState === 'synced'
+                  ? 'bg-emerald-950/45 border-emerald-400/45 text-emerald-100'
+                  : effectiveCloudState === 'syncing'
+                  ? 'bg-amber-950/55 border-amber-400/55 text-amber-100'
+                  : 'bg-rose-950/60 border-rose-400/60 text-rose-100 animate-pulse'
               }`}
-              title={isOnline ? 'Cloud Firestore Real-Time Sync Active' : 'Offline Mode: Data saved locally in IndexedDB'}
+              title={
+                effectiveCloudState === 'synced'
+                  ? `Cloud Firestore Synced${lastSyncedAt ? ` (${new Date(lastSyncedAt).toLocaleTimeString('en-IN')})` : ''}`
+                  : effectiveCloudState === 'syncing'
+                  ? 'Syncing live data with Cloud Firestore...'
+                  : 'Offline Mode: Changes will sync automatically when online'
+              }
             >
-              {isOnline ? (
+              {effectiveCloudState === 'synced' ? (
                 <>
+                  <Cloud className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                  <span className="hidden sm:inline">Cloud Synced</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-                  <Wifi className="w-3.5 h-3.5 text-emerald-300" />
-                  <span className="hidden xl:inline">Live</span>
+                </>
+              ) : effectiveCloudState === 'syncing' ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-300 animate-spin shrink-0" />
+                  <span className="hidden sm:inline">Syncing...</span>
+                  <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shrink-0" />
                 </>
               ) : (
                 <>
+                  <WifiOff className="w-3.5 h-3.5 text-rose-300 shrink-0" />
+                  <span className="hidden sm:inline font-extrabold text-rose-200">Offline</span>
                   <span className="w-2 h-2 rounded-full bg-rose-400 shrink-0" />
-                  <WifiOff className="w-3.5 h-3.5 text-amber-300" />
-                  <span className="hidden xl:inline font-extrabold text-amber-300">Offline</span>
                 </>
               )}
             </div>

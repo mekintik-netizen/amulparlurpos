@@ -110,29 +110,40 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
   const [mrp, setMrp] = useState<number>(27);
   const [currentStock, setCurrentStock] = useState<number>(50);
   const [minStockAlert, setMinStockAlert] = useState<number>(15);
+  const [expiryDate, setExpiryDate] = useState<string>('');
   const [imageUrl, setImageUrl] = useState<string>('');
 
-  const loadProducts = async () => {
+  const hasLoadedOnceRef = React.useRef(false);
+
+  const loadProducts = async (opts?: { silent?: boolean }) => {
+    const shouldShowSpinner = !opts?.silent && !hasLoadedOnceRef.current;
     try {
-      setLoading(true);
+      if (shouldShowSpinner) setLoading(true);
       const list = await AppRepository.products.getByShop(currentShop.id);
       setProducts(list);
+      hasLoadedOnceRef.current = true;
     } catch (err) {
       console.error('Failed to load products:', err);
     } finally {
-      setLoading(false);
+      if (shouldShowSpinner) setLoading(false);
     }
   };
 
-  // Real-time synchronization for catalog & inventory updates across devices
+  // Real-time synchronization for catalog & inventory updates across devices (silent refresh prevents flicker)
   useEffect(() => {
+    hasLoadedOnceRef.current = false;
     loadProducts();
     const sync = startShopRealtimeSync(currentShop.id, () => {
-      loadProducts();
+      loadProducts({ silent: true });
       onProductChanged?.();
     });
+    const handleCloudSynced = () => {
+      loadProducts({ silent: true });
+    };
+    window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
     return () => {
       sync.unsubscribeAll();
+      window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
     };
   }, [currentShop.id]);
 
@@ -262,6 +273,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     setMrp(28);
     setCurrentStock(40);
     setMinStockAlert(15);
+    setExpiryDate('');
     setImageUrl(AMUL_PRODUCT_IMAGE_PRESETS.TAAZA_MILK.dataUrl);
     setIsModalOpen(true);
   };
@@ -283,6 +295,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
     setMrp(p.mrp);
     setCurrentStock(p.currentStock);
     setMinStockAlert(p.minStockAlert);
+    setExpiryDate(p.expiryDate || '');
     setImageUrl(p.imageUrl || getAmulProductPresetImage(p.name, p.category));
     setIsModalOpen(true);
   };
@@ -323,6 +336,7 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
         mrp,
         currentStock,
         minStockAlert,
+        expiryDate: expiryDate.trim() || undefined,
         imageUrl: imageUrl || getAmulProductPresetImage(name.trim(), category),
         isActive: true,
         createdAt: editingProduct ? editingProduct.createdAt : nowIso,
@@ -1473,6 +1487,18 @@ export const CatalogManagement: React.FC<CatalogManagementProps> = ({ currentSho
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-xs text-amber-700 font-bold"
                   />
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  Expiry Date (Optional — triggers 3-day POS Expiry Alert)
+                </label>
+                <input
+                  type="date"
+                  value={expiryDate}
+                  onChange={e => setExpiryDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-xl font-mono text-xs text-rose-700 font-semibold"
+                />
               </div>
 
               <div className="flex justify-end gap-2 pt-3">

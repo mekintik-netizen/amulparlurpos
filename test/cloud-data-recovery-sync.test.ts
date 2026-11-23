@@ -37,6 +37,10 @@ vi.mock('firebase/firestore', () => ({
     __constraints: constraints
   }),
   where: (field: string, op: string, value: any) => ({ field, op, value }),
+  orderBy: (field: string, dir?: string) => ({ field, op: 'orderBy', value: dir || 'asc' }),
+  limit: (n: number) => ({ field: 'limit', op: 'limit', value: n }),
+  writeBatch: vi.fn(() => ({ set: vi.fn(), delete: vi.fn(), commit: vi.fn(async () => {}) })),
+  increment: (n: number) => ({ __increment: n }),
   getDoc: vi.fn(async (ref: any) => {
     queriedPaths.push(`getDoc:${ref.__path}`);
     if (ref.__path === 'shops/shop-legacy-01') {
@@ -173,6 +177,19 @@ vi.mock('../src/storage/firebase.ts', () => ({
   reconnectFirestoreCloud: vi.fn(async () => true),
   getAdminAuthConfig: vi.fn(async () => ({})),
   updateAdminAuthConfig: vi.fn(async () => {}),
+  setCloudSyncStatus: vi.fn(),
+  getCloudSyncStatus: vi.fn(() => ({ status: 'synced', lastSyncedAt: null })),
+  subscribeToCloudSyncStatus: vi.fn(() => () => {}),
+  OperationType: {
+    CREATE: 'create',
+    UPDATE: 'update',
+    DELETE: 'delete',
+    LIST: 'list',
+    GET: 'get',
+    WRITE: 'write'
+  },
+  handleFirestoreError: vi.fn(),
+  isTransientNetworkError: vi.fn(() => false),
   DEFAULT_ADMIN_AUTH_CONFIG: {
     superAdminEmail: 'mekintik@gmail.com',
     superAdminPhone: ''

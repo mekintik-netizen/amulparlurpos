@@ -1114,11 +1114,12 @@ const deletedProductIdsMemory = new Set<string>();
 const supplierSeedDoneMemory = new Set<string>();
 const productSeedDoneMemory = new Set<string>();
 
-function readSetFromLocalStorage(key: string): string[] {
+function consumeLegacyLocalStorageSet(key: string): string[] {
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
       const raw = window.localStorage.getItem(key);
       if (raw) {
+        window.localStorage.removeItem(key);
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) return parsed.filter((x): x is string => typeof x === 'string');
       }
@@ -1129,13 +1130,19 @@ function readSetFromLocalStorage(key: string): string[] {
   return [];
 }
 
-function writeSetToLocalStorage(key: string, values: Set<string>): void {
+async function persistAppSetting(key: string, value: unknown): Promise<void> {
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(key, JSON.stringify(Array.from(values)));
+    const db = await openAppDatabase();
+    if (db.objectStoreNames.contains('appSettings')) {
+      await new Promise<void>((resolve) => {
+        const tx = db.transaction('appSettings', 'readwrite');
+        tx.objectStore('appSettings').put({ key, value });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      });
     }
   } catch {
-    // ignore storage errors
+    // ignore
   }
 }
 
@@ -1143,8 +1150,11 @@ function isSupplierSeedCompleted(shopId: string): boolean {
   if (supplierSeedDoneMemory.has(shopId)) return true;
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      if (window.localStorage.getItem(`${SUPPLIER_SEED_DONE_PREFIX}${shopId}`) === '1') {
+      const legacyKey = `${SUPPLIER_SEED_DONE_PREFIX}${shopId}`;
+      if (window.localStorage.getItem(legacyKey) === '1') {
         supplierSeedDoneMemory.add(shopId);
+        window.localStorage.removeItem(legacyKey);
+        void persistAppSetting(legacyKey, '1');
         return true;
       }
     }
@@ -1157,21 +1167,26 @@ function isSupplierSeedCompleted(shopId: string): boolean {
 function markSupplierSeedCompleted(shopId: string): void {
   if (!shopId) return;
   supplierSeedDoneMemory.add(shopId);
+  const key = `${SUPPLIER_SEED_DONE_PREFIX}${shopId}`;
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(`${SUPPLIER_SEED_DONE_PREFIX}${shopId}`, '1');
+      window.localStorage.removeItem(key);
     }
   } catch {
     // ignore
   }
+  void persistAppSetting(key, '1');
 }
 
 function isProductSeedCompleted(shopId: string): boolean {
   if (productSeedDoneMemory.has(shopId)) return true;
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      if (window.localStorage.getItem(`${PRODUCT_SEED_DONE_PREFIX}${shopId}`) === '1') {
+      const legacyKey = `${PRODUCT_SEED_DONE_PREFIX}${shopId}`;
+      if (window.localStorage.getItem(legacyKey) === '1') {
         productSeedDoneMemory.add(shopId);
+        window.localStorage.removeItem(legacyKey);
+        void persistAppSetting(legacyKey, '1');
         return true;
       }
     }
@@ -1184,17 +1199,20 @@ function isProductSeedCompleted(shopId: string): boolean {
 function markProductSeedCompleted(shopId: string): void {
   if (!shopId) return;
   productSeedDoneMemory.add(shopId);
+  const key = `${PRODUCT_SEED_DONE_PREFIX}${shopId}`;
   try {
     if (typeof window !== 'undefined' && window.localStorage) {
-      window.localStorage.setItem(`${PRODUCT_SEED_DONE_PREFIX}${shopId}`, '1');
+      window.localStorage.removeItem(key);
     }
   } catch {
     // ignore
   }
+  void persistAppSetting(key, '1');
 }
 
 export async function loadDeletedProductIds(): Promise<Set<string>> {
-  for (const id of readSetFromLocalStorage(DELETED_PRODUCTS_KEY)) {
+  const legacyIds = consumeLegacyLocalStorageSet(DELETED_PRODUCTS_KEY);
+  for (const id of legacyIds) {
     deletedProductIdsMemory.add(id);
   }
   try {
@@ -1211,6 +1229,9 @@ export async function loadDeletedProductIds(): Promise<Set<string>> {
       for (const id of stored) {
         deletedProductIdsMemory.add(id);
       }
+      if (legacyIds.length > 0) {
+        await persistAppSetting(DELETED_PRODUCTS_KEY, Array.from(deletedProductIdsMemory));
+      }
     }
   } catch {
     // ignore
@@ -1220,8 +1241,12 @@ export async function loadDeletedProductIds(): Promise<Set<string>> {
 
 export function isProductDeleted(productId: string): boolean {
   if (deletedProductIdsMemory.has(productId)) return true;
-  for (const id of readSetFromLocalStorage(DELETED_PRODUCTS_KEY)) {
-    deletedProductIdsMemory.add(id);
+  const legacyIds = consumeLegacyLocalStorageSet(DELETED_PRODUCTS_KEY);
+  if (legacyIds.length > 0) {
+    for (const id of legacyIds) {
+      deletedProductIdsMemory.add(id);
+    }
+    void persistAppSetting(DELETED_PRODUCTS_KEY, Array.from(deletedProductIdsMemory));
   }
   return deletedProductIdsMemory.has(productId);
 }
@@ -1231,27 +1256,12 @@ async function markProductDeleted(productId: string, shopId?: string): Promise<v
   if (shopId) {
     markProductSeedCompleted(shopId);
   }
-  writeSetToLocalStorage(DELETED_PRODUCTS_KEY, deletedProductIdsMemory);
-  try {
-    const db = await openAppDatabase();
-    if (db.objectStoreNames.contains('appSettings')) {
-      await new Promise<void>((resolve) => {
-        const tx = db.transaction('appSettings', 'readwrite');
-        tx.objectStore('appSettings').put({
-          key: DELETED_PRODUCTS_KEY,
-          value: Array.from(deletedProductIdsMemory)
-        });
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
-      });
-    }
-  } catch {
-    // ignore
-  }
+  await persistAppSetting(DELETED_PRODUCTS_KEY, Array.from(deletedProductIdsMemory));
 }
 
 export async function loadDeletedSupplierIds(): Promise<Set<string>> {
-  for (const id of readSetFromLocalStorage(DELETED_SUPPLIERS_KEY)) {
+  const legacyIds = consumeLegacyLocalStorageSet(DELETED_SUPPLIERS_KEY);
+  for (const id of legacyIds) {
     deletedSupplierIdsMemory.add(id);
   }
   try {
@@ -1268,6 +1278,9 @@ export async function loadDeletedSupplierIds(): Promise<Set<string>> {
       for (const id of stored) {
         deletedSupplierIdsMemory.add(id);
       }
+      if (legacyIds.length > 0) {
+        await persistAppSetting(DELETED_SUPPLIERS_KEY, Array.from(deletedSupplierIdsMemory));
+      }
     }
   } catch {
     // ignore
@@ -1277,8 +1290,12 @@ export async function loadDeletedSupplierIds(): Promise<Set<string>> {
 
 export function isSupplierDeleted(supplierId: string): boolean {
   if (deletedSupplierIdsMemory.has(supplierId)) return true;
-  for (const id of readSetFromLocalStorage(DELETED_SUPPLIERS_KEY)) {
-    deletedSupplierIdsMemory.add(id);
+  const legacyIds = consumeLegacyLocalStorageSet(DELETED_SUPPLIERS_KEY);
+  if (legacyIds.length > 0) {
+    for (const id of legacyIds) {
+      deletedSupplierIdsMemory.add(id);
+    }
+    void persistAppSetting(DELETED_SUPPLIERS_KEY, Array.from(deletedSupplierIdsMemory));
   }
   return deletedSupplierIdsMemory.has(supplierId);
 }
@@ -1288,27 +1305,12 @@ async function markSupplierDeleted(supplierId: string, shopId?: string): Promise
   if (shopId) {
     markSupplierSeedCompleted(shopId);
   }
-  writeSetToLocalStorage(DELETED_SUPPLIERS_KEY, deletedSupplierIdsMemory);
-  try {
-    const db = await openAppDatabase();
-    if (db.objectStoreNames.contains('appSettings')) {
-      await new Promise<void>((resolve) => {
-        const tx = db.transaction('appSettings', 'readwrite');
-        tx.objectStore('appSettings').put({
-          key: DELETED_SUPPLIERS_KEY,
-          value: Array.from(deletedSupplierIdsMemory)
-        });
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
-      });
-    }
-  } catch {
-    // ignore
-  }
+  await persistAppSetting(DELETED_SUPPLIERS_KEY, Array.from(deletedSupplierIdsMemory));
 }
 
 export async function loadDeletedPurchaseIds(): Promise<Set<string>> {
-  for (const id of readSetFromLocalStorage(DELETED_PURCHASES_KEY)) {
+  const legacyIds = consumeLegacyLocalStorageSet(DELETED_PURCHASES_KEY);
+  for (const id of legacyIds) {
     deletedPurchaseIdsMemory.add(id);
   }
   try {
@@ -1325,6 +1327,9 @@ export async function loadDeletedPurchaseIds(): Promise<Set<string>> {
       for (const id of stored) {
         deletedPurchaseIdsMemory.add(id);
       }
+      if (legacyIds.length > 0) {
+        await persistAppSetting(DELETED_PURCHASES_KEY, Array.from(deletedPurchaseIdsMemory));
+      }
     }
   } catch {
     // ignore
@@ -1334,31 +1339,19 @@ export async function loadDeletedPurchaseIds(): Promise<Set<string>> {
 
 export function isPurchaseDeleted(purchaseId: string): boolean {
   if (deletedPurchaseIdsMemory.has(purchaseId)) return true;
-  for (const id of readSetFromLocalStorage(DELETED_PURCHASES_KEY)) {
-    deletedPurchaseIdsMemory.add(id);
+  const legacyIds = consumeLegacyLocalStorageSet(DELETED_PURCHASES_KEY);
+  if (legacyIds.length > 0) {
+    for (const id of legacyIds) {
+      deletedPurchaseIdsMemory.add(id);
+    }
+    void persistAppSetting(DELETED_PURCHASES_KEY, Array.from(deletedPurchaseIdsMemory));
   }
   return deletedPurchaseIdsMemory.has(purchaseId);
 }
 
 async function markPurchaseDeleted(purchaseId: string): Promise<void> {
   deletedPurchaseIdsMemory.add(purchaseId);
-  writeSetToLocalStorage(DELETED_PURCHASES_KEY, deletedPurchaseIdsMemory);
-  try {
-    const db = await openAppDatabase();
-    if (db.objectStoreNames.contains('appSettings')) {
-      await new Promise<void>((resolve) => {
-        const tx = db.transaction('appSettings', 'readwrite');
-        tx.objectStore('appSettings').put({
-          key: DELETED_PURCHASES_KEY,
-          value: Array.from(deletedPurchaseIdsMemory)
-        });
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
-      });
-    }
-  } catch {
-    // ignore
-  }
+  await persistAppSetting(DELETED_PURCHASES_KEY, Array.from(deletedPurchaseIdsMemory));
 }
 
 export async function getSuppliersByShop(shopId: string): Promise<Supplier[]> {

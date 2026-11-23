@@ -70,21 +70,33 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
+  const hasLoadedOnceRef = React.useRef(false);
+
   // Load bank entries
-  const loadEntries = async () => {
+  const loadEntries = async (opts?: { silent?: boolean }) => {
+    const shouldShowSpinner = !opts?.silent && !hasLoadedOnceRef.current;
     try {
-      setLoading(true);
+      if (shouldShowSpinner) setLoading(true);
       const list = await AppRepository.banking.getByShop(currentShop.id);
       setEntries(list);
+      hasLoadedOnceRef.current = true;
     } catch (err) {
       console.error('Failed to load bank entries:', err);
     } finally {
-      setLoading(false);
+      if (shouldShowSpinner) setLoading(false);
     }
   };
 
   useEffect(() => {
+    hasLoadedOnceRef.current = false;
     loadEntries();
+    const handleCloudSynced = () => {
+      loadEntries({ silent: true });
+    };
+    window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    return () => {
+      window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    };
   }, [currentShop.id]);
 
   // Date boundaries for filtering
@@ -224,7 +236,7 @@ export const BankStatementManagement: React.FC<BankStatementManagementProps> = (
       return;
     }
     try {
-      await AppRepository.banking.deleteEntry(id);
+      await AppRepository.banking.deleteEntry(id, currentShop.id);
       await loadEntries();
     } catch (err) {
       console.error('Failed to delete entry:', err);

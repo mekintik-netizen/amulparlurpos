@@ -130,9 +130,14 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
   const [confirmingPurchase, setConfirmingPurchase] = useState<PurchaseBill | null>(null);
   const [confirmSuccessMsg, setConfirmSuccessMsg] = useState('');
 
-  const loadData = async () => {
+  const hasLoadedOnceRef = React.useRef(false);
+  const [purchaseHistoryLimit, setPurchaseHistoryLimit] = useState(100);
+  const [loadingOlderPurchases, setLoadingOlderPurchases] = useState(false);
+
+  const loadData = async (opts?: { silent?: boolean }) => {
+    const shouldShowSpinner = !opts?.silent && !hasLoadedOnceRef.current;
     try {
-      setLoading(true);
+      if (shouldShowSpinner) setLoading(true);
       const [purList, supList, prodList] = await Promise.all([
         AppRepository.purchases.getByShop(currentShop.id),
         AppRepository.suppliers.getAll(currentShop.id),
@@ -141,6 +146,7 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
       setPurchases(purList);
       setSuppliers(supList);
       setProducts(prodList);
+      hasLoadedOnceRef.current = true;
       if (supList.length > 0 && !selectedSupplierId) {
         setSelectedSupplierId(supList[0].id);
         if (!agencyName) {
@@ -155,18 +161,38 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
     } catch (err) {
       console.error('Failed to load purchase data:', err);
     } finally {
-      setLoading(false);
+      if (shouldShowSpinner) setLoading(false);
     }
   };
 
-  // Real-time synchronization across devices and profiles
+  const handleLoadOlderPurchases = async () => {
+    const nextLimit = purchaseHistoryLimit + 100;
+    setLoadingOlderPurchases(true);
+    try {
+      const updatedList = await AppRepository.purchases.loadOlderFromCloud(currentShop.id, nextLimit);
+      setPurchases(updatedList);
+      setPurchaseHistoryLimit(nextLimit);
+    } catch (err) {
+      console.warn('Failed to load older purchase records:', err);
+    } finally {
+      setLoadingOlderPurchases(false);
+    }
+  };
+
+  // Real-time synchronization scoped strictly to primitive currentShop.id (silent refresh prevents flicker)
   useEffect(() => {
+    hasLoadedOnceRef.current = false;
     loadData();
     const sync = startShopRealtimeSync(currentShop.id, () => {
-      loadData();
+      loadData({ silent: true });
     });
+    const handleCloudSynced = () => {
+      loadData({ silent: true });
+    };
+    window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
     return () => {
       sync.unsubscribeAll();
+      window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
     };
   }, [currentShop.id]);
 
@@ -948,6 +974,20 @@ export const PurchaseManagement: React.FC<PurchaseManagementProps> = ({ currentS
                 )}
               </tbody>
             </table>
+            <div className="no-print flex items-center justify-between gap-2 px-3 py-3 border-t border-slate-100 bg-slate-50/70">
+              <span className="text-[11px] text-slate-500 font-medium">
+                Showing up to {purchaseHistoryLimit} recent purchase bills ({purchases.length} loaded)
+              </span>
+              <button
+                type="button"
+                onClick={handleLoadOlderPurchases}
+                disabled={loadingOlderPurchases}
+                className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 text-xs font-bold transition flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${loadingOlderPurchases ? 'animate-spin' : ''}`} />
+                <span>{loadingOlderPurchases ? 'Loading...' : 'Load Older Records'}</span>
+              </button>
+            </div>
           </div>
         ) : (
           <div className="overflow-x-auto">

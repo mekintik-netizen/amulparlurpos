@@ -18,46 +18,44 @@ const CUSTOM_EVENT_KEY = 'amul-subscription-settings-changed';
 let inMemoryConfig: SubscriptionSettingsConfig | null = null;
 
 /**
- * Cleanly reads cached subscription settings from LocalStorage or returns defaults.
+ * Reads in-memory subscription settings (hydrated from Cloud Firestore `adminSettings/subscriptionConfig`).
+ * Never uses browser localStorage for business subscription configuration.
  */
 export function getCachedSubscriptionSettings(): SubscriptionSettingsConfig {
   if (inMemoryConfig) return inMemoryConfig;
-
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        inMemoryConfig = { ...DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG, ...parsed };
-        return inMemoryConfig!;
-      }
-    }
-  } catch (err) {
-    console.warn('[SubscriptionSettings] Failed to parse local subscription config:', err);
-  }
-
   inMemoryConfig = { ...DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG };
   return inMemoryConfig;
 }
 
 /**
- * Saves configuration to local cache and dispatches cross-tab/in-app event.
+ * Updates in-memory state and dispatches in-app CustomEvent.
  */
-function cacheLocally(config: SubscriptionSettingsConfig): void {
+function cacheInMemory(config: SubscriptionSettingsConfig): void {
   inMemoryConfig = config;
   try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(config));
+    if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent(CUSTOM_EVENT_KEY, { detail: config }));
     }
-  } catch (err) {
-    console.warn('[SubscriptionSettings] Failed to update local storage:', err);
+  } catch {
+    // ignore
+  }
+}
+
+function consumeLegacySubscriptionSettingsFromLocalStorage(): Partial<SubscriptionSettingsConfig> | null {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) return null;
+    window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+    return JSON.parse(raw) as Partial<SubscriptionSettingsConfig>;
+  } catch {
+    return null;
   }
 }
 
 /**
  * Fetches the master Subscription Settings from Cloud Firestore (`adminSettings/subscriptionConfig`).
- * If not yet created in Firestore, seeds the document with default values.
+ * Migrates any legacy localStorage config once if Firestore does not yet have it, then clears browser cache.
  */
 export async function getSubscriptionSettingsConfig(): Promise<SubscriptionSettingsConfig> {
   try {
@@ -66,32 +64,33 @@ export async function getSubscriptionSettingsConfig(): Promise<SubscriptionSetti
     const snap = await getDoc(docRef);
 
     if (snap.exists()) {
+      consumeLegacySubscriptionSettingsFromLocalStorage();
       const remote = snap.data() as Partial<SubscriptionSettingsConfig>;
       const merged: SubscriptionSettingsConfig = {
         ...DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG,
         ...remote
       };
-      cacheLocally(merged);
+      cacheInMemory(merged);
       return merged;
     } else {
-      // Initialize with default configuration in Firestore
+      const legacy = consumeLegacySubscriptionSettingsFromLocalStorage();
       const initial: SubscriptionSettingsConfig = {
         ...DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG,
+        ...(legacy || {}),
         updatedAt: new Date().toISOString()
       };
       await setDoc(docRef, initial, { merge: true });
-      cacheLocally(initial);
+      cacheInMemory(initial);
       return initial;
     }
   } catch (err) {
-    console.warn('[SubscriptionSettings] Failed to fetch remote config from Firestore, using cache:', err);
+    console.warn('[SubscriptionSettings] Failed to fetch remote config from Firestore, using in-memory defaults:', err);
     return getCachedSubscriptionSettings();
   }
 }
 
 /**
- * Saves customized subscription settings directly to Cloud Firestore under `adminSettings/subscriptionConfig`
- * and updates local memory/storage.
+ * Saves customized subscription settings directly to Cloud Firestore under `adminSettings/subscriptionConfig`.
  */
 export async function saveSubscriptionSettingsConfig(
   updates: Partial<SubscriptionSettingsConfig>,
@@ -105,8 +104,7 @@ export async function saveSubscriptionSettingsConfig(
     updatedBy
   };
 
-  // Immediate local update
-  cacheLocally(updated);
+  cacheInMemory(updated);
 
   try {
     await ensureAnonymousAuth();
@@ -167,7 +165,7 @@ export function subscribeToSubscriptionSettings(
               ...DEFAULT_SUBSCRIPTION_SETTINGS_CONFIG,
               ...remote
             };
-            cacheLocally(merged);
+            cacheInMemory(merged);
             callback(merged);
           }
         },

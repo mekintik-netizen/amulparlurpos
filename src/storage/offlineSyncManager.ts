@@ -19,6 +19,9 @@ import {
   syncSupplierToCloud,
   syncBankEntryToCloud
 } from './firestoreSync.ts';
+import { setCloudSyncStatus } from './firebase.ts';
+
+const lastCloudSyncByShopMemory = new Map<string, string>();
 
 export interface SyncStats {
   salesSynced: number;
@@ -143,11 +146,8 @@ export async function syncPendingOfflineDataToCloud(shopId: string): Promise<Syn
     }
 
     const syncedAt = new Date().toISOString();
-    try {
-      localStorage.setItem(`amul_last_cloud_sync_${shopId}`, syncedAt);
-    } catch {
-      // ignore localStorage quota
-    }
+    lastCloudSyncByShopMemory.set(shopId, syncedAt);
+    setCloudSyncStatus('synced', syncedAt);
 
     return {
       salesSynced: salesCount,
@@ -182,11 +182,7 @@ export function useNetworkStatus(shopId?: string) {
   const [showReconnectedToast, setShowReconnectedToast] = useState<boolean>(false);
   const [syncStats, setSyncStats] = useState<SyncStats | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
-    try {
-      return shopId ? localStorage.getItem(`amul_last_cloud_sync_${shopId}`) : null;
-    } catch {
-      return null;
-    }
+    return shopId ? lastCloudSyncByShopMemory.get(shopId) ?? null : null;
   });
 
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -227,36 +223,34 @@ export function useNetworkStatus(shopId?: string) {
 
   useEffect(() => {
     const handleOnlineEvent = async () => {
+      const wasOffline = !previousOnlineStateRef.current;
       setIsOnline(true);
       setShowOfflineModal(false);
 
-      // Trigger automatic background synchronization of offline records
-      if (shopId) {
-        setIsSyncing(true);
+      // Trigger quiet automatic background synchronization of offline records when recovering from offline
+      if (shopId && wasOffline) {
         try {
           const stats = await syncPendingOfflineDataToCloud(shopId);
           setSyncStats(stats);
           setLastSyncTime(stats.syncedAt);
-        } catch (e) {
-          console.warn('[NetworkStatus] Auto-sync failed on reconnection:', e);
-        } finally {
-          setIsSyncing(false);
+        } catch {
+          // Silent fallback on transient network flap
         }
       }
 
-      // Show reassuring green banner
-      setShowReconnectedToast(true);
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      toastTimerRef.current = setTimeout(() => {
-        setShowReconnectedToast(false);
-      }, 5000);
+      if (wasOffline) {
+        setShowReconnectedToast(true);
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        toastTimerRef.current = setTimeout(() => {
+          setShowReconnectedToast(false);
+        }, 4000);
+      }
 
       previousOnlineStateRef.current = true;
     };
 
     const handleOfflineEvent = () => {
       setIsOnline(false);
-      setShowOfflineModal(true);
       setShowReconnectedToast(false);
       previousOnlineStateRef.current = false;
     };
@@ -267,7 +261,7 @@ export function useNetworkStatus(shopId?: string) {
     // Initial check
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
       setIsOnline(false);
-      setShowOfflineModal(true);
+      previousOnlineStateRef.current = false;
     }
 
     return () => {

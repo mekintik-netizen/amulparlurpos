@@ -335,12 +335,12 @@ export async function saveAdminCredentialsToSecurity(params: {
   };
 
   inMemoryMonthlyReminderMonth = monthTag;
-  if (typeof window !== 'undefined' && window.localStorage) {
-    try {
-      window.localStorage.setItem(MONTHLY_REMINDER_LOCAL_KEY, monthTag);
-    } catch {
-      // ignore
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(MONTHLY_REMINDER_LOCAL_KEY);
     }
+  } catch {
+    // ignore
   }
 
   try {
@@ -353,10 +353,16 @@ export async function saveAdminCredentialsToSecurity(params: {
   return nextConfig;
 }
 
+let cachedAdminSecurityConfig: AdminSecurityConfig = { ...DEFAULT_ADMIN_SECURITY_CONFIG };
+
 /**
  * Reads `adminSettings/security` from Cloud Firestore.
+ * Fails silently with cached/default settings during temporary network drops.
  */
 export async function getAdminSecurityConfig(): Promise<AdminSecurityConfig> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return { ...cachedAdminSecurityConfig };
+  }
   try {
     await authReady;
     const snap = await getDoc(doc(db, 'adminSettings', 'security'));
@@ -366,7 +372,7 @@ export async function getAdminSecurityConfig(): Promise<AdminSecurityConfig> {
         data.adminEmail && isValidEmailAddress(data.adminEmail)
           ? data.adminEmail.trim().toLowerCase()
           : DEFAULT_ADMIN_SECURITY_EMAIL;
-      return {
+      cachedAdminSecurityConfig = {
         ...DEFAULT_ADMIN_SECURITY_CONFIG,
         ...data,
         adminEmail,
@@ -374,13 +380,14 @@ export async function getAdminSecurityConfig(): Promise<AdminSecurityConfig> {
         maxAttempts: MAX_OTP_WRONG_ATTEMPTS,
         requireGmailOtpOnLogin: data.requireGmailOtpOnLogin !== false
       };
+      return { ...cachedAdminSecurityConfig };
     }
-  } catch (err) {
-    if (!isFirebasePermissionError(err)) {
-      console.warn('[AdminSecurity] Could not load remote security config, using defaults');
-    }
+    cachedAdminSecurityConfig = { ...DEFAULT_ADMIN_SECURITY_CONFIG };
+    return { ...DEFAULT_ADMIN_SECURITY_CONFIG };
+  } catch {
+    // Silent fallback to cached/default config when offline or network drops
+    return { ...cachedAdminSecurityConfig };
   }
-  return { ...DEFAULT_ADMIN_SECURITY_CONFIG };
 }
 
 /**
@@ -450,24 +457,26 @@ export function subscribeToAdminSecurityConfig(
       firestoreUnsub = onSnapshot(
         doc(db, 'adminSettings', 'security'),
         (snap) => {
+          if (snap.metadata?.fromCache && !snap.exists()) {
+            return;
+          }
           if (!snap.exists()) {
-            callback({ ...DEFAULT_ADMIN_SECURITY_CONFIG });
+            callback({ ...cachedAdminSecurityConfig });
             return;
           }
           const data = snap.data() as Partial<AdminSecurityConfig>;
-          callback({
+          cachedAdminSecurityConfig = {
             ...DEFAULT_ADMIN_SECURITY_CONFIG,
             ...data,
             adminEmail:
               data.adminEmail && isValidEmailAddress(data.adminEmail)
                 ? data.adminEmail.trim().toLowerCase()
                 : DEFAULT_ADMIN_SECURITY_EMAIL
-          });
+          };
+          callback({ ...cachedAdminSecurityConfig });
         },
-        (err) => {
-          if (!isFirebasePermissionError(err)) {
-            console.warn('[AdminSecurity] Listener notice:', err.message);
-          }
+        () => {
+          // Silent fallback during transient network drops
         }
       );
     } catch {
@@ -494,18 +503,32 @@ function getEnvEmailJsConfig(): Partial<AdminEmailJsConfig> {
   }
 }
 
+let cachedAdminEmailConfig: AdminEmailJsConfig | null = null;
+
 /**
  * Reads EmailJS configuration from Cloud Firestore (`adminSettings/emailConfig`),
- * falling back to `VITE_EMAILJS_*` environment variables and pre-configured defaults.
+ * falling back silently to cached/default settings during temporary network drops.
  */
 export async function getAdminEmailConfig(): Promise<AdminEmailJsConfig> {
   const envFallback = getEnvEmailJsConfig();
+  const buildDefault = (): AdminEmailJsConfig => ({
+    ...DEFAULT_ADMIN_EMAILJS_CONFIG,
+    serviceId: envFallback.serviceId || DEFAULT_ADMIN_EMAILJS_CONFIG.serviceId,
+    templateId: envFallback.templateId || DEFAULT_ADMIN_EMAILJS_CONFIG.templateId,
+    publicKey: envFallback.publicKey || DEFAULT_ADMIN_EMAILJS_CONFIG.publicKey,
+    adminEmail: DEFAULT_ADMIN_SECURITY_EMAIL
+  });
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return cachedAdminEmailConfig ? { ...cachedAdminEmailConfig } : buildDefault();
+  }
+
   try {
     await authReady;
     const snap = await getDoc(doc(db, 'adminSettings', 'emailConfig'));
     if (snap.exists()) {
       const data = snap.data() as Partial<AdminEmailJsConfig>;
-      return {
+      cachedAdminEmailConfig = {
         serviceId: (data.serviceId || envFallback.serviceId || DEFAULT_ADMIN_EMAILJS_CONFIG.serviceId).trim(),
         templateId: (data.templateId || envFallback.templateId || DEFAULT_ADMIN_EMAILJS_CONFIG.templateId).trim(),
         publicKey: (data.publicKey || envFallback.publicKey || DEFAULT_ADMIN_EMAILJS_CONFIG.publicKey).trim(),
@@ -517,20 +540,15 @@ export async function getAdminEmailConfig(): Promise<AdminEmailJsConfig> {
         updatedAt: data.updatedAt,
         updatedBy: data.updatedBy
       };
+      return { ...cachedAdminEmailConfig };
     }
-  } catch (err) {
-    if (!isFirebasePermissionError(err)) {
-      console.warn('[AdminEmailConfig] Could not load remote emailConfig');
-    }
+    const defaults = buildDefault();
+    cachedAdminEmailConfig = defaults;
+    return { ...defaults };
+  } catch {
+    // Silent fallback with cached/default settings on temporary network drop (ERR_NETWORK_CHANGED / ERR_NAME_NOT_RESOLVED)
+    return cachedAdminEmailConfig ? { ...cachedAdminEmailConfig } : buildDefault();
   }
-
-  return {
-    ...DEFAULT_ADMIN_EMAILJS_CONFIG,
-    serviceId: envFallback.serviceId || DEFAULT_ADMIN_EMAILJS_CONFIG.serviceId,
-    templateId: envFallback.templateId || DEFAULT_ADMIN_EMAILJS_CONFIG.templateId,
-    publicKey: envFallback.publicKey || DEFAULT_ADMIN_EMAILJS_CONFIG.publicKey,
-    adminEmail: DEFAULT_ADMIN_SECURITY_EMAIL
-  };
 }
 
 export async function saveAdminEmailConfig(
@@ -582,19 +600,23 @@ export function subscribeToAdminEmailConfig(
       firestoreUnsub = onSnapshot(
         doc(db, 'adminSettings', 'emailConfig'),
         (snap) => {
+          if (snap.metadata?.fromCache && !snap.exists()) {
+            return;
+          }
           const envFallback = getEnvEmailJsConfig();
           if (!snap.exists()) {
-            callback({
+            const fallbackCfg: AdminEmailJsConfig = cachedAdminEmailConfig || {
               ...DEFAULT_ADMIN_EMAILJS_CONFIG,
               serviceId: envFallback.serviceId || DEFAULT_ADMIN_EMAILJS_CONFIG.serviceId,
               templateId: envFallback.templateId || DEFAULT_ADMIN_EMAILJS_CONFIG.templateId,
               publicKey: envFallback.publicKey || DEFAULT_ADMIN_EMAILJS_CONFIG.publicKey,
               adminEmail: DEFAULT_ADMIN_SECURITY_EMAIL
-            });
+            };
+            callback({ ...fallbackCfg });
             return;
           }
           const data = snap.data() as Partial<AdminEmailJsConfig>;
-          callback({
+          cachedAdminEmailConfig = {
             serviceId: (data.serviceId || envFallback.serviceId || DEFAULT_ADMIN_EMAILJS_CONFIG.serviceId).trim(),
             templateId: (data.templateId || envFallback.templateId || DEFAULT_ADMIN_EMAILJS_CONFIG.templateId).trim(),
             publicKey: (data.publicKey || envFallback.publicKey || DEFAULT_ADMIN_EMAILJS_CONFIG.publicKey).trim(),
@@ -605,12 +627,11 @@ export function subscribeToAdminEmailConfig(
             senderName: (data.senderName || DEFAULT_ADMIN_EMAILJS_CONFIG.senderName || '').trim(),
             updatedAt: data.updatedAt,
             updatedBy: data.updatedBy
-          });
+          };
+          callback({ ...cachedAdminEmailConfig });
         },
-        (err) => {
-          if (!isFirebasePermissionError(err)) {
-            console.warn('[AdminEmailConfig] Listener notice:', err.message);
-          }
+        () => {
+          // Silent fallback during transient network drops
         }
       );
     } catch {
@@ -1276,32 +1297,18 @@ export function getActiveOtpChallengeMeta(): Omit<AdminOtpChallengeRecord, 'otpH
 }
 
 function readLocalLockoutState(): AdminLockoutState {
-  if (typeof window === 'undefined' || !window.localStorage) {
-    return { ...adminLockoutState };
-  }
-  try {
-    const raw = window.localStorage.getItem(ADMIN_LOCKOUT_STORAGE_KEY);
-    if (!raw) return { ...adminLockoutState };
-    const parsed = JSON.parse(raw) as Partial<AdminLockoutState>;
-    return {
-      failedAttempts: Number(parsed.failedAttempts || 0),
-      lockedUntil: Number(parsed.lockedUntil || 0),
-      lastFailedAttemptAt: Number(parsed.lastFailedAttemptAt || 0),
-      lastSecurityAlertAt: Number(parsed.lastSecurityAlertAt || 0)
-    };
-  } catch {
-    return { ...adminLockoutState };
-  }
+  // Single source of truth: Cloud Firestore `adminSettings/security` + module-level memory (no localStorage business state)
+  return { ...adminLockoutState };
 }
 
 async function persistAdminLockoutState(nextState: AdminLockoutState): Promise<void> {
   adminLockoutState = { ...nextState };
-  if (typeof window !== 'undefined' && window.localStorage) {
-    try {
-      window.localStorage.setItem(ADMIN_LOCKOUT_STORAGE_KEY, JSON.stringify(nextState));
-    } catch {
-      // ignore storage quota errors
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(ADMIN_LOCKOUT_STORAGE_KEY);
     }
+  } catch {
+    // ignore
   }
   try {
     const authed = await ensureAnonymousAuth();
@@ -1635,12 +1642,12 @@ export async function checkAndSendMonthlyAdminResetReminder(params?: {
       );
 
       inMemoryMonthlyReminderMonth = currentMonth;
-      if (typeof window !== 'undefined' && window.localStorage) {
-        try {
-          window.localStorage.setItem(MONTHLY_REMINDER_LOCAL_KEY, currentMonth);
-        } catch {
-          // ignore
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.removeItem(MONTHLY_REMINDER_LOCAL_KEY);
         }
+      } catch {
+        // ignore
       }
 
       return { checked: true, sent: true, currentMonth, targetEmail };
@@ -1674,6 +1681,8 @@ export function resetAdminOtpTestState(): void {
   };
   inMemoryMonthlyReminderMonth = '';
   inFlightMonthlyReminderPromise = null;
+  cachedAdminSecurityConfig = { ...DEFAULT_ADMIN_SECURITY_CONFIG };
+  cachedAdminEmailConfig = null;
   if (typeof window !== 'undefined' && window.localStorage) {
     try {
       window.localStorage.removeItem(ADMIN_LOCKOUT_STORAGE_KEY);

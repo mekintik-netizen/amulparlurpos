@@ -74,10 +74,13 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [financialSummary, setFinancialSummary] = useState<DailyFinancialSummary | null>(null);
 
-  const loadReportData = async () => {
+  const hasLoadedOnceRef = React.useRef(false);
+
+  const loadReportData = async (opts?: { silent?: boolean }) => {
     if (!currentShop) return;
+    const shouldShowSpinner = !opts?.silent && !hasLoadedOnceRef.current;
     try {
-      setLoading(true);
+      if (shouldShowSpinner) setLoading(true);
       const [salesData, stockData, purData, expData, finData] = await Promise.all([
         AppRepository.sales.getByShop(currentShop.id, selectedDate),
         AppRepository.reports.getDailyStock(currentShop.id, selectedDate),
@@ -91,15 +94,24 @@ export const ReportsHub: React.FC<ReportsHubProps> = ({ currentShop }) => {
       setPurchases(purData);
       setExpenses(expData);
       setFinancialSummary(finData);
+      hasLoadedOnceRef.current = true;
     } catch (err) {
       console.error('Failed to load reports hub data:', err);
     } finally {
-      setLoading(false);
+      if (shouldShowSpinner) setLoading(false);
     }
   };
 
   useEffect(() => {
+    hasLoadedOnceRef.current = false;
     loadReportData();
+    const handleCloudSynced = () => {
+      loadReportData({ silent: true });
+    };
+    window.addEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    return () => {
+      window.removeEventListener('parlourpro-cloud-synced', handleCloudSynced);
+    };
   }, [currentShop?.id, selectedDate]);
 
   const getDynamicReportFilename = (): string => {
